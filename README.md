@@ -1,5 +1,5 @@
-# htmltads
-Unlike [tads-runner][https://github.com/captain-mayhem/tads-runner], which is licensed under GPL2, this repository comes with a very restrictive license.
+# Html-TADS
+Unlike [tads-runner](https://github.com/captain-mayhem/tads-runner), which is licensed under GPL-2.0, this repository comes with a very restrictive license.
 
 From the license file of html-tads:
 "This source code is distributed for the specific purpose of
@@ -12,4 +12,4 @@ for you to distribute your ported version - I encourage it, in fact."
 
 Since my goal is only to recompile htmltads as a 64-bit executable running on a Windows 11 PC 
 with a modern compiler and a CMake buildsystem without changing the feature set of htmltads,
-this project falls under the porting TADS exception.
+this project is supposed to fall under the porting TADS exception.
