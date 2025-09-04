@@ -1,0 +1,961 @@
+/* $Header: d:/cvsroot/tads/html/win32/htmlcmn.rc,v 1.1 1999/07/11 00:46:46 MJRoberts Exp $ */
+
+/* Copyright (c) 1997, 1999 by Michael J. Roberts.  All Rights Reserved. */
+
+/* Chinese Translation by Ruochen Zhang, 2008 */
+
+/*
+Name
+  htmltads.rc - HTML TADS common resources
+Function
+  Defines resources common to the HTML TADS Interpreter and Debugger
+Notes
+  
+Modified
+  10/26/97 MJRoberts  - Creation
+*/
+
+
+/*
+ *   include resource ID definitions
+ */
+#include <Windows.h>
+#include "htmlres.h"
+
+/*
+ * Ruochen Zhang:
+ *  This file defines Simplified Chinese resources
+ */
+LANGUAGE LANG_CHINESE, SUBLANG_CHINESE_SIMPLIFIED
+#pragma code_page(936)
+
+/* 
+ *   include the TADS external strings
+ */
+#include "html_tads_strs_chs.rc"
+
+
+/*  
+ * Ruochen Zhang:
+ *  The icons remains the same as in the English version.
+ *  So I removed them.
+ *  Is it OK?
+ */   
+
+
+/* ------------------------------------------------------------------------ */
+/*
+ *  menus
+ */
+
+IDR_EDIT_POPUP_MENU MENU DISCARDABLE 
+BEGIN
+    POPUP "编辑"
+    BEGIN
+        MENUITEM "撤销输入",                    ID_EDIT_UNDO
+        MENUITEM SEPARATOR
+        MENUITEM "剪切",                        ID_EDIT_CUT
+        MENUITEM "复制",                        ID_EDIT_COPY
+        MENUITEM "粘贴",                        ID_EDIT_PASTE
+        MENUITEM "删除",                        ID_EDIT_DELETE
+        MENUITEM SEPARATOR
+        MENUITEM "全选",                        ID_EDIT_SELECTALL
+        MENUITEM "选择命令行",                  ID_EDIT_SELECTLINE
+        MENUITEM SEPARATOR
+        MENUITEM "查找文本..."                  ID_EDIT_FIND
+        MENUITEM "查找下一个"                   ID_EDIT_FINDNEXT
+    END
+END
+
+IDR_MAINWIN_POPUP MENUEX DISCARDABLE
+BEGIN
+    POPUP "状态栏"
+    BEGIN
+        MENUITEM "计时器暂停",                  ID_TIMER_PAUSE
+        MENUITEM "计时器清零",                  ID_TIMER_RESET
+        MENUITEM "",,MFT_SEPARATOR
+        MENUITEM "显示计时器",                  ID_VIEW_TIMER,, MFS_CHECKED
+        POPUP "计时器格式"
+        BEGIN
+            MENUITEM "时:分:秒",                ID_VIEW_TIMER_HHMMSS,
+                                                MFT_RADIOCHECK, MFS_CHECKED
+            MENUITEM "时:分",                   ID_VIEW_TIMER_HHMM,
+                                                MFT_RADIOCHECK
+        END
+    END
+END
+   
+
+IDR_MAIN_MENU MENUEX DISCARDABLE 
+BEGIN
+    POPUP "文件(&F)"
+    BEGIN
+        MENUITEM "打开新游戏(&O)...\tCtrl+O",   ID_FILE_LOADGAME
+//      MENUITEM "查看游戏过程记录(&T)...",     ID_FILE_VIEW_SCRIPT
+        MENUITEM "",,MFT_SEPARATOR
+        MENUITEM "保存进度(&S)...\tCtrl+S",     ID_FILE_SAVEGAME
+        MENUITEM "读取进度(&R)...\tCtrl+R",     ID_FILE_RESTOREGAME
+        MENUITEM "离开游戏(&Q)\tCtrl+Q",        ID_FILE_QUIT
+        MENUITEM "",,MFT_SEPARATOR
+        MENUITEM "没有最近的游戏记录",          ID_FILE_RECENT_NONE
+        MENUITEM "",,MFT_SEPARATOR
+        MENUITEM "退出(&X)",                    ID_FILE_EXIT
+   
+    END
+    POPUP "编辑(&E)"
+    BEGIN
+        MENUITEM "撤销输入(&U)\tCtrl+Z",        ID_EDIT_UNDO
+        MENUITEM "",,MFT_SEPARATOR
+        MENUITEM "剪切(&T)\tCtrl+X",            ID_EDIT_CUT
+        MENUITEM "复制(&C)\tCtrl+C",            ID_EDIT_COPY
+        MENUITEM "粘贴(&P)\tCtrl+V",            ID_EDIT_PASTE
+        MENUITEM "删除(&D)",                    ID_EDIT_DELETE
+        MENUITEM "",,MFT_SEPARATOR
+        MENUITEM "选择命令行(&M)",              ID_EDIT_SELECTLINE
+        MENUITEM "全选(&A)\tCtrl+A",            ID_EDIT_SELECTALL
+        MENUITEM "",,MFT_SEPARATOR
+        MENUITEM "在当前页上查找文本(&F)...\tCtrl+F", ID_EDIT_FIND
+        MENUITEM "查找下一个(&N)\tF3",          ID_EDIT_FINDNEXT
+        MENUITEM "",,MFT_SEPARATOR
+        MENUITEM "选项(&O)",                    ID_VIEW_OPTIONS
+    END
+    POPUP "查看(&V)"
+    BEGIN
+        MENUITEM "显示工具栏(&B)",              ID_VIEW_TOOLBAR,, MFS_CHECKED
+        POPUP    "计时器(&R)"
+        BEGIN
+            MENUITEM "计时器暂停(&P)",          ID_TIMER_PAUSE
+            MENUITEM "计时器清零(&R)",          ID_TIMER_RESET
+            MENUITEM "",,MFT_SEPARATOR
+            MENUITEM "显示计时器(&S)",          ID_VIEW_TIMER,, MFS_CHECKED
+            POPUP "计时器格式(&F)"
+            BEGIN
+                MENUITEM "时:分:秒(&S)",ID_VIEW_TIMER_HHMMSS,
+                                                MFT_RADIOCHECK
+                MENUITEM "时:分(&M)",      ID_VIEW_TIMER_HHMM,
+                                                MFT_RADIOCHECK
+            END
+        END
+        MENUITEM "",,MFT_SEPARATOR
+        POPUP "文字大小(&T)"
+        BEGIN
+            MENUITEM "最小(&A)",                ID_VIEW_FONTS_SMALLEST,
+                                                MFT_RADIOCHECK
+            MENUITEM "较小(&S)",                ID_VIEW_FONTS_SMALLER,
+                                                MFT_RADIOCHECK
+            MENUITEM "普通(&M)",                ID_VIEW_FONTS_MEDIUM,
+                                                MFT_RADIOCHECK
+            MENUITEM "较大(&L)",                ID_VIEW_FONTS_LARGER,
+                                                MFT_RADIOCHECK
+            MENUITEM "最大(&R)",                ID_VIEW_FONTS_LARGEST,
+                                                MFT_RADIOCHECK
+        END
+        MENUITEM "静音(&M)",                    ID_MUTE_SOUND
+    END
+    POPUP "主题(&T)"
+    BEGIN
+        /* 
+         *  note that we build the entire Themes menu dynamically; we just
+         *  need a placeholder that looks like a profile ID to key off of
+         */
+        MENUITEM "占位符",                      ID_PROFILE_FIRST
+    END
+    POPUP "跳转(&G)"
+    BEGIN
+        MENUITEM "上一页(&P)\tAlt+<",           ID_GO_PREVIOUS
+        MENUITEM "下一页(&N)\tAlt+>",           ID_GO_NEXT
+#ifdef HTMLTADS_GAME_CHEST
+        MENUITEM "",,MFT_SEPARATOR
+        MENUITEM "游戏宝盒(&C)",                ID_GO_TO_GAME_CHEST
+#endif
+    END
+    POPUP "帮助(&H)"
+    BEGIN
+        MENUITEM "HTML TADS帮助(&H)",           ID_HELP_CONTENTS
+        MENUITEM "",,MFT_SEPARATOR
+        MENUITEM "关于HTML TADS(&A)...",        ID_HELP_ABOUT
+        MENUITEM "关于本游戏(&G)...",           ID_HELP_ABOUT_GAME
+    END
+END
+
+/*
+ *   menu for the debug log window 
+ */
+IDR_DEBUGWIN_MENU MENU DISCARDABLE 
+BEGIN
+    POPUP "文件(&F)"
+    BEGIN
+        MENUITEM "隐藏窗口(&H)",                ID_FILE_HIDE
+    END
+    POPUP "编辑(&E)"
+    BEGIN
+        MENUITEM "复制(&C)\tCtrl+C",            ID_EDIT_COPY
+        MENUITEM SEPARATOR
+        MENUITEM "全选(&A)\tCtrl+A",            ID_EDIT_SELECTALL
+    END
+END
+
+
+/* ------------------------------------------------------------------------ */
+/*
+ *   Preferences property sheet pages
+ */
+
+/*
+ *   Appearance preferences property page
+ */
+DLG_APPEARANCE DIALOG DISCARDABLE  0, 0, 275, 156
+STYLE WS_CHILD | WS_DISABLED | WS_CAPTION
+CAPTION "属性页"
+FONT 8, "MS Shell Dlg"
+BEGIN
+    LTEXT           "一个“主题”包含了一组字体、颜色以及其他视觉效果的设定。每个游戏都记录了自己对应的主题，因此您可以在不同的游戏中使用不同的主题。",
+                    IDC_STATIC,7,7,262,16
+
+    LTEXT           "主题(&T)：",IDC_STATIC,7,27,25,8
+    COMBOBOX        IDC_POP_THEME,7,37,150,75,
+                    CBS_DROPDOWNLIST | CBS_SORT | WS_VSCROLL | WS_TABSTOP
+    PUSHBUTTON      "新建(&N)...",IDC_BTN_NEW,164,36,50,14
+    PUSHBUTTON      "删除(&L)",IDC_BTN_DELETE,219,36,50,14
+
+    LTEXT           "描述(&D)：", IDC_STATIC,7,56,60,8
+    EDITTEXT        IDC_FLD_DESC,7,66,262,14,ES_AUTOVSCROLL | ES_AUTOHSCROLL
+
+    PUSHBUTTON      "自定义主题(&C)...",IDC_BTN_CUSTOMIZE,7,90,80,14
+    LTEXT           "通过本选项，您可以自定义所选主题的字体、颜色以及其他视觉效果。",
+                    IDC_STATIC,95,88,174,24
+
+    PUSHBUTTON      "恢复默认设置(&R)",IDC_BTN_DEFAULT,7,122,80,14
+    LTEXT           "如果选中了一个标准的预设主题，那么您可以将其恢复到默认设置。如果您不希望保留对主题所做的修改，请选择此项。",
+                    IDC_STATIC,95,120,174,24
+END
+
+
+/*
+ *   Keyboard preferences property page dialog
+ */
+DLG_KEYS DIALOG DISCARDABLE  0, 0, 275, 156
+STYLE WS_CHILD | WS_DISABLED | WS_CAPTION
+CAPTION "属性页"
+FONT 8, "MS Shell Dlg"
+BEGIN
+    GROUPBOX        "Ctrl+V",IDC_STATIC,46,14,150,36
+    CONTROL         "向下翻页(&D) (粘贴为Ctrl+Y)",IDC_RB_CTLV_EMACS,"Button",
+                    BS_AUTORADIOBUTTON | WS_GROUP,61,24,130,9
+    CONTROL         "粘贴(&P)",IDC_RB_CTLV_PASTE,"Button",BS_AUTORADIOBUTTON,
+                    61,35,130,9
+    GROUPBOX        "Alt+V",IDC_STATIC,45,56,150,36
+    CONTROL         "向上翻页(&U)",IDC_RB_ALTV_EMACS,"Button",BS_AUTORADIOBUTTON | 
+                    WS_GROUP,61,66,130,9
+    CONTROL         "标准的Windows菜单快捷键(&W)",IDC_RB_ALTV_WIN,"Button",
+                    BS_AUTORADIOBUTTON,61,77,130,9
+    GROUPBOX        "上/下方向键",IDC_STATIC,45,98,150,36
+    CONTROL         "滚动窗口内容(&S)",IDC_RB_ARROW_SCROLL,"Button",
+                    BS_AUTORADIOBUTTON | WS_GROUP,60,108,94,9
+    CONTROL         "查看命令历史记录(&C)",IDC_RB_ARROW_HIST,"Button",
+                    BS_AUTORADIOBUTTON,60,119,93,9
+END
+
+/*
+ *   File Safety property page
+ */
+DLG_FILE_SAFETY DIALOG DISCARDABLE  0, 0, 275, 156
+STYLE WS_CHILD | WS_DISABLED | WS_CAPTION
+CAPTION "属性页"
+FONT 8, "MS Shell Dlg"
+BEGIN
+    CONTROL         "&4 - 最安全：不允许文件访问",
+                    IDC_RB_SAFETY4,"Button",BS_AUTORADIOBUTTON,38,26,198,9
+    CONTROL         "&3 - 只允许对当前目录的只读访问",
+                    IDC_RB_SAFETY3,"Button",BS_AUTORADIOBUTTON,38,39,198,9
+    CONTROL         "&2 - 只允许对当前目录的读写访问",
+                    IDC_RB_SAFETY2,"Button",BS_AUTORADIOBUTTON,38,52,198,9
+    CONTROL         "&1 - 只允许对当前目录的读写，以及对其他目录的只读访问",
+                    IDC_RB_SAFETY1,"Button",BS_AUTORADIOBUTTON,38,65,198,9
+    CONTROL         "&0 - 最不安全：允许对任何目录的读写访问",
+                    IDC_RB_SAFETY0,
+                    "Button",BS_AUTORADIOBUTTON,38,78,198,9
+    LTEXT           "注：文件安全等级设置只对游戏代码中明确的文件操作有影响，而对游戏本身的进度存取以及游戏过程日志记录没有影响。",
+                    IDC_STATIC,27,100,214,30
+    GROUPBOX        "文件安全等级设置(&S)：",IDC_STATIC,27,16,214,76
+END
+
+/*
+ *   Memory Settings property page
+ */
+DLG_MEM DIALOG DISCARDABLE  0, 0, 275, 156
+STYLE WS_CHILD | WS_DISABLED | WS_CAPTION
+CAPTION "属性页"
+FONT 8, "MS Shell Dlg"
+BEGIN
+    LTEXT           "使用本设置来限制系统保留在内存中的文本历史记录的大小。如果在游戏过程中内存不足，请将本设置修改得小一些。",
+                    IDC_STATIC,33,17,203,29
+    RTEXT           "文本历史记录大小(&T)",IDC_STATIC,35,53,69,10
+    COMBOBOX        IDC_POP_MEM,113,51,102,65,
+                    CBS_DROPDOWNLIST | WS_VSCROLL | WS_TABSTOP
+END
+
+/*
+ *   Starting Settings property page
+ */
+DLG_STARTING DIALOG DISCARDABLE  0, 0, 275, 156
+STYLE WS_CHILD | WS_DISABLED | WS_CAPTION
+CAPTION "属性页"
+FONT 8, "MS Shell Dlg"
+BEGIN
+    CONTROL         "HTML TADS启动时自动打开“游戏选择”对话框(&A)",
+                    IDC_CK_ASKGAME,"Button",BS_AUTOCHECKBOX | WS_TABSTOP,
+                    27,50,203,10
+    LTEXT           "默认游戏文件夹(&F)：",IDC_STATIC,27,77,185,8
+    EDITTEXT        IDC_FLD_INITFOLDER,27,87,171,14,ES_AUTOHSCROLL
+    PUSHBUTTON      "浏览(&B)...",IDC_BTN_BROWSE,201,87,50,14
+END
+
+/*
+ *   Quitting Settings property page
+ */
+DLG_QUITTING DIALOG DISCARDABLE  0, 0, 275, 156
+STYLE WS_CHILD | WS_DISABLED | WS_CAPTION
+CAPTION "属性页"
+FONT 8, "MS Shell Dlg"
+BEGIN
+    GROUPBOX        "关闭HTML TADS窗口时的动作：",IDC_STATIC,39,15,192,63
+    CONTROL         "向游戏发出“退出”（QUIT）命令(&Q)",
+                    IDC_RB_CLOSE_QUITCMD,
+                    "Button",BS_AUTORADIOBUTTON | WS_GROUP,56,29,154,10
+    CONTROL         "关闭窗口并退出系统，提示玩家确认(&P)",
+                    IDC_RB_CLOSE_PROMPT,
+                    "Button",BS_AUTORADIOBUTTON,56,45,154,10
+    CONTROL         "关闭窗口并退出系统，不进行提示(&C)",
+                    IDC_RB_CLOSE_IMMEDIATE,
+                    "Button",BS_AUTORADIOBUTTON,56,59,154,10
+
+    GROUPBOX        "退出游戏后的动作",IDC_STATIC,39,93,192,48
+    CONTROL         "等待玩家按键，而后退出系统(&W)",
+                    IDC_RB_POSTQUIT_EXIT,
+                    "Button",BS_AUTORADIOBUTTON | WS_GROUP,56,107,154,10
+    CONTROL         "继续运行(&K)",
+                    IDC_RB_POSTQUIT_KEEP,
+                    "Button",BS_AUTORADIOBUTTON,56,122,154,10
+END
+
+#ifdef HTMLTADS_GAME_CHEST
+/*
+ *  "Game Chest" preferences dialog page
+ */
+DLG_GAMECHEST_PREFS DIALOG DISCARDABLE  0, 0, 275, 156
+STYLE WS_CHILD | WS_DISABLED | WS_CAPTION
+CAPTION "属性页"
+FONT 8, "MS Shell Dlg"
+BEGIN
+    LTEXT           "游戏宝盒数据库文件(&D)：该文件中存储着您的游戏列表。该文件默认在“我的文档”中的“TADS”文件夹下，但您可以选择另外一个位置。",
+                    IDC_STATIC,7,10,251,24
+    EDITTEXT        IDC_FLD_GC_FILE,7,39,251,14,ES_AUTOHSCROLL
+    PUSHBUTTON      "浏览(&B)...",IDC_BTN_BROWSE,7,58,50,14
+    PUSHBUTTON      "恢复默认设置(&R)",IDC_BTN_DEFAULT,62,58,60,14
+
+    LTEXT           "游戏宝盒背景图片(&P)：您可以选择一个图片文件（JPEG或者PNG）作为游戏宝盒的背景。如果您不希望有背景图片，请留空。",
+                    IDC_STATIC,7,80,251,24
+    EDITTEXT        IDC_FLD_GC_BKG,7,109,251,14,ES_AUTOHSCROLL
+    PUSHBUTTON      "浏览(&W)...",IDC_BTN_BROWSE2,7,128,50,14
+    PUSHBUTTON      "恢复默认设置(&E)",IDC_BTN_DEFAULT2,62,128,60,14
+END
+#endif /* HTMLTADS_GAME_CHEST */
+
+
+/* ------------------------------------------------------------------------ */
+/*
+ *   Visual preferences property sheet pages
+ */
+
+/*
+ *   Font preferences property page dialog
+ */
+DLG_FONT DIALOGEX 0, 0, 275, 156
+STYLE WS_CHILD | WS_DISABLED | WS_CAPTION
+CAPTION "属性页"
+FONT 8, "MS Shell Dlg"
+BEGIN
+    LTEXT           "游戏主字体(&M)",IDC_STATIC,3,7,74,10,0,
+                    WS_EX_RIGHT
+    COMBOBOX        IDC_MAINFONTPOPUP,89,5,110,95,CBS_DROPDOWNLIST | 
+                    CBS_SORT | WS_VSCROLL | WS_TABSTOP
+    COMBOBOX        IDC_POP_MAINFONTSIZE,207,5,40,95,
+                    CBS_DROPDOWNLIST | WS_VSCROLL | WS_TABSTOP
+
+    LTEXT           "等宽字体(&F)",IDC_STATIC,3,25,74,10,0,WS_EX_RIGHT
+    COMBOBOX        IDC_MONOFONTPOPUP,89,23,110,95,CBS_DROPDOWNLIST | 
+                    CBS_SORT | WS_VSCROLL | WS_TABSTOP
+    COMBOBOX        IDC_POP_MONOFONTSIZE,207,23,40,95,
+                    CBS_DROPDOWNLIST | WS_VSCROLL | WS_TABSTOP
+
+    LTEXT           "衬线字体(&S)",IDC_STATIC,3,43,74,10,0,
+                    WS_EX_RIGHT
+
+    COMBOBOX        IDC_FONTSERIF,89,41,110,95,CBS_DROPDOWNLIST | 
+                    CBS_SORT | WS_VSCROLL | WS_TABSTOP
+    COMBOBOX        IDC_POP_SERIFFONTSIZE,207,41,40,95,
+                    CBS_DROPDOWNLIST | WS_VSCROLL | WS_TABSTOP
+
+    LTEXT           "非衬线字体(&N)",IDC_STATIC,3,61,74,10,0,
+                    WS_EX_RIGHT
+    COMBOBOX        IDC_FONTSANS,89,59,110,95,CBS_DROPDOWNLIST | 
+                    CBS_SORT | WS_VSCROLL | WS_TABSTOP
+    COMBOBOX        IDC_POP_SANSFONTSIZE,207,59,40,95,
+                    CBS_DROPDOWNLIST | WS_VSCROLL | WS_TABSTOP
+
+    LTEXT           "手写体(&C)",IDC_STATIC,3,79,74,10,0,
+                    WS_EX_RIGHT
+    COMBOBOX        IDC_FONTSCRIPT,89,77,110,95,CBS_DROPDOWNLIST | 
+                    CBS_SORT | WS_VSCROLL | WS_TABSTOP
+    COMBOBOX        IDC_POP_SCRIPTFONTSIZE,207,77,40,95,
+                    CBS_DROPDOWNLIST | WS_VSCROLL | WS_TABSTOP
+
+    LTEXT           "打字机字体(&T)",IDC_STATIC,3,97,74,10,0,
+                    WS_EX_RIGHT
+    COMBOBOX        IDC_FONTTYPEWRITER,89,95,110,95,CBS_DROPDOWNLIST | 
+                    CBS_SORT | WS_VSCROLL | WS_TABSTOP
+    COMBOBOX        IDC_POP_TYPEWRITERFONTSIZE,207,95,40,95,
+                    CBS_DROPDOWNLIST | WS_VSCROLL | WS_TABSTOP
+
+    LTEXT           "命令字体(&C)",IDC_STATIC,3,119,74,10,0,
+                    WS_EX_RIGHT
+    COMBOBOX        IDC_POP_INPUTFONT,89,117,110,95,CBS_DROPDOWNLIST | 
+                    CBS_SORT | WS_VSCROLL | WS_TABSTOP
+    COMBOBOX        IDC_POP_INPUTFONTSIZE,207,117,40,95,
+                    CBS_DROPDOWNLIST | WS_VSCROLL | WS_TABSTOP
+
+    CONTROL         "Button",IDC_BTN_INPUTCOLOR,"Button",BS_OWNERDRAW | 
+                    WS_TABSTOP,89,134,28,16
+    CONTROL         "粗体(&B)",IDC_CK_INPUTBOLD,"Button",BS_AUTOCHECKBOX | 
+                    WS_TABSTOP,128,137,30,10
+    CONTROL         "斜体(&I)",IDC_CK_INPUTITALIC,"Button",BS_AUTOCHECKBOX | 
+                    WS_TABSTOP,164,137,31,10
+    GROUPBOX        "",IDC_STATIC,23,108,228,45
+END
+
+/*
+ *   Color preferences property page dialog
+ */
+DLG_COLORS DIALOGEX 0, 0, 275, 156
+STYLE WS_CHILD | WS_DISABLED | WS_CAPTION
+CAPTION "属性页"
+FONT 8, "MS Shell Dlg"
+BEGIN
+    GROUPBOX        "文本主体",IDC_STATIC,7,20,103,76
+    LTEXT           "文本(&T)：",IDC_STATIC,11,32,46,11,0,WS_EX_RIGHT
+    CONTROL         "Button",IDC_TXTCOLOR,"Button",BS_OWNERDRAW | WS_TABSTOP,
+                    63,31,28,16
+    LTEXT           "背景(&B)：",IDC_STATIC,11,51,46,11,0,WS_EX_RIGHT
+    CONTROL         "Button",IDC_BKCOLOR,"Button",BS_OWNERDRAW | WS_TABSTOP,
+                    63,49,28,16
+    CONTROL         "使用Windows的颜色设置(&W)",IDC_CK_USEWINCLR,"Button",
+                    BS_AUTOCHECKBOX | WS_TABSTOP,14,70,79,9
+    CONTROL         "覆盖游戏的颜色设置(&O)",IDC_CK_OVERRIDECLR,"Button",
+                    BS_AUTOCHECKBOX | WS_TABSTOP,14,83,88,9
+
+    GROUPBOX        "状态栏",IDC_STATIC,7,100,103,51
+    LTEXT           "文本(&X)：",IDC_STATIC,11,113,46,11,0,WS_EX_RIGHT
+    CONTROL         "Button",IDC_STXTCOLOR,"Button",BS_OWNERDRAW | 
+                    WS_TABSTOP,63,110,28,16
+    LTEXT           "背景(&G)：",IDC_STATIC,11,132,46,11,0,WS_EX_RIGHT
+    CONTROL         "Button",IDC_SBKCOLOR,"Button",BS_OWNERDRAW | WS_TABSTOP,
+                    63,129,28,16
+
+    GROUPBOX        "超级链接",IDC_STATIC,121,20,147,131
+    LTEXT           "显示链接(&S)：",IDC_STATIC,128,35,40,8
+    COMBOBOX        IDC_POP_SHOW_LINKS,169,33,94,65,
+                    CBS_DROPDOWNLIST | WS_VSCROLL | WS_TABSTOP
+    CONTROL         "对链接添加下划线(&U)",IDC_CK_UNDERLINE,"Button",
+                    BS_AUTOCHECKBOX | WS_TABSTOP,128,55,66,9
+    CONTROL         "鼠标悬停时高亮显示(&H)",IDC_CK_HOVER,"Button",
+                    BS_AUTOCHECKBOX | WS_TABSTOP,128,68,88,9
+    LTEXT           "未浏览的(&N)：",IDC_STATIC,124,93,46,11,0,WS_EX_RIGHT
+    CONTROL         "Button",IDC_LINKCOLOR,"Button",BS_OWNERDRAW | 
+                    WS_TABSTOP,177,91,28,16
+    LTEXT           "悬停状态(&V)：",IDC_STATIC,125,112,46,11,0,WS_EX_RIGHT
+    CONTROL         "Button",IDC_HLINKCOLOR,"Button",BS_OWNERDRAW | 
+                    WS_TABSTOP,177,110,28,16
+    LTEXT           "已浏览的(&K)：",IDC_STATIC,125,132,46,11,0,WS_EX_RIGHT
+    CONTROL         "Button",IDC_ALINKCOLOR,"Button",BS_OWNERDRAW | 
+                    WS_TABSTOP,177,129,28,16
+    LTEXT           "注：有些游戏会使用其自身的颜色样式来覆盖这些设置。",
+                    IDC_STATIC,7,7,260,8
+END
+
+
+/*
+ *   MORE style preferences property page dialog
+ */
+DLG_MORE DIALOGEX DISCARDABLE  0, 0, 275, 156
+STYLE WS_CHILD | WS_DISABLED | WS_CAPTION
+CAPTION "属性页"
+FONT 8, "MS Shell Dlg"
+BEGIN
+    CONTROL         "在游戏内容窗口中显示“更多（MORE）”提示，并中止文本滚动(&W)",
+                    IDC_RB_MORE_NORMAL,"Button",
+                    BS_AUTORADIOBUTTON | BS_MULTILINE,114,38,106,27
+    CONTROL         "在状态栏上显示“更多（MORE）”提示，并显示所有文本(&S)",
+                    IDC_RB_MORE_ALT,"Button",
+                    BS_AUTORADIOBUTTON | BS_MULTILINE,114,91,106,27
+    CONTROL         IDB_BMPMORE1,IDC_STATIC,"Static",SS_BITMAP,59,32,32,39
+    CONTROL         IDB_BMPMORE2,IDC_STATIC,"Static",SS_BITMAP,59,84,32,39
+END
+
+
+/*
+ *   Media preferences page 
+ */
+DLG_MEDIA DIALOG DISCARDABLE  0, 0, 275, 156
+STYLE WS_CHILD | WS_DISABLED | WS_CAPTION
+CAPTION "属性页"
+FONT 8, "MS Shell Dlg"
+BEGIN
+    CONTROL         "允许图像显示（如图片、图标等）(&G)",
+                    IDC_CK_GRAPHICS,"Button",
+                    BS_AUTOCHECKBOX | WS_TABSTOP,51,62,130,10
+    CONTROL         "允许声音效果(&S)",IDC_CK_SOUND_FX,"Button",
+                    BS_AUTOCHECKBOX | WS_TABSTOP,51,76,79,10
+    CONTROL         "允许背景音乐(&M)",IDC_CK_MUSIC,"Button",
+                    BS_AUTOCHECKBOX | WS_TABSTOP,51,90,94,10
+    LTEXT           "通过清除选择框，您可以关闭游戏中的图像、声效或者背景音乐。多媒体游戏仍然会正常工作，但将只能输出文本。",
+                    IDC_STATIC,12,24,253,32
+END
+
+
+/* ------------------------------------------------------------------------ */
+/*
+ *   License text dialog
+ */
+DLG_LICENSE DIALOG DISCARDABLE 0, 0, 400, 300
+STYLE DS_MODALFRAME | WS_POPUP | WS_CAPTION | DS_CENTER
+CAPTION "许可证信息"
+FONT 8, "MS Shell Dlg"
+BEGIN
+    EDITTEXT        IDC_FLD_LICENSE, 7,7,386,266, 
+                    WS_VSCROLL | ES_MULTILINE | ES_READONLY
+    DEFPUSHBUTTON   "确定", IDOK, 175,279,50,14
+END
+
+/* ------------------------------------------------------------------------ */
+/*
+ *   Create Theme dialog
+ */
+DLG_NEW_PROFILE DIALOG DISCARDABLE  0, 0, 244, 62
+STYLE DS_MODALFRAME | WS_POPUP | WS_CAPTION | DS_CENTER
+CAPTION "创建新主题"
+FONT 8, "MS Shell Dlg"
+BEGIN
+    LTEXT           "主题名称(&N)：",IDC_STATIC,7,16,50,8
+    EDITTEXT        IDC_FLD_PROFILE,60,14,177,14,ES_AUTOHSCROLL
+    DEFPUSHBUTTON   "确定",IDOK,69,41,50,14
+    PUSHBUTTON      "取消",IDCANCEL,123,41,50,14
+END
+
+/* ------------------------------------------------------------------------ */
+/*
+ *   DirectX error dialog - warns that DirectX is not installed properly
+ */
+DLG_DIRECTX_WARNING DIALOG DISCARDABLE  0, 0, 313, 138
+STYLE DS_MODALFRAME | WS_POPUP | WS_CAPTION | WS_SYSMENU
+CAPTION "DirectX警告"
+FONT 8, "MS Shell Dlg"
+BEGIN
+    LTEXT           "您系统中的DirectX版本似乎低于5.0，HTML TADS使用DirectX来播放数字音效。",
+                    IDC_STATIC_DXVSN,40,7,266,28,NOT WS_VISIBLE
+    LTEXT           "您仍然能够运行游戏，音效也能正常工作，但如果升级到DirectX 5.0以上，将能够提供更好的性能。",
+                    IDC_STATIC_DXVSN2,40,41,266,18,NOT WS_VISIBLE
+    LTEXT           "如果您希望进行升级，可以从Microsoft网站下载最新版本的DirectX：http://www.microsoft.com/directx/",
+                    IDC_STATIC_DXVSN3,40,65,266,30,NOT WS_VISIBLE
+    LTEXT           "HTML TADS需要DirectX以播放数字音效。本系统中似乎没有安装DirectX，或者DirectX未能正常工作。",
+                    IDC_STATIC_DXINST,40,7,266,28,NOT WS_VISIBLE
+    DEFPUSHBUTTON   "确定",IDOK,132,117,50,14
+    LTEXT           "您仍然能够运行游戏，但游戏中的任何音效都将不能播放，MIDI音乐回放不受影响。",
+                    IDC_STATIC_DXINST2,40,41,266,18,NOT WS_VISIBLE
+    LTEXT           "如果您希望播放音效，必须安装DirectX。您可以从Microsoft网站下载最新版本的DirectX：http://www.microsoft.com/directx/",
+                    IDC_STATIC_DXINST3,40,65,266,30,NOT WS_VISIBLE
+    CONTROL         "启动时不再显示本警告",
+                    IDC_CK_SUPPRESS,"Button",BS_AUTOCHECKBOX | WS_TABSTOP,72,
+                    99,169,10
+    ICON            IDI_NO_SOUND,IDC_STATIC,7,7,21,20
+END
+
+
+/* ------------------------------------------------------------------------ */
+/*
+ *   Folder selector dialog
+ */
+IDD_FOLDER_SELECTOR2 DIALOG DISCARDABLE  0, 0, 222, 174
+STYLE DS_MODALFRAME | WS_POPUP | WS_CAPTION | WS_SYSMENU
+CAPTION "选择文件夹"
+FONT 8, "MS Shell Dlg"
+BEGIN
+    LTEXT           "目标路径(&P)：",IDC_TXT_PROMPT,7,7,150,10
+    EDITTEXT        IDC_FLD_FOLDER_PATH,7,17,150,13,ES_AUTOHSCROLL
+    LTEXT           "文件夹(&F)：",IDC_STATIC,7,35,92,10
+    LISTBOX         IDC_LB_FOLDERS,7,45,150,91,LBS_SORT | LBS_OWNERDRAWFIXED | 
+                    WS_VSCROLL | WS_TABSTOP
+    LTEXT           "驱动器(&D)",IDC_STATIC,7,141,92,10
+    COMBOBOX        IDC_CBO_DRIVES,7,153,150,73,CBS_DROPDOWNLIST | 
+                    CBS_OWNERDRAWFIXED | WS_VSCROLL | WS_TABSTOP
+    DEFPUSHBUTTON   "确定",IDOK,165,7,50,14
+    PUSHBUTTON      "取消",IDCANCEL,165,24,50,14
+    PUSHBUTTON      "网络(&N)...",IDC_BTN_NETWORK,165,41,50,14
+END
+
+
+/* ------------------------------------------------------------------------ */
+/*
+ *   "Find" dialog
+ */
+DLG_FIND DIALOG DISCARDABLE  0, 0, 274, 94
+STYLE DS_MODALFRAME | WS_POPUP | WS_CAPTION | WS_SYSMENU
+CAPTION "查找"
+FONT 8, "MS Shell Dlg"
+BEGIN
+    LTEXT           "查找内容(&N)：",IDC_STATIC,7,7,40,8
+    COMBOBOX        IDC_CBO_FINDWHAT,7,20,202,72,CBS_DROPDOWN | WS_VSCROLL | 
+                    WS_TABSTOP
+
+    CONTROL         "匹配大小写(&C)",IDC_CK_MATCHCASE,"Button",BS_AUTOCHECKBOX | 
+                    WS_TABSTOP,7,42,85,10
+    CONTROL         "到达文件尾时自动回到开头(&W)",IDC_CK_WRAP,"Button",
+                    BS_AUTOCHECKBOX | WS_TABSTOP,7,55,103,10
+    CONTROL         "从文件顶部开始(&T)",IDC_CK_STARTATTOP,"Button",
+                    BS_AUTOCHECKBOX | WS_TABSTOP,7,69,99,10
+
+    GROUPBOX        "方向",IDC_STATIC,139,42,72,38
+    CONTROL         "向后(&B)",IDC_RB_UP,"Button",BS_AUTORADIOBUTTON | 
+                    WS_TABSTOP,144,52,45,10
+    CONTROL         "向前(&O)",IDC_RB_DOWN,"Button",BS_AUTORADIOBUTTON,
+                    144,64,45,10
+
+    DEFPUSHBUTTON   "查找下一个(&F)",IDOK,217,7,50,14
+    PUSHBUTTON      "关闭",IDCANCEL,217,24,50,14
+END
+
+/* ------------------------------------------------------------------------ */
+/*
+ *   Game Chest dialogs 
+ */
+#ifdef HTMLTADS_GAME_CHEST
+        
+/*
+ *   Game Chest - add/edit web link 
+ */
+DLG_GAME_CHEST_URL DIALOG DISCARDABLE  0, 0, 341, 126
+STYLE DS_MODALFRAME | WS_POPUP | WS_CAPTION | WS_SYSMENU | DS_CENTER
+CAPTION "添加/删除站点链接"
+FONT 8, "MS Shell Dlg"
+BEGIN
+    LTEXT           "网站地址(URL)(&A)：",IDC_STATIC,7,11,66,8
+    EDITTEXT        IDC_FLD_KEY,82,10,252,14,ES_AUTOHSCROLL
+    LTEXT           "网站名称(&N)：",IDC_STATIC,7,31,36,8
+    EDITTEXT        IDC_FLD_NAME,82,30,252,14,ES_AUTOHSCROLL
+    LTEXT           "描述(&D)：",IDC_STATIC,7,51,38,8
+    EDITTEXT        IDC_FLD_DESC,82,50,252,45,
+                    ES_MULTILINE | ES_AUTOVSCROLL | WS_VSCROLL
+    CONTROL         "&HTML",IDC_CB_DESC_HTML,"Button",
+                    BS_AUTOCHECKBOX,7,63,36,10
+    DEFPUSHBUTTON   "确定",IDOK,118,105,50,14
+    PUSHBUTTON      "取消",IDCANCEL,173,105,50,14
+END
+
+/*
+ *   Game chest - add/edit game file link 
+ */
+DLG_GAME_CHEST_GAME DIALOG DISCARDABLE  0, 0, 381, 187
+STYLE DS_MODALFRAME | WS_POPUP | WS_CAPTION | WS_SYSMENU | DS_CENTER
+CAPTION "添加/删除游戏连接"
+FONT 8, "MS Shell Dlg"
+BEGIN
+    LTEXT           "游戏文件(&F)：",IDC_STATIC,7,11,34,8
+    EDITTEXT        IDC_FLD_KEY,65,10,252,14,ES_AUTOHSCROLL
+    PUSHBUTTON      "浏览(&B)...",IDC_BTN_BROWSE,324,10,50,14
+    LTEXT           "名称(&N)：",IDC_STATIC,7,31,22,8
+    EDITTEXT        IDC_FLD_NAME,65,30,252,14,ES_AUTOHSCROLL
+
+    LTEXT           "描述(&D)：",IDC_STATIC,7,51,38,8
+    EDITTEXT        IDC_FLD_DESC,65,50,252,45,
+                    ES_MULTILINE | ES_AUTOVSCROLL | WS_VSCROLL
+    CONTROL         "&HTML",IDC_CB_DESC_HTML,"Button",
+                    BS_AUTOCHECKBOX,7,63,36,10
+
+    LTEXT           "作者签名(&A)：",IDC_STATIC,7,103,57,8
+    EDITTEXT        IDC_FLD_BYLINE,65,102,252,22,
+                    ES_MULTILINE | ES_AUTOVSCROLL | WS_VSCROLL
+    CONTROL         "HT&ML", IDC_CB_BYLINE_HTML,"Button",
+                    BS_AUTOCHECKBOX,7,115,36,10
+
+    LTEXT           "分组(&G)：",IDC_STATIC,7,131,22,8
+    COMBOBOX        IDC_POP_GROUP,65,130,252,96,CBS_DROPDOWN | WS_VSCROLL | 
+                    WS_TABSTOP
+
+    LTEXT           "主题(&T)：",IDC_STATIC,7,149,30,8
+    COMBOBOX        IDC_CBO_PROFILE,65,148,252,76,
+                    CBS_DROPDOWN | CBS_SORT | WS_VSCROLL | WS_TABSTOP
+
+    DEFPUSHBUTTON   "确定",IDOK,138,166,50,14
+    PUSHBUTTON      "取消",IDCANCEL,193,166,50,14
+END
+
+/*
+ *   Game chest - download file
+ */
+DLG_DOWNLOAD DIALOG DISCARDABLE  0, 0, 266, 71
+STYLE DS_MODALFRAME | WS_POPUP | WS_CAPTION | WS_VISIBLE
+CAPTION "正在下载文件"
+FONT 8, "MS Shell Dlg"
+BEGIN
+    LTEXT           "网站地址：",IDC_STATIC,7,7,46,8
+    LTEXT           "http://",IDC_TXT_URL,68,7,191,8
+    LTEXT           "保存到文件：",IDC_STATIC,7,21,46,8
+    LTEXT           "c:\\",IDC_TXT_FILE,68,21,191,8
+    LTEXT           "已传输字节数：",IDC_STATIC,7,35,44,8
+    LTEXT           "0",IDC_TXT_BYTES,68,35,191,8
+    PUSHBUTTON      "取消",IDCANCEL,107,50,50,14
+END
+
+/*
+ *   Game chest - edit groups
+ */
+DLG_GAME_CHEST_GROUPS DIALOG DISCARDABLE  0, 0, 283, 183
+STYLE DS_MODALFRAME | WS_POPUP | WS_CAPTION | DS_CENTER
+CAPTION "编辑分组"
+FONT 8, "MS Shell Dlg"
+BEGIN
+    CONTROL         "Tree1",IDC_TREE_GROUPS,"SysTreeView32",
+                    TVS_SHOWSELALWAYS | TVS_EDITLABELS | TVS_NOTOOLTIPS 
+                    /*| TVS_FULLROWSELECT*/ | WS_BORDER | WS_TABSTOP,
+                    7,7,214,169
+    PUSHBUTTON      "",IDC_BTN_MOVE_UP,226,7,14,14,BS_ICON
+    PUSHBUTTON      "",IDC_BTN_MOVE_DOWN,226,23,14,14,BS_ICON
+    PUSHBUTTON      "新建(&N)...",IDC_BTN_NEW,226,66,50,14
+    PUSHBUTTON      "删除(&D)",IDC_BTN_DELETE,226,84,50,14
+    PUSHBUTTON      "重命名(&R)",IDC_BTN_RENAME,226,102,50,14
+    PUSHBUTTON      "关闭(&C)",IDC_BTN_CLOSE,226,162,50,14
+END
+
+/*
+ *   Game Chest Search Dialog
+ */
+DLG_GAME_CHEST_SEARCH DIALOG DISCARDABLE  0, 0, 337, 213
+STYLE DS_MODALFRAME | WS_POPUP | WS_CAPTION
+CAPTION "搜索游戏文件"
+FONT 8, "MS Shell Dlg"
+BEGIN
+    LTEXT           "如果您下载了一批游戏文件（例如从一次IF竞赛的存档中）, 您可以很容易地将它们作为一个组添加到游戏宝盒中。请选择需要搜索的游戏文件夹与放置这些游戏的分组，而后点击“开始搜索”。",
+                    IDC_STATIC,7,7,323,32
+    LTEXT           "在此文件夹以及其子文件夹中搜索所有的TADS游戏文件(.gam和.t3)：",
+                    IDC_STATIC,7,44,261,8
+    EDITTEXT        IDC_FLD_FOLDER,7,54,266,14,ES_AUTOHSCROLL
+    PUSHBUTTON      "浏览(&B)...",IDC_BTN_BROWSE,280,54,50,14
+    LTEXT           "将游戏加入此组中(&G) (在列表中选择一个组，或者输入一个新的组名)：",
+                    IDC_STATIC,7,76,266,16
+    COMBOBOX        IDC_POP_GROUP,7,94,266,77,CBS_DROPDOWN | WS_VSCROLL | 
+                    WS_TABSTOP
+    LTEXT           "搜索到的游戏文件：",IDC_STATIC,7,114,56,8
+    LISTBOX         IDC_LB_RESULTS,7,124,323,61,NOT LBS_NOTIFY | 
+                    LBS_NOINTEGRALHEIGHT | WS_VSCROLL | WS_TABSTOP
+    DEFPUSHBUTTON   "开始搜索(&S)",IDOK,223,192,50,14
+    PUSHBUTTON      "取消",IDCANCEL,280,192,50,14
+END
+
+/*
+ *  Game Chest search-and-add wizard - first page: select the root folder.
+ */
+DLG_GAME_CHEST_SEARCH_ROOT DIALOG DISCARDABLE  0, 0, 315, 175
+STYLE WS_CHILD | WS_DISABLED | WS_CAPTION
+CAPTION "属性页"
+FONT 8, "MS Shell Dlg"
+BEGIN
+    CONTROL         IDB_CHEST_SEARCH,IDC_STATIC,"Static",SS_BITMAP,7,7,15,13
+    LTEXT           "如果您下载了一批游戏文件（例如从一次IF竞赛的存档中）, 通过本向导，您可以很容易地将它们一次性地加入到游戏宝盒中。",
+                    IDC_STATIC,91,7,217,32
+    LTEXT           "TADS会在所选定的文件夹以及其子文件夹中搜索游戏文件。选择好文件夹后，请点击“下一步”以开始搜索。",
+                    IDC_STATIC,91,50,217,24
+    GROUPBOX        "待搜索的文件夹(&F)：",IDC_STATIC,88,138,218,31
+    LTEXT           "<点击“浏览”以选择文件夹>",IDC_TXT_FOLDER,93,
+                    151,150,9
+    PUSHBUTTON      "浏览(&B)...",IDC_BTN_BROWSE,250,149,50,14
+END
+
+/*
+ *  Game Chest search-and-add wizard - second page: approve search results
+ */
+DLG_GAME_CHEST_SEARCH_RESULTS DIALOG DISCARDABLE  0, 0, 315, 175
+STYLE WS_CHILD | WS_DISABLED | WS_CAPTION
+CAPTION "属性页"
+FONT 8, "MS Shell Dlg"
+BEGIN
+    CONTROL         IDB_CHEST_SEARCH,IDC_STATIC,"Static",SS_BITMAP,7,7,15,13
+    LTEXT           "TADS在指定的文件夹中找到了以下游戏文件。请选中您希望加入到游戏宝盒中的文件，而后点击“下一步”。",
+                    -1,91,7,217,24
+    CONTROL         "Games",IDC_TV_GAMES,"SysTreeView32",
+                    WS_BORDER | WS_TABSTOP,91,39,217,129
+END
+
+/*
+ *  Game Chest search-and-add wizard - third page: select group and finish
+ */
+DLG_GAME_CHEST_SEARCH_GROUP DIALOG DISCARDABLE  0, 0, 315, 175
+STYLE WS_CHILD | WS_DISABLED | WS_CAPTION
+CAPTION "属性页"
+FONT 8, "MS Shell Dlg"
+BEGIN
+    CONTROL         IDB_CHEST_SEARCH,IDC_STATIC,"Static",SS_BITMAP,7,7,15,13
+    LTEXT           "请选择放置游戏的分组，如果希望新建分组，输入名称即可。如果分组名称留空，则游戏会被归入游戏列表顶部的“未分组”区域中。",
+                    IDC_STATIC,91,7,217,40
+    LTEXT           "选择完成后，点击“完成”即可将游戏加入宝盒中。",
+                    IDC_STATIC,91,51,217,16
+    LTEXT           "分组(&G)：",IDC_STATIC,91,75,22,8
+    COMBOBOX        IDC_POP_GROUP,91,87,217,78,
+                    CBS_DROPDOWN | WS_VSCROLL | WS_TABSTOP
+END
+
+/*
+ *   Game Chest - folder scan progress dialog
+ */
+DLG_GAME_CHEST_SEARCH_BUSY DIALOG DISCARDABLE  0, 0, 267, 66
+STYLE DS_MODALFRAME | WS_POPUP | WS_CAPTION
+CAPTION "正在扫描文件夹..."
+FONT 8, "MS Shell Dlg"
+BEGIN
+    LTEXT           "当前文件夹：",IDC_STATIC,7,7,47,8
+    LTEXT           "",IDC_TXT_FOLDER,7,22,253,8
+END
+
+#endif /* HTMLTADS_GAME_CHEST */
+
+
+/* ------------------------------------------------------------------------ */
+/*
+ *   String Table
+ */
+
+STRINGTABLE DISCARDABLE 
+BEGIN
+    /* options dialog property page tabs */
+    IDS_APPEARANCE          "外观"
+    IDS_FONT                "字体"
+    IDS_KEYS                "键盘"
+    IDS_COLORS              "颜色"
+    IDS_MORE                "“更多”提示"
+    IDS_FILE_SAFETY         "文件安全"
+    IDS_MEM                 "内存"
+    IDS_QUITTING            "退出"
+    IDS_STARTING            "启动"
+    IDS_GAMECHEST_PREFS     "游戏宝盒"
+    IDS_MEDIA               "多媒体"
+
+    /* tooltips for the interpreter toolbar */
+    IDS_FILE_LOADGAME       "打开新游戏"
+    IDS_FILE_SAVEGAME       "存储进度"
+    IDS_FILE_RESTOREGAME    "读取进度"
+    IDS_EDIT_CUT            "剪切"
+    IDS_EDIT_COPY           "复制"
+    IDS_EDIT_PASTE          "粘贴"
+    IDS_CMD_UNDO            "撤销最后的指令"
+    IDS_VIEW_FONTS_NEXT_SMALLER "减小字体"
+    IDS_VIEW_FONTS_NEXT_LARGER  "增大字体"
+    IDS_VIEW_OPTIONS        "选项"
+    IDS_GO_PREVIOUS         "转到前一页"
+    IDS_GO_NEXT             "转到后一页"
+    IDS_EDIT_FIND           "在当前页上查找文本"
+    IDS_THEMES_DROPDOWN     "自定义 ""%s"" 主题"
+    IDS_MUTE_SOUND          "打开声音/静音"
+
+#ifdef HTMLTADS_GAME_CHEST
+    /* "add games" button label for game chest search dialog */
+    IDS_BTN_ADD_GAMES       "确定"
+
+    /*
+     *   title and prompt strings for browse-folder dialog in game chest
+     *   search-and-add-favorites dialog
+     */
+    IDS_GCH_SEARCH_FOLDER_TITLE "选择待搜索的文件夹"
+    IDS_GCH_SEARCH_FOLDER_PROMPT "搜索此文件夹(&F)："
+
+    /* title strings for the game chest find-and-add wizard pages */
+    IDS_GAME_CHEST_SEARCH_ROOT     "选择待搜索的文件夹"
+    IDS_GAME_CHEST_SEARCH_RESULTS  "搜索结果"
+    IDS_GAME_CHEST_SEARCH_GROUP    "选择游戏宝盒中的分组"
+#endif /* HTMLTADS_GAME_CHEST */
+
+    /* titles for added items on 'themes' menu */
+    IDS_SET_DEF_PROFILE            "设置""%s""为默认主题(&D)"
+    IDS_MANAGE_PROFILES            "添加/删除主题(&A)..."
+    IDS_CUSTOMIZE_THEME            "自定义 ""%s"" 主题(&C)..."
+
+    /* descriptions of the built-in themes */
+    IDS_THEMEDESC_MULTIMEDIA       "最普通的Windows外观。"
+    IDS_THEMEDESC_PLAIN_TEXT       "80年代的经典文字冒险游戏的外观。"
+    IDS_THEMEDESC_WEB_STYLE        "简洁的，现代网页风格的外观。"
+
+    /* entries in the "when to show links" popup */
+    IDS_LINKS_ALWAYS               "总是"
+    IDS_LINKS_CTRL                 "按下Ctrl键时"
+    IDS_LINKS_NEVER                "从不"
+
+    /* statusline messages */
+    IDS_MORE_STATUS_MSG            "*** 更多 *** [请按 空格键 继续]"
+    IDS_WORKING_MSG                "工作中..."
+    IDS_PRESS_A_KEY_MSG            "请按任意键..."
+    IDS_EXIT_PAUSE_MSG             "请按任意键退出..."
+    IDS_NO_GAME_MSG                "(未载入任何游戏)"
+    IDS_GAME_OVER_MSG              "(游戏已经结束)"
+
+    /* the MORE prompt */
+    IDS_MORE_PROMPT                "  *** 更多 ***  "
+
+    /* alert dialog: no more matches found for a Find command */
+    IDS_FIND_NO_MORE               "找不到更多的结果了"
+
+    /* alert dialog: unable to open <A HREF> link */
+    IDS_CANNOT_OPEN_HREF           "无法启动浏览器。您必须安装浏览器以打开这个链接。"
+
+    /* alert dialog: hyperlink preferences don't affect the Game Chest page */
+    IDS_LINK_PREF_CHANGE           "注：游戏宝盒主页上总是会显示超链接，因此“显示链接”的设置项对该页无效。在执行采用了本主题的游戏时，该设置项才会生效。"
+
+    /* title for "Show Debug Window" menu item */
+    IDS_SHOW_DBG_WIN_MENU,         "显示调试器窗口(&D)"
+
+    /* title for the "About This Game" dialog window */
+    IDS_ABOUT_GAME_WIN_TITLE       "关于本游戏"
+
+    /* title for "No Recent Games" menu item */
+    IDS_NO_RECENT_GAMES_MENU       "没有最近的游戏记录"
+
+    /*
+     *   alert dialogs: really quit the game/go to game chest/switch to a
+     *   new game without saving the current game?
+     */
+    IDS_REALLY_QUIT_MSG            "您即将退出游戏，但没有进行保存，您确定要退出么？"
+    IDS_REALLY_GO_GC_MSG           "选择此项将退出当前游戏并且不保存您的进度 - 自上一次存档之后的所有游戏进度都将丢失。您确定要继续么？"
+    IDS_REALLY_NEW_GAME_MSG        "开始新游戏时，将退出当前游戏并且不保存您的进度。您确定要继续么？"
+
+    /* alert dialog: out-of-date COMCTL32.DLL detected */
+    IDS_COMCTL32_WARNING           "本程序需要ComCtl32.DLL 4.70或者更高的版本。您所安装的是一个较低的版本。本程序将可能不能正常工作，并可能崩溃。请从Microsoft网站下载并运行此文件:\r\n\r\nftp://ftp.microsoft.com/softlib/mslfiles/com32upd.exe\r\n\r\n请点击“确定”强制继续本程序的运行，或者点击“取消”退出。"
+
+    /* standard file selector prompt: choose a new game to load */
+    IDS_CHOOSE_NEW_GAME            "请选择需要载入的游戏文件"
+
+    /* standard file selector prompt: choose a TADS game to play */
+    IDS_CHOOSE_GAME                "选择TADS游戏"
+
+    /*  
+     *  About box template strings.  The first one is the prefix for
+     *  the version number string; the second gives the Credits and Close
+     *  hyperlinks.  These are externalized to allow localized versions to
+     *  use special fonts if needed.  Note that these are HTML fragments
+     *  inserted into the HTML formatting for the aboutbox.
+     */
+    IDS_ABOUTBOX_1                 "<font color=white face=Arial size=-1><b>Release "
+    IDS_ABOUTBOX_2                 "</b></font><br><br><tab align=right><font face='Arial' size=-1><b><a forced href='credits'>开发人员</a> &nbsp;&nbsp; <a forced href='license'>许可证</a> &nbsp;&nbsp; <a forced href='close'>关闭</a></b></font>"
+END
+
+
+/*  
+ * Ruochen Zhang:
+ *  The accelerators are removed as well.
+ */   
