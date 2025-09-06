@@ -1,7 +1,7 @@
 # Html-TADS
-Unlike [tads-runner](https://github.com/captain-mayhem/tads-runner), which is licensed under GPL-2.0, this repository comes with a very restrictive license.
+Unlike [tads-runner](https://github.com/captain-mayhem/tads-runner), which is licensed under GPL-2.0, the htmltads subfolder comes with a very restrictive license.
 
-From the license file of html-tads:
+From the license file of htmltads:
 "This source code is distributed for the specific purpose of
 facilitating the creation of versions of TADS on various computers and
 operating systems. All other derivative works are prohibited without
