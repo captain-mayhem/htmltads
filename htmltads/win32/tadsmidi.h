@@ -20,7 +20,8 @@ Modified
 #ifndef TADSMIDI_H
 #define TADSMIDI_H
 
-#include <dmusici.h>
+//#include <dmusici.h> TODO deprecated and not available for 64 Bit
+#include <Windows.h>
 #include <stdlib.h>
 
 /* TADS OS interfaces - for file I/O */
@@ -76,6 +77,7 @@ private:
 class CTadsDirectMusic
 {
 public:
+#if 0
     /* 
      *   Load DirectMusic, if we haven't already.  This creates an
      *   IDirectMusicLoader object and stashes it away statically. 
@@ -145,6 +147,7 @@ public:
         /* return the buffer */
         return buf;
     }
+#endif
 
     /* static initialization */
     static void static_init();
@@ -155,16 +158,20 @@ public:
      */
     static void class_terminate()
     {
+#if 0
         if (loader_ != 0)
         {
             loader_->Release();
             loader_ = 0;
         }
+#endif
     }
 
 protected:
+#if 0
     /* our music loader */
     static IDirectMusicLoader8 *loader_;
+#endif
 
     /* have we initialized? */
     static int inited_;
@@ -349,9 +356,11 @@ private:
      *   but on systems where DirectMusic isn't installed we fall back on the
      *   Win32 midiXxx() APIs) 
      */
+#if 0
     IDirectMusicPerformance8 *dm_perf_;
     IDirectMusicSegment8 *dm_seg_;
     IDirectSoundBuffer *dm_buf_;
+#endif
 
     /* event for DirectMusic notifications */
     HANDLE dm_monitor_event_;
