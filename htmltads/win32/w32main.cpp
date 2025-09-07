@@ -253,12 +253,20 @@ LONG WINAPI exc_handler(EXCEPTION_POINTERS *info)
     strcpy(buf, "CS:EIP = ");
     hex_to_str(buf + 9, ctx->SegCs);
     *(buf + 17) = ':';
+#if _M_IX86
     hex_to_str(buf + 18, ctx->Eip);
+#else
+    hex_to_str(buf + 18, ctx->Rip);
+#endif
     strcpy(buf + 26, "\r\n");
     WriteFile(hfile, buf, 28, &actual, 0);
 
     /* trace back the stack */
+#if _M_IX86
     ebp = (DWORD *)ctx->Ebp;
+#else
+    ebp = (DWORD*)ctx->Rbp;
+#endif
     for (i = 0 ; i < 50 ; ++i)
     {
         DWORD retaddr;
