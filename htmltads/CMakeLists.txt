@@ -12,6 +12,14 @@ add_executable(htmlt3_tmp
     win32/w32snd.cpp
     win32/w32img.cpp
     win32/hos_w32.cpp
+	win32/tadswin.cpp
+    win32/tadsapp.cpp
+    win32/tadskb.cpp
+    win32/tadsfont.cpp
+	win32/tadscar.cpp
+    htmltxar.cpp
+    htmlinp.cpp
+    htmljpeg.cpp
 )
 
 target_include_directories(htmlt3_tmp PRIVATE
@@ -23,6 +31,7 @@ win32/mpegamp
 target_link_libraries(htmlt3_tmp PRIVATE
 	t3htm
 	PNG::PNG
+    JPEG::JPEG
 	MNG::MNG
 
 	Htmlhelp.lib
