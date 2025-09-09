@@ -25,7 +25,9 @@ Modified
 #include <string.h>
 
 #include <Windows.h>
+#ifdef HAVE_DXMUSIC
 #include <dmusici.h>
+#endif
 #include <stdio.h>
 #include <io.h>
 
@@ -52,7 +54,11 @@ Modified
  */
 
 /* statics */
+#ifdef HAVE_DXMUSIC
 IDirectMusicLoader8 *CTadsDirectMusic::loader_ = 0;
+#else
+void* CTadsDirectMusic::loader_ = 0;
+#endif
 int CTadsDirectMusic::inited_ = 0;
 
 /* initialization */
@@ -108,6 +114,7 @@ void CTadsDirectMusic::static_init()
                 || iswow64))
             return;
 
+#ifdef HAVE_DXMUSIC
         /* create the music loader */
         if (FAILED(CoCreateInstance(
             CLSID_DirectMusicLoader, 0, CLSCTX_INPROC,
@@ -116,6 +123,7 @@ void CTadsDirectMusic::static_init()
             /* failed to load it - clear it out */
             loader_ = 0;
         }
+#endif
     }
 }
 
@@ -228,6 +236,7 @@ CTadsMidiFilePlayer::~CTadsMidiFilePlayer()
  */
 void CTadsMidiFilePlayer::release_dm_objs()
 {
+#ifdef HAVE_DXMUSIC
     /* release DirectMusic objects */
     if (dm_perf_ != 0)
     {
@@ -245,7 +254,7 @@ void CTadsMidiFilePlayer::release_dm_objs()
         dm_buf_->Release();
         dm_buf_ = 0;
     }
-
+#endif
 }
 
 /*
@@ -276,6 +285,7 @@ int CTadsMidiFilePlayer::play()
     /* always start at tick offset zero in the midi stream */
     start_tick_pos_ = 0;
 
+#ifdef HAVE_DXMUSIC
     /*
      *   Try playing back via DirectMusic.  If that fails, fall back on the
      *   Win32 midiXxx() APIs.  
@@ -326,6 +336,7 @@ int CTadsMidiFilePlayer::play()
             dm_seg_ = 0;
         }
     }
+#endif
 
     /*
      *   If we failed to set up a DirectMusic player, try it the old way,
@@ -350,6 +361,7 @@ int CTadsMidiFilePlayer::play()
     /* start playback */
     if (dm_seg_ != 0)
     {
+#ifdef HAVE_DXMUSIC
         /* 
          *   We're using DirectMusic mode 
          */
@@ -376,8 +388,10 @@ int CTadsMidiFilePlayer::play()
         /* play our segment */
         if (FAILED(dm_perf_->PlaySegment(dm_seg_, 0, 0, 0)))
             err = 10001;
+#endif
     }
     else
+
     {
         /* 
          *   We're using legacy midiXxx() mode 
@@ -410,6 +424,7 @@ int CTadsMidiFilePlayer::play()
  */
 void CTadsMidiFilePlayer::dm_monitor()
 {
+#ifdef HAVE_DXMUSIC
     IDirectMusicPerformance *perf;
 
     /* 
@@ -463,6 +478,7 @@ void CTadsMidiFilePlayer::dm_monitor()
     
     /* done with our extra performance pointer */
     perf->Release();
+#endif
 }
 
 /*
@@ -662,10 +678,12 @@ int CTadsMidiFilePlayer::is_playing()
 {
     /* presume we're not playing, in case we don't find an underlying player */
     int playing = FALSE;
-    
+ 
+#ifdef HAVE_DXMUSIC
     /* if we have a DirectMusic performance, check its status */
     if (dm_perf_ != 0)
         playing = (dm_perf_->IsPlaying(dm_seg_, 0) == S_OK);
+#endif
 
     /* if we have a stream, it's playing if we haven't called the callback */
     if (hmidistrm_ != 0)
@@ -690,8 +708,10 @@ void CTadsMidiFilePlayer::stop(int sync)
     /* tell the DirectMusic segment or midiXxx() API stream to stop playing */
     if (dm_seg_ != 0)
     {
+#ifdef HAVE_DXMUSIC
         /* stop the performance */
         dm_perf_->Stop(0, 0, 0, 0);
+#endif
     }
     else if (hmidistrm_ != 0)
     {
@@ -779,12 +799,14 @@ void CTadsMidiFilePlayer::set_audio_volume(int vol)
      */
     if (dm_buf_ != 0)
     {
+#ifdef HAVE_DXMUSIC
         /* 
          *   Set the volume in the buffer.  Use our usual convention of
          *   setting from 0db attenuation to -60db attenuation (see
          *   CTadsCompressedAudio::set_volume()).  
          */
         dm_buf_->SetVolume(DSBVOLUME_MIN + ((vol*6000)/10000 + 4000));
+#endif
     }
     else if (hmidistrm_ != 0)
     {

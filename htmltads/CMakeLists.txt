@@ -42,7 +42,7 @@ set(base_src
     win32/tadssnd.cpp
     win32/tadscsnd.cpp
     #win32/tadsvorb.cpp
-    #win32/tadsmidi.cpp
+    win32/tadsmidi.cpp
     win32/tadswav.cpp
     win32/tadsole.cpp
     win32/oem_w32.c
