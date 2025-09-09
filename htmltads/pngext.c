@@ -24,6 +24,7 @@ Modified
 
 
 #define PNG_INTERNAL
+#include <pngpriv.h>
 #include <png.h>
 #include <pngconf.h>
 
@@ -261,16 +262,16 @@ void png_set_rainbow_dither(png_structp png_ptr)
         { 0xff, 0xff, 0xcc },
         { 0xff, 0xff, 0xff },
     };
-    int total_bits = PNG_DITHER_RED_BITS + PNG_DITHER_GREEN_BITS +
-                     PNG_DITHER_BLUE_BITS;
-    int num_red = (1 << PNG_DITHER_RED_BITS);
-    int num_green = (1 << PNG_DITHER_GREEN_BITS);
-    int num_blue = (1 << PNG_DITHER_BLUE_BITS);
+    int total_bits = PNG_QUANTIZE_RED_BITS + PNG_QUANTIZE_GREEN_BITS +
+                     PNG_QUANTIZE_BLUE_BITS;
+    int num_red = (1 << PNG_QUANTIZE_RED_BITS);
+    int num_green = (1 << PNG_QUANTIZE_GREEN_BITS);
+    int num_blue = (1 << PNG_QUANTIZE_BLUE_BITS);
     png_size_t num_entries = ((png_size_t)1 << total_bits);
     int ir, ig, ib;
 
     /* note that dithering is activated */
-    png_ptr->transformations |= PNG_DITHER;
+    png_ptr->transformations |= PNG_QUANTIZE;
 
     /* use the rainbow palette */
     if (png_ptr->palette == NULL)
@@ -298,8 +299,8 @@ void png_set_rainbow_dither(png_structp png_ptr)
 
                 /* calculate the RGB index of this value */
                 rgb_idx =
-                    (ir << (PNG_DITHER_BLUE_BITS + PNG_DITHER_GREEN_BITS))
-                    | (ig << PNG_DITHER_BLUE_BITS)
+                    (ir << (PNG_QUANTIZE_BLUE_BITS + PNG_QUANTIZE_GREEN_BITS))
+                    | (ig << PNG_QUANTIZE_BLUE_BITS)
                     | ib;
 
                 /* 
@@ -314,9 +315,9 @@ void png_set_rainbow_dither(png_structp png_ptr)
                  *   Round up or down to the nearest value.  
                  */
                 pal_idx =
-                    ((((ir << (8 - PNG_DITHER_RED_BITS)) + 0)/43) * 36)
-                    + ((((ig << (8 - PNG_DITHER_GREEN_BITS)) + 0)/43) * 6)
-                    + ((((ib << (8 - PNG_DITHER_BLUE_BITS)) + 0)/43));
+                    ((((ir << (8 - PNG_QUANTIZE_RED_BITS)) + 0)/43) * 36)
+                    + ((((ig << (8 - PNG_QUANTIZE_GREEN_BITS)) + 0)/43) * 6)
+                    + ((((ib << (8 - PNG_QUANTIZE_BLUE_BITS)) + 0)/43));
 
                 /* store the reverse mapping */
                 png_ptr->palette_lookup[rgb_idx] = (png_byte)pal_idx;

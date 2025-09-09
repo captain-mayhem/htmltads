@@ -108,7 +108,7 @@ OPTION(BUILD_MAN
  "Build MAN pages" OFF)
 #
 OPTION(WITH_LCMS2
- "Build MNG library with liblcms version 2" ON)
+ "Build MNG library with liblcms version 2" OFF)
 #
 OPTION(WITH_LCMS1
  "Build MNG library with liblcms version 1" OFF)

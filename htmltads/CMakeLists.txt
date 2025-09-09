@@ -1,4 +1,4 @@
-add_executable(htmlt3_tmp
+set(base_src
 	win32/htmlw32.cpp
 	win32/w32main.cpp
 	tadshtml.cpp
@@ -20,6 +20,41 @@ add_executable(htmlt3_tmp
     htmltxar.cpp
     htmlinp.cpp
     htmljpeg.cpp
+    htmlrc.cpp
+    htmlrf.cpp
+    htmlhash.cpp
+    win32/tadsstat.cpp
+    win32/htmlpref.cpp
+    win32/tadsdlg.cpp
+    win32/tadsdlg2.cpp
+    win32/tadscbtn.cpp
+    htmlplst.cpp
+    win32/tadsreg.cpp
+    oshtml.cpp
+    win32/tadsjpeg.cpp
+    htmlpng.cpp
+    htmlmng.cpp
+    pngext.c
+    win32/tadsimg.cpp
+    win32/tadspng.cpp
+    win32/tadsmng.cpp
+    htmlsnd.cpp
+    win32/tadssnd.cpp
+    win32/tadscsnd.cpp
+    #win32/tadsvorb.cpp
+    #win32/tadsmidi.cpp
+    win32/tadswav.cpp
+    win32/tadsole.cpp
+    win32/oem_w32.c
+    win32/foldsel2.cpp
+    win32/w32fndlg.cpp
+    win32/iconmenu.cpp
+    win32/tadswebctl.cpp
+    win32/tadscom.cpp
+)
+
+add_executable(htmlt3_tmp
+	${base_src}
 )
 
 target_include_directories(htmlt3_tmp PRIVATE

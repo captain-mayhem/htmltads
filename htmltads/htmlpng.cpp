@@ -205,7 +205,7 @@ read_file:
     }
 
     /* set up error handling */
-    if (setjmp(png_ptr->jmpbuf))
+    if (setjmp(png_jmpbuf(png_ptr)))
     {
         /* an error occurred - clean up and return failure */
         osfcls(infile);
@@ -222,7 +222,7 @@ read_file:
                  &color_type, &interlace_type, (int *)0, (int *)0);
 
     /* reduce color precision to 8 bits per color if it's higher */
-    if (info_ptr->bit_depth == 16)
+    if (png_get_bit_depth(png_ptr, info_ptr) == 16)
         png_set_strip_16(png_ptr);
 
     /* set the screen gamma value */
@@ -325,7 +325,7 @@ read_file:
 
             /* it has a palette - dither it to the palette histogram */
             png_get_hIST(png_ptr, info_ptr, &histogram);
-            png_set_dither(png_ptr, palette, num_palette,
+            png_set_quantize(png_ptr, palette, num_palette,
                            256, histogram, FALSE);
         }
         else
@@ -335,9 +335,9 @@ read_file:
         }
 
         /* if it's grayscale with bit depth less than 8, expand to 8 bits */
-        if (info_ptr->color_type == PNG_COLOR_TYPE_GRAY
-            && info_ptr->bit_depth < 8)
-            png_set_gray_1_2_4_to_8(png_ptr);
+        if (png_get_color_type(png_ptr, info_ptr) == PNG_COLOR_TYPE_GRAY
+            && png_get_bit_depth(png_ptr, info_ptr) < 8)
+            png_set_expand_gray_1_2_4_to_8(png_ptr);
     }
     else
     {
@@ -345,8 +345,8 @@ read_file:
         png_set_expand(png_ptr);
 
         /* convert gray to RGB */
-        if (info_ptr->color_type == PNG_COLOR_TYPE_GRAY
-            || info_ptr->color_type == PNG_COLOR_TYPE_GRAY_ALPHA)
+        if (png_get_color_type(png_ptr, info_ptr) == PNG_COLOR_TYPE_GRAY
+            || png_get_color_type(png_ptr, info_ptr) == PNG_COLOR_TYPE_GRAY_ALPHA)
             png_set_gray_to_rgb(png_ptr);
 
         /* 
@@ -402,7 +402,7 @@ read_file:
              *   true gray value - we need only set one component off by one
              *   level to accomplish this.  
              */
-            level = (info_ptr->bit_depth == 8 ? 0xE0 : 0xE000);
+            level = (png_get_bit_depth(png_ptr, info_ptr) == 8 ? 0xE0 : 0xE000);
             image_background.red = (png_uint_16)level;
             image_background.green = (png_uint_16)level;
             image_background.blue = (png_uint_16)level + 1;
@@ -421,7 +421,7 @@ read_file:
     png_read_update_info(png_ptr, info_ptr);
 
     /* remember the width in pixels and bytes */
-    width_ = info_ptr->width;
+    width_ = png_get_image_width(png_ptr, info_ptr);
     row_bytes_ = png_get_rowbytes(png_ptr, info_ptr);
 
     /* allocate memory */
@@ -439,23 +439,27 @@ read_file:
     /* done reading */
     png_read_end(png_ptr, info_ptr);
 
+    png_colorp palette = NULL;
+    int num_palette = 0;
+    png_get_PLTE(png_ptr, info_ptr, &palette, &num_palette);
+
     /*
      *   If we want a color palette, and the image has one (it should),
      *   save the color palette for later use 
      */
-    if (convert_256_color && png_ptr->palette != 0)
+    if (convert_256_color && palette != 0)
     {
         png_colorp src;
         HTML_color_t *dst;
         unsigned int i;
         
         /* create the palette */
-        palette_size_ = png_ptr->num_palette;
+        palette_size_ = num_palette;
         if (palette_size_ > 256) palette_size_ = 256;
         palette_ = new HTML_color_t[palette_size_];
 
         /* store it */
-        for (dst = palette_, src = png_ptr->palette, i = 0 ;
+        for (dst = palette_, src = palette, i = 0 ;
              i < palette_size_ ; ++i, ++src, ++dst)
             *dst = HTML_make_color(src->red, src->green, src->blue);
     }

@@ -704,7 +704,7 @@ void CTadsDialog::set_filedlg_center_hook(OPENFILENAME *info)
  *   Hook procedure for GetOpenFileName/GetSaveFileName hook.  This hook
  *   procedure simply centers the dialog on the screen at initialization. 
  */
-UINT APIENTRY CTadsDialog::filedlg_center_hook(HWND, UINT msg,
+UINT_PTR APIENTRY CTadsDialog::filedlg_center_hook(HWND, UINT msg,
                                                WPARAM, LPARAM lpar)
 {
     switch(msg)
@@ -955,7 +955,11 @@ BOOL CTadsDialogPropPage::do_dialog_msg(HWND dlg_hwnd, UINT message,
          *   Note that we must return the value through our window long value
          *   at DWL_MSGRESULT.  
          */
+#ifdef _M_IX86
         SetWindowLong(handle_, DWL_MSGRESULT, query_siblings(wpar, lpar));
+#else
+        SetWindowLong(handle_, DWLP_MSGRESULT, query_siblings(wpar, lpar));
+#endif
 
         /* indicate that we handled the message */
         return TRUE;

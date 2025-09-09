@@ -414,7 +414,7 @@ public:
 
 protected:
     /* hook procedure for centering a GetOpenFileName dialog */
-    static UINT APIENTRY filedlg_center_hook(HWND dlg, UINT msg,
+    static UINT_PTR APIENTRY filedlg_center_hook(HWND dlg, UINT msg,
                                              WPARAM wpar, LPARAM lpar);
     
     /* initialize a font popup */
