@@ -41,7 +41,7 @@ set(base_src
     htmlsnd.cpp
     win32/tadssnd.cpp
     win32/tadscsnd.cpp
-    #win32/tadsvorb.cpp
+    win32/tadsvorb.cpp
     win32/tadsmidi.cpp
     win32/tadswav.cpp
     win32/tadsole.cpp
@@ -68,6 +68,7 @@ target_link_libraries(htmlt3_tmp PRIVATE
 	PNG::PNG
     JPEG::JPEG
 	MNG::MNG
+    Vorbis::vorbisfile
 
 	Htmlhelp.lib
 	Comctl32.lib
