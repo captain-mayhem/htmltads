@@ -53,8 +53,26 @@ set(base_src
     win32/tadscom.cpp
 )
 
-add_executable(htmlt3_tmp
+set(mpeg_src
+)
+
+set(tr3_base_src
 	${base_src}
+	win32/w32tr.cpp
+	${mpeg_src}
+)
+
+set(trt3_src
+	${tr3_base_src}
+	win32/w32nogch.cpp
+    win32/w32trt3.cpp
+    win32/t3main.cpp
+    win32/w32t3.cpp
+    tadshtml3.cpp
+)
+
+add_executable(htmlt3_tmp
+	${trt3_src}
 )
 
 target_include_directories(htmlt3_tmp PRIVATE
