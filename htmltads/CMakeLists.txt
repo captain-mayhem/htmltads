@@ -82,7 +82,9 @@ win32/mpegamp
 )
 
 target_link_libraries(htmlt3_tmp PRIVATE
-	t3htm
+	Tads::t3htm
+    Tads::tr32h
+
 	PNG::PNG
     JPEG::JPEG
 	MNG::MNG
@@ -90,4 +92,10 @@ target_link_libraries(htmlt3_tmp PRIVATE
 
 	Htmlhelp.lib
 	Comctl32.lib
+    Winmm.lib
+    Ws2_32.lib
+    Wininet.lib
+    Version.lib
+    Shlwapi.lib
+    dxguid.lib
 )
