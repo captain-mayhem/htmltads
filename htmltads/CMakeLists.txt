@@ -54,6 +54,14 @@ set(base_src
 )
 
 set(mpeg_src
+    win32/mpegamp/misc2.cpp
+    win32/mpegamp/layer3.cpp
+    win32/mpegamp/layer2.cpp
+    win32/mpegamp/getdata.cpp
+    win32/mpegamp/getbits.cpp
+    win32/mpegamp/huffman.cpp
+    win32/mpegamp/transform.cpp
+    win32/mpegamp/mpegamp_w32.cpp
 )
 
 set(tr3_base_src
@@ -72,6 +80,7 @@ set(trt3_src
 )
 
 add_executable(htmlt3_tmp
+    WIN32
 	${trt3_src}
 )
 
@@ -95,6 +104,7 @@ target_link_libraries(htmlt3_tmp PRIVATE
     Winmm.lib
     Ws2_32.lib
     Wininet.lib
+    Mpr.lib
     Version.lib
     Shlwapi.lib
     dxguid.lib

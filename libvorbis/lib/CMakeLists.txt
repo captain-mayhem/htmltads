@@ -74,9 +74,9 @@ if(MSVC)
 endif()
 
 if (NOT BUILD_FRAMEWORK)
-    add_library(vorbis ${VORBIS_HEADERS} ${VORBIS_SOURCES})
-    add_library(vorbisenc ${VORBISENC_SOURCES})
-    add_library(vorbisfile ${VORBISFILE_SOURCES})
+    add_library(vorbis STATIC ${VORBIS_HEADERS} ${VORBIS_SOURCES})
+    add_library(vorbisenc STATIC ${VORBISENC_SOURCES})
+    add_library(vorbisfile STATIC ${VORBISFILE_SOURCES})
 
     get_version_info(VORBIS_VERSION_INFO "V_LIB_CURRENT" "V_LIB_AGE" "V_LIB_REVISION")
     set_target_properties(vorbis PROPERTIES SOVERSION ${VORBIS_VERSION_INFO})

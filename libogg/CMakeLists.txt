@@ -86,7 +86,7 @@ if(BUILD_FRAMEWORK)
     set(BUILD_SHARED_LIBS TRUE)
 endif()
 
-add_library(ogg ${OGG_HEADERS} ${OGG_SOURCES})
+add_library(ogg STATIC ${OGG_HEADERS} ${OGG_SOURCES})
 add_library(Ogg::ogg ALIAS ogg)
 target_include_directories(ogg PUBLIC
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>

@@ -461,7 +461,7 @@ LRESULT CALLBACK CTadsWin::
     CTadsWin *win;
 
     /* get the window from the window class */
-    win = (CTadsWin *)GetWindowLong(hwnd, 0);
+    win = (CTadsWin *)GetWindowLongPtr(hwnd, 0);
 
     /* see if the window handle has been set yet */
     if (win == 0)
@@ -482,7 +482,7 @@ LRESULT CALLBACK CTadsWin::
         }
 
         /* set the window handle in window long #0 */
-        SetWindowLong(hwnd, 0, (long)win);
+        SetWindowLongPtr(hwnd, 0, (LONG_PTR)win);
     }
 
     /* use the common message dispatcher */
@@ -499,7 +499,7 @@ LRESULT CALLBACK CTadsWin::
     CTadsWin *win;
 
     /* get the window from the window class */
-    win = (CTadsWin *)GetWindowLong(hwnd, 0);
+    win = (CTadsWin *)GetWindowLongPtr(hwnd, 0);
 
     /* see if the window handle has been set yet */
     if (win == 0)
@@ -530,7 +530,7 @@ LRESULT CALLBACK CTadsWin::
         }
 
         /* set the window handle in window long #0 */
-        SetWindowLong(hwnd, 0, (long)win);
+        SetWindowLongPtr(hwnd, 0, (LONG_PTR)win);
     }
 
     /* check for messages we need to send our parent */
@@ -559,7 +559,7 @@ LRESULT CALLBACK CTadsWin::
     CTadsWin *win;
 
     /* get the window from the window class */
-    win = (CTadsWin *)GetWindowLong(hwnd, 0);
+    win = (CTadsWin *)GetWindowLongPtr(hwnd, 0);
 
     /* see if the window handle has been set yet */
     if (win == 0)
@@ -580,7 +580,7 @@ LRESULT CALLBACK CTadsWin::
         }
 
         /* set the window handle in window long #0 */
-        SetWindowLong(hwnd, 0, (long)win);
+        SetWindowLongPtr(hwnd, 0, (LONG_PTR)win);
     }
 
     /* use the common message dispatcher */
@@ -3527,7 +3527,7 @@ LRESULT CALLBACK CTadsSyswinMdiClient::
      *   get the window from the window extra data - note that our extra
      *   data comes after the MDICLIENT extra data 
      */
-    win = (CTadsWin *)GetWindowLong(hwnd, base_wnd_extra_ + 0);
+    win = (CTadsWin *)GetWindowLongPtr(hwnd, base_wnd_extra_ + 0);
 
     /* see if the window handle has been set yet */
     if (win == 0)
@@ -3552,7 +3552,7 @@ LRESULT CALLBACK CTadsSyswinMdiClient::
          *   set the window handle in window long #0 - note that our #0
          *   goes after the MDICLIENT extra data 
          */
-        SetWindowLong(hwnd, base_wnd_extra_ + 0, (long)win);
+        SetWindowLongPtr(hwnd, base_wnd_extra_ + 0, (LONG_PTR)win);
     }
 
     /* use the common message dispatcher */

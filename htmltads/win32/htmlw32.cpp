@@ -11132,7 +11132,7 @@ void CHtmlSys_mainwin::set_recent_game_menu()
     const textchar_t *order;
     const textchar_t *fname;
     MENUITEMINFO info;
-    int first_idx;
+    int first_idx = 0;
     const textchar_t *working_dir;
 
     /* ignore this if we're running as part of the debugger */
