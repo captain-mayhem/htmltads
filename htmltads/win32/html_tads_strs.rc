@@ -27,6 +27,7 @@ Modified
   10/26/97 MJRoberts  - Creation
 */
 
+#include <Windows.h>
 STRINGTABLE DISCARDABLE 
 LANGUAGE LANG_ENGLISH, SUBLANG_ENGLISH_US
 #pragma code_page(1252)

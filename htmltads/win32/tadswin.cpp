@@ -583,6 +583,10 @@ LRESULT CALLBACK CTadsWin::
         SetWindowLongPtr(hwnd, 0, (LONG_PTR)win);
     }
 
+    if (msg == WM_NCDESTROY) {
+        return DefWindowProc(hwnd, msg, wpar, lpar);
+    }
+
     /* use the common message dispatcher */
     return win->common_msg_handler(hwnd, msg, wpar, lpar);
 }
@@ -3553,6 +3557,10 @@ LRESULT CALLBACK CTadsSyswinMdiClient::
          *   goes after the MDICLIENT extra data 
          */
         SetWindowLongPtr(hwnd, base_wnd_extra_ + 0, (LONG_PTR)win);
+    }
+
+    if (msg == WM_NCDESTROY) {
+        return DefWindowProc(hwnd, msg, wpar, lpar);
     }
 
     /* use the common message dispatcher */

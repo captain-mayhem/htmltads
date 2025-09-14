@@ -10,6 +10,7 @@ Modified
   10/26/97 MJRoberts  - Creation
 */
 
+#include <Windows.h>
 STRINGTABLE DISCARDABLE 
 LANGUAGE LANG_RUSSIAN, SUBLANG_DEFAULT
 /* this #pragma actually has no effect - see html_tads_str.h for details */

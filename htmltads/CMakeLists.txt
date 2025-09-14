@@ -82,6 +82,7 @@ set(trt3_src
 add_executable(htmlt3_tmp
     WIN32
 	${trt3_src}
+    win32/htmlt3.rc
 )
 
 target_include_directories(htmlt3_tmp PRIVATE
