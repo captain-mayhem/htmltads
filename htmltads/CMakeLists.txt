@@ -110,3 +110,13 @@ target_link_libraries(htmlt3_tmp PRIVATE
     Shlwapi.lib
     dxguid.lib
 )
+
+function(make_t3r output)
+	add_custom_command(OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/${output}.t3r
+		COMMAND Tads::t3res ARGS -create ${CMAKE_CURRENT_BINARY_DIR}/${output}.t3r -add ${ARGN}
+		WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
+	)
+	add_custom_target(${output}.t3r DEPENDS ${CMAKE_CURRENT_BINARY_DIR}/${output}.t3r)
+endfunction()
+
+make_t3r(htmlt3 win32/about3.jpg=about.jpg)
