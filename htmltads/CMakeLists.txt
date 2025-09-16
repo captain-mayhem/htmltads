@@ -111,12 +111,13 @@ target_link_libraries(htmlt3_tmp PRIVATE
     dxguid.lib
 )
 
-function(make_t3r output)
-	add_custom_command(OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/${output}.t3r
-		COMMAND Tads::t3res ARGS -create ${CMAKE_CURRENT_BINARY_DIR}/${output}.t3r -add ${ARGN}
-		WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
-	)
-	add_custom_target(${output}.t3r DEPENDS ${CMAKE_CURRENT_BINARY_DIR}/${output}.t3r)
-endfunction()
-
 make_t3r(htmlt3 win32/about3.jpg=about.jpg)
+
+make_trx(htmlt3 htmlt3_tmp ${CMAKE_CURRENT_BINARY_DIR}/htmlt3.t3r)
+
+trx_target_file(htmlt3 htmlt3_file)
+
+install(PROGRAMS
+	${htmlt3_file}
+	DESTINATION .
+)

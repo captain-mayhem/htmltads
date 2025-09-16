@@ -1,43 +1,216 @@
-HTML TADS FREEWARE SOURCE CODE LICENSE
+License Information for TADS 3 for Windows
+------------------------------------------
 
-The HTML TADS source code is Copyright 1997, 2013 by Michael J. Roberts.
+TADS 3 for Windows
+Copyright (c) 1997, 2013 by Michael J. Roberts.
 
-The author hereby grants you permission to use, copy, and
-distribute this software, if you agree to the following conditions:
+This software is a copyrighted work, which means that the copyright
+laws of the United States and other countries prohibit anyone from
+copying or distributing it without the express written permission of
+its author.  The author hereby grants anyone permission to use, copy,
+and distribute this software, without charge, subject to the following
+conditions:
 
-    1. You must include this license and the copyright notice with
-       all copies.
-    2. You may not require or collect a fee for copies of this
-       software, or any part of this software, that you give to
-       other people.
-    3. You may not include this software with any other software
-       for which a fee is collected.
-    4. You may not modify this software except as permitted below
-       (see "derivative works"), and each copy you make and
-       distribute must be a full and complete copy of the software
-       you originally received.
-    5. Anyone to whom you give a copy of this software receives
-       all of the same permissions that you did under this license
-       and is subject to all of the same restrictions.
-    6. You are not allowed to create derivative works, which are
-       works that contain or are based on all or part of this work,
-       except under the conditions described below.
-    7. Any derivative works are subject to this same license.
+- You may not remove any copyright notices from the software or any
+accompanying files.
+
+- You may not resell this software for profit, except that you may
+include the TADS 3 run-time executable with a game that you developed
+with TADS 3 and which you sell for profit.  (In other words, we don't
+want you to make a profit at our expense by selling TADS itself, but
+we want TADS game developers to be able to share or sell their games,
+which necessarily include the TADS run-time, in any way they please.)
+
+- Any copies you share with others must be complete and unmodified
+from the original copies you received, and you must include this
+license and the copyright notice with all copies.
+
+- Anyone to whom you give a copy of this software receives all of the
+same permissions that you did under this License.
+
+Any games you create with TADS 3 are entirely your own to do with as
+you please.
+
+If you have any questions about this license, please contact the
+author at the email address listed later in this file.
 
 
-Derivative Works
-----------------
+NO WARRANTY
+-----------
 
-This source code is distributed for the specific purpose of
-facilitating the creation of versions of TADS on various computers and
-operating systems.  All other derivative works are prohibited without
-the written permission of the author.  Please contact the author if
-you have any questions about this or if you'd like permission to
-create a derived work.
+Because this software is provided without charge, you assume the
+entire responsibility for determining whether it fits your needs, and
+you assume all risks related to your use of the software.
 
-If you port TADS to a new platform, the author does grant permission
-for you to distribute your ported version - I encourage it, in fact.
-We ask that you provide your contact information in any distribution
-package you create, so that users of your version will know how to
-contact you if they have any questions relating specifically to your
-version.
+This software is provided "as is," with no warranty of any kind,
+express or implied, including but not limited to implied warranties of
+merchantability and fitness for a particular purpose.  In no event
+shall the author or any other contributor to or distributor of this
+software be held liable for any damages, including without limitation
+direct, indirect, incidental, special, or consequential damages,
+arising out of the use or inability to use this software, even if any
+of these parties has been advised of the possibility of such damages.
+
+The information contained in this software is subject to change
+without notice and should not be construed as a commitment by the
+author.
+
+
+Contacting the Author
+---------------------
+
+For contact information, please visit www.tads.org.
+
+
+LIBRARY LICENSE
+---------------
+
+The TADS 3 distribution includes the standard adventure library, a
+set of TADS source code (files whose names end in ".t", plus header
+files, whose names end in ".h", that the .t files include) defining
+the world model, parser, and so on.  You may use and redistribute the
+library source code, and you may modify the library code and create
+derived works based on the library, subject to the condition that you
+include the original copyright notice on each original or modified
+file that you redistribute in source form.  You may add your own
+copyright notice as well to cover the changes you make.
+
+If you create a new work based on the library, or you so extensively
+modify the library that you create a predominately new work, you must
+still include the original copyright notice, but you may make the
+original copyright notice secondary to your own and you may modify
+the original notice to indicate that your work is "based on the TADS
+3 library."  For example, you might change the copyright notice to
+read:
+
+   My Extended Library, copyright 2008 by John Q. Author
+   Based on the TADS 3 Library, copyright 1997, 2012 by Michael J. Roberts.
+
+A "new work based on the library" is one that incorporates non-trivial
+source code from the library.  For example, if you copy entire class
+or function definitions from the library into your own code, your work
+would be based on the library code, even if you made some
+modifications to the copied definitions.  On the other hand, if you
+design new classes and functions that extend or interoperate with the
+library's code, but using new code you write from scratch, this would
+not count as a new work based on the library.  The test is simply
+whether you wrote the source code yourself, or started by copying (and
+then possibly modifying) source code from the library.
+
+If you use the library (or a modified version of the library) to
+create a game, and you distribute your game only in compiled form (as
+a ".t3" file), you are NOT required to mention the library copyright
+anywhere, but you are certainly welcome to mention us in your game's
+credits if you'd like.
+
+
+THIRD-PARTY CODE NOTICES
+------------------------
+
+This software incorporates several third-party libraries, which are
+open-source or freeware products copyrighted by their respective
+authors and subject to their own separate license terms.  The
+following credits and notices are included in accordance with the
+terms of the various third-party licenses.
+
+                                   ...
+
+Portions of this software are based on the work of the Independent
+JPEG Group.
+
+                                   ...
+
+This software incorporates the PNG Reference Library, developed by
+Andreas Eric Dilger, Guy Eric Schalnat, and other Contributing
+Authors.
+
+                                   ...
+
+This software includes the ZLIB Compression Library, written by
+Jean-loup Gailly and Mark Adler.
+
+                                   ...
+
+This software incorporates libmng, the reference MNG library,
+written by Gerard Juyn.
+
+                                   ...
+
+This software includes portions of the amp MPEG audio decoder,
+copyright 1996, 1997 by Tomislav Uzelac.
+
+                                   ...
+
+This software includes the libvorbis Ogg Vorbis decoder.  The
+following notice is reproduced in accordance with the libvorbis
+copyright notice:
+
+        Copyright (c) 2001, Xiphophorus
+
+        Redistribution and use in source and binary forms, with or
+        without modification, are permitted provided that the
+        following conditions are met:
+
+        - Redistributions of source code must retain the above
+        copyright notice, this list of conditions and the following
+        disclaimer.
+
+        - Redistributions in binary form must reproduce the above
+        copyright notice, this list of conditions and the following
+        disclaimer in the documentation and/or other materials
+        provided with the distribution.
+
+        - Neither the name of the Xiphophorus nor the names of its
+        contributors may be used to endorse or promote products
+        derived from this software without specific prior written
+        permission.
+
+        THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND
+        CONTRIBUTORS ``AS IS'' AND ANY EXPRESS OR IMPLIED
+        WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
+        WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR
+        PURPOSE ARE DISCLAIMED.  IN NO EVENT SHALL THE REGENTS OR
+        CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
+        SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT
+        NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
+        LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION)
+        HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
+        CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR
+        OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
+        SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+
+                                   ...
+
+This software incorporates Dr Brian Gladman's Secure Hash Algorithm 2
+library.  The following notice is reproduced per the library license terms:
+
+        Copyright (c) 2002, Dr Brian Gladman <brg@gladman.me.uk>,
+        Worcester, UK.  All rights reserved.
+
+        LICENSE TERMS
+
+        The free distribution and use of this software in both
+        source and binary form is allowed (with or without changes)
+        provided that:
+
+        1. distributions of this source code include the above
+           copyright notice, this list of conditions and the following
+           disclaimer;
+
+        2. distributions in binary form include the above copyright
+           notice, this list of conditions and the following disclaimer
+           in the documentation and/or other associated materials;
+
+        3. the copyright holder's name is not used to endorse products 
+           built using this software without specific written permission. 
+
+        ALTERNATIVELY, provided that this notice is retained in
+        full, this product may be distributed under the terms of the
+        GNU General Public License (GPL), in which case the
+        provisions of the GPL apply INSTEAD OF those given above.
+
+        DISCLAIMER
+
+        This software is provided 'as is' with no explicit or
+        implied warranties in respect of its properties, including,
+        but not limited to, correctness and/or fitness for purpose.

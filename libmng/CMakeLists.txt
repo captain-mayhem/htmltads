@@ -255,7 +255,7 @@ CONFIGURE_FILE("${CMAKE_CURRENT_SOURCE_DIR}/config.h.cmake.in"
 FIND_PACKAGE(MAN)
 #FIND_PACKAGE(GZIP)
 #
-ADD_SUBDIRECTORY(doc)
+#ADD_SUBDIRECTORY(doc)
 #
 #---------------------------------------------------
 #
