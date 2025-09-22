@@ -1,0 +1,810 @@
+<html>
+<head>
+   <link rel="stylesheet" type="text/css" href="dlg.css"></link>
+   <title>TADS Workbench</title>
+</head>
+<body onload="javascript:initPage();">
+
+<script type="text/javascript">
+var args = window.dialogArguments ||
+  {
+    tadsVer: 3,
+    zipName: '',
+    instName: '',
+    srcZipName: '',
+    changeZip: function() { args.zipName = 'test.zip'; },
+    changeInst: function() { args.instName = 'test_setup.exe'; },
+    changeSrcZip: function() { args.srcZipName = 'testSrc.zip' },
+    unclose: function() { },
+    publish: function() { this.step = 0; return true; },
+    step: 0,
+    getStatus: function()
+    {
+        this.step += 2;
+        if (this.step > 100)
+            return "N|100|Done|";
+        else
+            return "Y|" + this.step + "|Working|Step #" + this.step;
+    },
+    getResult: function() { return false; }
+  };
+var tadsVer = args.tadsVer;
+var uploadZip = false, uploadInst = false, uploadSrc = false;
+
+function initPage()
+{
+    args.unclose();
+    document.onkeypress = docChar;
+    curFocus.initialize();
+}
+
+var curFocus = {
+   initialize: function()
+   {
+      var f = this;
+      f.focusEle = null;
+      document.onfocusin = function(e) { f.focusRead(e); };
+   },
+   focusRead: function(e)
+   {
+      e = e || window.event;
+      this.focusEle = e.target || e.srcElement;
+   },
+   getFocus: function() { return this.focusEle; },
+   getFocusNodeName: function()
+   {
+      var f = this.getFocus();
+      return f && f.nodeName.toUpperCase();
+   },
+   getFocusInputType: function()
+   {
+      var f = this.getFocus();
+      return (this.getFocusNodeName() == "INPUT" && f.type);
+   },
+   isTextInput: function()
+   {
+      var t = this.getFocusInputType();
+      return (t == "text" || t == "password");
+   },
+   isButton: function()
+   {
+      var n = this.getFocusNodeName();
+      var t = this.getFocusInputType();
+      return (n == "A" || t == "button" || t == "submit");
+   }
+};
+
+function docChar(event)
+{
+    event = event || window.event;
+    var key = (window.event ? event.keyCode : event.which);
+
+    if (!curFocus.isButton() && (key == 13 || key == 10))
+    {
+        nextPage();
+        return false;
+    }
+
+    if (!curFocus.isTextInput())
+    {
+        if (key == 78 || key == 110 /* N, n */)
+        {
+            nextPage();
+            return false;
+        }
+        if (key == 80 || key == 112 /* P, p */)
+        {
+            prevPage();
+            return false;
+        }
+    }
+
+    return true;
+}
+
+</script>
+
+<div class=topbar>
+   Publishing Wizard
+</div>
+
+<!-- ------------------------------------------------------------------- -->
+<div class=main id="Page1">
+
+<h1>Welcome to the TADS Publishing Wizard!</h1>
+
+<p>When your game is ready to go public, this wizard will take
+you through the process of publishing it on the Internet.  This will...
+
+<ul>
+   <li>Build the release files for your game
+   <li>Upload the release files to the
+       <a href="http://www.ifarchive.org" target="_blank">IF Archive</a>
+       <a href="#" class="helplink"
+          onclick="javascript:return helpWin('ifarchive');">More info</a>
+   <li>Create (or update) a listing for your game on
+       <a href="http://ifdb.tads.org" target="_blank">IFDB</a>
+       <a href="#" class="helplink"
+          onclick="javascript:return helpWin('ifdb');">More info</a>
+</ul>
+
+<p><b>Note:</b> This Wizard can only perform uploads to the IF Archive.
+If you plan to distribute your game through another site instead, you'll
+have to upload your files separately.  However, you can still use this
+Wizard to create your IFDB page: when the Wizard asks you to select files
+to upload, simply leave all of the files unselected.
+
+
+<div class="helpwin" id="help-ifarchive">
+   <h1>About the IF Archive</h1>
+   
+   <p>The IF Archive
+   (<a href="http://www.ifarchive.org" target="_blank">www.ifarchive.org</a>)
+   hosts the premiere collection of all things IF.  The Archive's mission
+   is to be the Internet's central repository of IF games, authoring tools,
+   and historical materials.
+
+   <p>Virtually all modern free IF games are available on the Archive.
+   If you're planning to publish your game as free software, the Archive
+   is the place to upload it.
+</div>
+
+<div class="helpwin" id="help-ifdb">
+   <h1>About IFDB</h1>
+
+   <p>The Interactive Fiction Database
+   (<a href="http://ifdb.tads.org" target="_blank">ifdb.tads.org</a>)
+   is a game catalog and recommendation exchange for IF.  IFDB gives
+   each game its own page, which includes bibliographic data, cover
+   art, reviews, download links, and news.  IFDB aims to provide a
+   comprehensive catalog of IF, past and present.
+
+   <p>An IFDB listing for your game will help players find
+   your game, and lets them share their thoughts on it with you and
+   other players.
+</div>
+
+</div>
+
+<!-- ------------------------------------------------------------------- -->
+<div class=main id="Page2">
+
+<h1>Pre-Publication Checklist</h1>
+
+<ul class=doublespace>
+
+   <li>Is your game tested and polished to your satisfaction?
+
+   <li>Is your GameInfo record complete and accurate?
+   This is the basis for your IFDB listing.
+   <a href="#" class="helplink"
+      onclick="javascript:return helpWin('gameinfo');">More info</a>
+
+   <li>Does your GameInfo record include an IFID?  If it doesn't,
+   assign an IFID using the menu command <b>Tools | Generate IFID</b>.
+   <a href="#" class="helplink"
+      onclick="javascript:return helpWin('ifid');">More info</a>
+</ul>
+   
+<div class="helpwin" id="help-ifid">
+   <h1>What's an IFID?</h1>
+
+   <p>An IFID is a unique identifier for your game, similar to an ISBN
+   for a book.  This is important to IFDB and the IF Archive because it
+   definitively identifies your game, even if there are others with
+   similar titles.
+
+   <p>If you used the New Project Wizard to create your project, the
+   Wizard created an IFID for you automatically and wrote it into the
+<script type="text/javascript">
+document.write(tadsVer == 2 ? "getGameInfo function" : "versionInfo object")
+</script>
+   in your main source code file.  If you created your game from scratch,
+   you'll have to fill it in manually.  Use the menu command <b>Tools |
+   Generate IFID</b> to assign an IFID, then copy the new IFID into your
+   source code.
+
+</div>
+
+<div class="helpwin" id="help-gameinfo">
+   <h1>About GameInfo</h1>
+
+   <p>GameInfo is your game's "card catalog" entry.  It specifies
+      the bibliographic data that's needed for your game's
+      IFDB listing: title, author, publication date, genre, etc.
+
+   <p>The GameInfo record goes right in your game's source code.
+   If you created your game with the New Project Wizard, it's already
+   set up for you.  If not, you'll need to add it manually.
+
+<script type="text/javascript">
+var s = (tadsVer == 3 ?
+         "For TADS 3, this is an object called <tt>versionInfo</tt> of "
+         + "class <tt>GameID</tt>.  If you're not sure how this works, "
+         + "see the GameID documentation." :
+         "For TADS 2, this is a function called <tt>getGameInfo</tt>. "
+         + "If you're not sure how this works, look up getGameInfo "
+         + "in the documentation.");
+document.write(s);
+</script>
+</div>
+
+</div>
+
+<!-- ------------------------------------------------------------------- -->
+<div class=main id="Page3">
+
+<h1>Is your game already on IFDB?</h1>
+
+<p>Have you previously mentioned your game in public?  If so, it's possible
+that <i>someone else</i> has already created an IFDB page for your game.
+
+<p>To avoid redundant listings, please <a
+href="http://ifdb.tads.org/search">search IFDB</a> if you think
+there's a chance someone could have created a page for your game
+already.  If you find one, it's okay - you can edit yourself it to
+correct errors or add missing information.  Just open the page in
+your browser, and click the <b>Edit this page</b> link near the
+bottom.
+
+<p>The most important thing to do if you find an existing listing is to
+<b>add your IFID</b> to the page.  The Publishing Wizard can update
+the existing page only if the page has your IFID.
+
+<p>One more detail.  The Publishing Wizard can only update an existing
+page if <b>you</b> were the last person to edit the page.  If there's
+an existing listing, you'll have to make any desired changes manually
+if another user has edited the page more recently than you have.
+This is to make sure that you don't accidentally overwrite another
+user's updates without at least looking at them first.
+
+</div>
+
+<!-- ------------------------------------------------------------------- -->
+<div class=main id="Page4">
+
+<h1>IF Archive Guidelines</h1>
+
+<p>The IF Archive's maintainers are volunteers, so please be
+respectful of their time.  Every time you upload something to the
+Archive, they have to take the time to review it and move it to the
+proper location.  To avoid overloading the Archive's maintainers,
+please follow these guidelines:
+
+<ul class=doublespace>
+
+   <li>During the first month or so after your game is first released, 
+   please don't send updates to the Archive more often than about
+   <b>once a week</b>.
+
+   <li>After that, the update frequency should drop
+   off to no more than about <b>once a month</b>.
+
+</ul>
+
+<p>These guidelines are <b>minimum</b> times to wait between Archive
+uploads.  You're certainly not required to send updates this often, or
+even at all.
+
+</div>
+
+
+<!-- ------------------------------------------------------------------- -->
+<div class=main id="Page5" leavePage="checkUploads">
+
+<script type="text/javascript">
+function checkUploads(dir)
+{
+    if (dir < 0)
+        return true;
+    
+    if (document.getElementById("ckUpInst").checked
+        && !document.getElementById("ckUpZip").checked)
+    {
+        alert("The IF Archive requests that you DO NOT submit a Windows-only "
+              + "version, unless you ALSO include a portable version. Please "
+              + "select the ZIP version before proceeding.");
+        return false;
+    }
+
+    if (!checkUpload("ckUpZip", args.zipName, "Release ZIP")
+        || !checkUpload("ckUpInst", args.instName, "Installer")
+        || !checkUpload("ckUpSrc", args.srcZipName, "Source ZIP"))
+        return false;
+
+    return true;
+}
+function checkUpload(ckid, val, desc)
+{
+    if (document.getElementById(ckid).checked && !trim(val))
+    {
+        alert("Please select a name for your " + desc + " file.");
+        return false;
+    }
+    return true;
+}
+</script>
+
+<h1>IF Archive Uploads</h1>
+
+<p>Please select the packages you'd like to upload to the IF Archive.
+You don't have to select any files if you plan to distribute
+your game through a different site.
+
+<p>Note: it's a good idea to check that the names of the files you're
+uploading aren't already used by other games on the IF Archive.
+<a href="#" class="helplink"
+ onclick="javascript:return helpWin('check-archive');">How do I check?</a>
+
+<div class=indented>
+
+<p>
+<input type=checkbox id=ckUpZip value=1 checked>
+<label for=ckUpZip>Release ZIP package</label>
+(Current name: <span id=zipName></span> &nbsp;-
+  <a href="#" onclick="javascript:changeZipFile();return false;">change</a>)
+<br><span class=details><b>Recommended.</b> A Zip file containing the
+   compiled game plus any "feelies" you've added to the project.  This is
+   the "universal" version of your game that works on any computer with
+   a TADS Interpreter.
+   </span>
+
+<p>
+<input type=checkbox id=ckUpInst value=1>
+<label for=ckUpInst>Windows Installer package</label>
+(Current name: <span id=instName></span> &nbsp;-
+  <a href="#" onclick="javascript:changeInstFile();return false;">change</a>)
+<br><span class=details>An automatic SETUP program for your game
+   on Windows. This is the easiest way for players to run your game on
+   Windows, but it <b>only</b> works on Windows.  If you select this
+   version, please <b>also</b> select the Release ZIP version above.
+   </span>
+
+<p>
+<input type=checkbox id=ckUpSrc value=1>
+<label for=ckUpSrc>Source files (ZIP)</label>
+(Current name: <span id=srcZipName></span> &nbsp;-
+  <a href="#" onclick="javascript:changeSrcZipFile();return false;">change</a>)
+<br><span class=details>A Zip file with your game's source code. Include
+   this if you want to make your source code public.
+   </span>
+
+</div>
+
+
+
+
+<div class="helpwin" id="help-check-archive">
+   <h1>Check the Archive</h1>
+
+   <p>To make sure no one else on the Archive is already using your
+   file name(s), simply go to the
+   <a href="http://www.ifarchive.org/indexes/if-archiveXgamesXtads.html"
+   target="_blank">TADS Directory</a> on the Archive and scan the list for
+   an existing file with the same name as your file.  (The Archive files
+   are listed in alphabetical order.)
+
+   <p>Of course, it's okay to re-use a name if the old file is a past
+   version of your own game.  In this case you probably do want to use the
+   same name so that you overwrite the old copy.
+</div>
+
+
+</div>
+
+
+<!-- ------------------------------------------------------------------- -->
+<div class=main id="Page6" leavePage="checkEntries">
+
+<h1>Your Contact Information</h1>
+
+<p>The Publishing Wizard needs your IFDB login information to
+create or update your game's listing on IFDB.  Your credentials
+won't be stored anywhere on your computer or used for any other purpose.
+
+<p>If you don't already have an IFDB account,
+<a href="http://ifdb.tads.org/newuser" target="_blank">click here</a>
+to create one.
+
+<p>
+<table>
+   <tr><td><span class=inputlabel>IFDB Username:</span></td>
+      <td><input type=text id=ifdbUserName size=40
+           onchange="javascript:setIfdbUserName();"></td>
+   </tr>
+   <tr><td><span class=inputlabel>IFDB Password:</span></td>
+      <td><input type=password id=ifdbPassword size=40></td>
+   </tr>
+</table>
+
+<p>We also need your email address, in case the IF Archive managers
+need to contact you about your upload.  Please be sure to enter a
+working address, since your upload might be rejected if the Archive
+managers can't reach you.  This won't be stored or used for any other
+purpose.
+
+<p><span class=inputlabel>Your e-mail:</span> <input type=text id=email size=40>
+
+<script type="text/javascript">
+function checkEntries(dir)
+{
+    if (dir < 0)
+        return true;
+
+    if (!trim(document.getElementById("ifdbUserName").value)
+        || !trim(document.getElementById("ifdbPassword").value)
+        || !trim(document.getElementById("email").value))
+    {
+        alert("Please fill in your credentials.");
+        return false;
+    }
+    return true;
+}
+function setIfdbUserName()
+{
+    var u = document.getElementById("ifdbUserName");
+    var e = document.getElementById("email");
+    if (u.value && !e.value)
+        e.value = u.value;
+}
+</script>
+
+</div>
+
+<!-- ------------------------------------------------------------------- -->
+<div class=main id="Page7" enterPage="prepareReview()" showPublishButton=1>
+
+<h1>Final Review</h1>
+
+<p>Please double-check the following information.  If everything looks
+correct, click Publish to start the publishing process.
+
+<div class=indented style="margin-top: 1em;">
+
+IFDB Username: <b><span id="ifdbUserNameRvw"></span></b><br>
+Email address: <b><span id="emailRvw"></span></b><br>
+
+<p>
+File(s) to upload:
+<div class=indented><span id="uploadList"></span></div>
+
+</div>
+
+<div id="statusMessages">
+</div>
+   
+</div>
+
+<script type="text/javascript">
+function prepareReview()
+{
+    document.getElementById("ifdbUserNameRvw").innerHTML =
+        htmlify(document.getElementById("ifdbUserName").value);
+    document.getElementById("emailRvw").innerHTML =
+        htmlify(document.getElementById("email").value);
+
+    var lst = [];
+    if (document.getElementById("ckUpZip").checked)
+        lst.push("Release ZIP (" + args.zipName + ")");
+    if (document.getElementById("ckUpInst").checked)
+        lst.push("Windows Installer (" + args.instName + ")");
+    if (document.getElementById("ckUpSrc").checked)
+        lst.push("Source files (" + args.srcZipName + ")");
+
+    if (lst.length)
+        lst = lst.join("<br>");
+    else
+        lst = "<i>none</i>";
+
+    document.getElementById("uploadList").innerHTML = lst;
+          
+}
+</script>
+
+<!-- ------------------------------------------------------------------- -->
+<div class=main id="Page100" cancelFunc="cancelPublish()">
+
+   <h1>Publication in progress...</h1>
+
+   <div style="text-align:center;width:100%;">
+
+      <div style="margin: 2em 0 2em 0;">
+         <b><span id="statMsg">Initializing</span></b><br>
+         <span id="statSubMsg" class=details></span>
+      </div>
+      <br>
+      <div style="position:relative; top:2em; margin: 2em 0 1em 0;">
+         <div id="statPctBar"
+             style="position:absolute;width:100px;height:17px;z-index:2;
+               background:url('progress1.gif');">
+         </div>
+         <img src="progress0.gif" border=0>
+      </div>
+      <br>
+      <span id="statPctTxt" class=details></span>
+   </div>
+
+</div>
+
+<script type="text/javascript">
+var statThread = null;
+function statusUpdate()
+{
+    var m = args.getStatus().split('|');
+    setStatus(m[0] == 'Y', parseInt(m[1]), m[2], m[3]);
+}
+function setStatus(running, pct, msg, subMsg)
+{
+    if (running)
+    {
+        document.getElementById("statMsg").innerHTML = htmlify(msg);
+        document.getElementById("statSubMsg").innerHTML = htmlify(subMsg);
+        if (pct <= 100)
+        {
+            document.getElementById("statPctBar").style.width =
+                (pct/100 * 250) + "px";
+            document.getElementById("statPctTxt").innerHTML =
+                pct + "% complete";
+        }
+    }
+    else
+    {
+        if (statThread)
+        {
+            clearInterval(statThread);
+            statThread = null;
+        }
+        goToPage(args.getResult() ? 200 : 300);
+    }
+}
+</script>
+
+<!-- ------------------------------------------------------------------- -->
+<div class=main id="Page200" hasCloseButton="yes" enterPage="prepareDone()">
+
+<h1>Success!</h1>
+
+<p>Congratulations! Your game has been successfully published!
+
+<div id="archiveNotes">
+   <p>Note that your IF Archive uploads won't be visible until
+   they're approved, which might take a few days.
+   IFDB will hide the download links to these files until they're
+   posted on the Archive.  IFDB will monitor the Archive and
+   automatically show the links once they're working.  If you have
+   any questions about your Archive upload, please contact the
+   administrators - see the <a
+   href="http://www.ifarchive.org/if-archive/README"
+   target="_blank">README file</a> for help.
+</div>
+
+<p>Now that your game is published, you might want to post an announcement
+to <a href="news:rec.games.int-fiction">rec.games.int-fiction</a>
+and/or <a href="news:rec.arts.int-fiction">rec.arts.int-fiction</a>.
+If you don't have a newsreader, try Google Groups:
+<a href="http://groups.google.com/group/rec.games.int-fiction" target="_blank">
+   rec.games.int-fiction</a>,
+<a href="http://groups.google.com/group/rec.arts.int-fiction" target="_blank">
+   rec.arts.int-fiction</a>.
+
+</div>
+
+<script type="text/javascript">
+function prepareDone()
+{
+    document.getElementById("archiveNotes").style.display =
+        (uploadZip || uploadInst || uploadSrc ? "" : "none");
+}
+</script>
+
+<!-- ------------------------------------------------------------------- -->
+<div class=main id="Page300" hasCloseButton="yes">
+
+<h1>Publication Failed</h1>
+
+<p>An error occurred during the publication process - the game has
+not been published.  Please refer to the Debug Log window for details
+on what went wrong.  After you correct the error, you can try running
+the Publish command again.
+
+</div>
+
+<!-- ------------------------------------------------------------------- -->
+<div class=botbar>
+   <input id="prevButton" type=button value="<  Previous "
+       onclick="javascript:prevPage();">
+   <input id="nextButton" type=button value=" Next  >"
+       onclick="javascript:nextPage();">
+   <input id="cancelButton" type=button value=" Cancel "
+       onclick="javascript:cancelDialog();">
+   <input id="goButton" type=button value=" Publish! "
+     onclick="javascript:publish();">
+</div>      
+
+<!-- ------------------------------------------------------------------- -->
+<script type="text/javascript">
+
+var pageno = 0;
+var pageEle = null;
+goToPage(1);
+document.onmousedown = function(event)
+{
+    var e = event || window.event;
+    var t = e.target || e.srcElement;
+    while (t)
+    {
+        if (t.nodeName == "A")
+            return true;
+        t = t.parentNode;
+    }
+    closeHelpWin();
+    return true;
+}
+    
+function getPage(n)
+{
+    return document.getElementById("Page" + n);
+}
+function goToPage(n)
+{
+    if (pageno != n)
+    {
+        var pg;
+        var dir = (n < pageno ? -1 : 1);
+        
+        if (pageno)
+        {
+            if (pgEle.leavePage && !eval(pgEle.leavePage + "(" + dir + ")"))
+                return;
+            
+            pgEle.style.display = "none";
+        }
+
+        pgEle = pg = getPage(n);
+        pg.style.display = "block";
+        pageno = n;
+
+        var inp = pg.getElementsByTagName("input");
+        for (var i = 0 ; i < inp.length ; ++i)
+        {
+            if (inp[i].type == "text" || inp[i].type == "password")
+            {
+                inp[i].focus();
+                break;
+            }
+        }
+
+        if (pg.enterPage)
+            eval(pg.enterPage);
+
+        pbtn = document.getElementById("prevButton");
+        nbtn = document.getElementById("nextButton");
+        gbtn = document.getElementById("goButton");
+
+        document.getElementById("cancelButton").value =
+            ('hasCloseButton' in pg ? " Close " : " Cancel ");
+
+        pbtn.disabled = !getPage(pageno - 1);
+        nbtn.disabled = !getPage(pageno + 1);
+
+        gbtn.style.display = ('showPublishButton' in pg
+                              && pg.showPublishButton ? "" : "none");
+    }
+}
+function nextPage()
+{
+    if (getPage(pageno + 1) != null)
+        goToPage(pageno + 1);
+}
+function prevPage()
+{
+    if (pageno > 1)
+        goToPage(pageno - 1);
+}
+
+function publish()
+{
+    uploadZip = document.getElementById("ckUpZip").checked;
+    uploadInst = document.getElementById("ckUpInst").checked;
+    uploadSrc = document.getElementById("ckUpSrc").checked;
+
+    var ok = args.publish(
+        uploadZip, uploadInst, uploadSrc,
+        document.getElementById("ifdbUserName").value,
+        document.getElementById("ifdbPassword").value,
+        document.getElementById("email").value);
+
+    if (ok)
+    {
+        goToPage(100);
+        setStatus('Y', 0, "Initializing build");
+        statThread = setInterval(statusUpdate, 200);
+    }
+    else
+    {
+        goToPage(200);
+        setResult("An error occurred starting the build. The "
+                  + "publication process could not be performed.");
+    }
+}
+function cancelDialog()
+{
+    if ('cancelFunc' in pgEle)
+        eval(pgEle.cancelFunc);
+    else
+        window.close();
+}
+function cancelPublish()
+{
+    args.cancel();
+}
+
+var helpWinID = null;
+function closeHelpWin()
+{
+    if (helpWinID)
+    {
+        document.getElementById("help-" + helpWinID).style.display = "none";
+        helpWinID = null;
+    }
+}
+function helpWin(id)
+{
+    closeHelpWin();
+    document.getElementById("help-" + id).style.display = "block";
+    helpWinID = id;
+    return false;
+}
+
+function changeZipFile()
+{
+    args.changeZip();
+    updateParams();
+}
+function changeInstFile()
+{
+    args.changeInst();
+    updateParams();
+}
+function changeSrcZipFile()
+{
+    args.changeSrcZip();
+    updateParams();
+}
+
+function updateParams()
+{
+    updateParam(args.zipName, "zipName");
+    updateParam(args.instName, "instName");
+    updateParam(args.srcZipName, "srcZipName");
+}
+function updateParam(val, id)
+{
+    if (val)
+        val = "<tt>" + htmlify(val) + "</tt>";
+    else
+        val = "<i>not set</i>";
+    document.getElementById(id).innerHTML = val;
+}
+
+updateParams();
+
+function htmlify(str)
+{
+    if (str)
+        str = str.replace(/&/g, '&amp;').replace(/>/g, '&gt;')
+              .replace(/</g, '&lt;').replace(/"/g, '&#34;')
+              .replace(/'/g, '&#39;');
+    return str;
+}
+function trim(str)
+{
+    if (str)
+        str = str.replace(/^ +/, '').replace(/ +$/, '');
+    return str;
+}
+
+</script>
+
+</body>
+</html>

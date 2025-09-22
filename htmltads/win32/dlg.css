@@ -1,0 +1,98 @@
+body {
+    background: #ffffff;
+    font: 9pt/13pt Verdana, Arial, Helvetica, Sans-Serif;
+    color: #000000;
+    margin: 0;
+}
+table td {
+    font: 9pt/13pt Verdana, Arial, Helvetica, Sans-Serif;
+}
+span.inputlabel {
+    padding-right: 1em;
+    font-weight: bold;
+}
+
+div.topbar {
+    background: #f0f0f0;
+    font: 14pt Georgia, Times New Roman, Serif;
+    font-weight: bold;
+    padding: 1ex;
+}
+div.topbar span.super {
+    font-size: 60%;
+    font-weight: normal;
+}
+
+div.main {
+    position: relative;
+    padding: 1ex;
+    display: none;
+}
+div.main h1 {
+    font-size: 105%;
+    font-weight: bold;
+    margin: 1ex 0 1ex 0;
+}
+
+a.helplink {
+    font-size: 85%;
+    margin-left: 1em;
+    text-decoration: none;
+    border-bottom: 1px dotted #0000ff;
+}
+
+div.botbar {
+    position: absolute;
+    bottom: 0;
+    width: 100%;
+    padding: 1ex;
+    text-align: center;
+    background: #f0f0f0;
+}
+div.botbar input {
+    margin: 1em 1ex 1ex 0;
+}
+input.text {
+    border: 1px solid #6060b0;
+}
+textarea {
+    border: 1px solid #6060b0;
+}
+
+div.helpwin {
+    display: none;
+    position: absolute;
+    top: 0;
+    right: 0;
+    width: 80ex;
+    height: 100%;
+    z-index: 10;
+    background: #ffffa0;
+    color: #0000a0;
+    border: 1px dotted #808000;
+    margin: 0;
+    padding: 1em;
+    font: 8pt/12pt Verdana, Arial, Helvetica, Sans-Serif;
+}
+
+div.helpwin h1 {
+    margin: 0 0 1ex 0;
+}
+div.helpwin p {
+    margin: 1.5ex 0 1.5ex 0;
+}
+
+ul.doublespace li {
+    margin: 0 0 1em 0;
+}
+
+span.details {
+    font-size: 95%;
+    font-style: italic;
+    color: #707070;
+}
+
+div.indented {
+    margin-left: 2em;
+    margin-right: 1em;
+}

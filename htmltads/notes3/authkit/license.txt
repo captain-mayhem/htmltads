@@ -1,0 +1,337 @@
+License Information for TADS 3 for Windows
+------------------------------------------
+
+TADS 3 for Windows
+Copyright (c) 1997, 2013 by Michael J. Roberts.
+
+This software is a copyrighted work, which means that the copyright
+laws of the United States and other countries prohibit anyone from
+copying or distributing it without the express written permission of
+its author.  The author hereby grants anyone permission to use, copy,
+and distribute this software, without charge, subject to the following
+conditions:
+
+- You may not remove any copyright notices from the software or any
+accompanying files.
+
+- You may not resell this software for profit, except that you may
+include the TADS 3 run-time executable with a game that you developed
+with TADS 3 and which you sell for profit.  (In other words, we don't
+want you to make a profit at our expense by selling TADS itself, but
+we want TADS game developers to be able to share or sell their games,
+which necessarily include the TADS run-time, in any way they please.)
+
+- Any copies you share with others must be complete and unmodified
+from the original copies you received, and you must include this
+license and the copyright notice with all copies.
+
+- Anyone to whom you give a copy of this software receives all of the
+same permissions that you did under this License.
+
+Any games you create with TADS 3 are entirely your own to do with as
+you please.
+
+If you have any questions about this license, please contact the
+author at the email address listed later in this file.
+
+
+NO WARRANTY
+-----------
+
+Because this software is provided without charge, you assume the
+entire responsibility for determining whether it fits your needs, and
+you assume all risks related to your use of the software.
+
+This software is provided "as is," with no warranty of any kind,
+express or implied, including but not limited to implied warranties of
+merchantability and fitness for a particular purpose.  In no event
+shall the author or any other contributor to or distributor of this
+software be held liable for any damages, including without limitation
+direct, indirect, incidental, special, or consequential damages,
+arising out of the use or inability to use this software, even if any
+of these parties has been advised of the possibility of such damages.
+
+The information contained in this software is subject to change
+without notice and should not be construed as a commitment by the
+author.
+
+
+Contacting the Author
+---------------------
+
+For contact information, please visit www.tads.org.
+
+
+LIBRARY LICENSE
+---------------
+
+The TADS 3 distribution includes a collection of TADS source code
+(files whose names end in ".t" and ".h"), known as the "library",
+defining a reusable core framework for IF games - the world model,
+parser, and so on.  The library also includes a set of HTML, CSS,
+Javascript, graphics, and other miscellaneous files used in the Web
+UI; these are grouped in the "webuires" folder.  You may use and
+redistribute the library source code, and you may modify the library
+code and create derived works based on the library, subject to the
+condition that you include the original copyright notice on each
+original or modified file that you redistribute in source form.  You
+may add your own copyright notice as well to cover the changes you
+make.
+
+If you create a new work based on the library, or you so extensively
+modify the library that you create a predominately new work, you must
+still include the original copyright notice, but you may make the
+original copyright notice secondary to your own and you may modify
+the original notice to indicate that your work is "based on the TADS
+3 library."  For example, you might change the copyright notice to
+read:
+
+   My Extended Library, copyright 2008 by John Q. Author
+   Based on the TADS 3 Library, copyright 1997, 2012 by Michael J. Roberts.
+
+A "new work based on the library" is one that incorporates non-trivial
+source code from the library.  For example, if you copy entire class
+or function definitions from the library into your own code, your work
+would be based on the library code, even if you made some
+modifications to the copied definitions.  On the other hand, if you
+design new classes and functions that extend or interoperate with the
+library's code, but using new code you write from scratch, this would
+not count as a new work based on the library.  The test is simply
+whether you wrote the source code yourself, or started by copying (and
+then possibly modifying) source code from the library.
+
+If you use the library (or a modified version of the library) to
+create a game, and you distribute your game only in compiled form (as
+a ".t3" file), you are NOT required to mention the library copyright
+anywhere, but you are certainly welcome to mention us in your game's
+credits if you'd like.
+
+
+THIRD-PARTY CODE NOTICES
+------------------------
+
+This software incorporates several third-party libraries, which are
+open-source or freeware products copyrighted by their respective
+authors and subject to their own separate license terms.  The
+following credits and notices are included in accordance with the
+terms of the various third-party licenses.
+
+                                   ...
+
+This software incorporates the Scintilla text editor.  The following
+notice is included in accordance with the Scintilla license:
+
+        Copyright 1998-2003 by Neil Hodgson <neilh@scintilla.org>
+
+        All Rights Reserved 
+
+        Permission to use, copy, modify, and distribute this
+        software and its documentation for any purpose and without
+        fee is hereby granted, provided that the above copyright
+        notice appear in all copies and that both that copyright
+        notice and this permission notice appear in supporting
+        documentation. 
+
+        NEIL HODGSON DISCLAIMS ALL WARRANTIES WITH REGARD TO THIS
+        SOFTWARE, INCLUDING ALL IMPLIED WARRANTIES OF
+        MERCHANTABILITY AND FITNESS, IN NO EVENT SHALL NEIL HODGSON
+        BE LIABLE FOR ANY SPECIAL, INDIRECT OR CONSEQUENTIAL DAMAGES
+        OR ANY DAMAGES WHATSOEVER RESULTING FROM LOSS OF USE, DATA
+        OR PROFITS, WHETHER IN AN ACTION OF CONTRACT, NEGLIGENCE OR
+        OTHER TORTIOUS ACTION, ARISING OUT OF OR IN CONNECTION WITH
+        THE USE OR PERFORMANCE OF THIS SOFTWARE. 
+
+                                   ...
+
+This software incorporates XZip by Hans Dietrich, which is based on
+work by Lucian Wischik, whose work is based on Info-ZIP by Mark
+Adler et. al.  The following notice is reproduced in accordance
+with the Info-ZIP copyright notice:
+
+        Copyright (c) 1990-2005 Info-ZIP. All rights reserved. 
+
+        For the purposes of this copyright and license, "Info-ZIP" is
+        defined as the following set of individuals: 
+
+        Mark Adler, John Bush, Karl Davis, Harald Denker, Jean-Michel
+        Dubois, Jean-loup Gailly, Hunter Goatley, Ed Gordon, Ian
+        Gorman, Chris Herborth, Dirk Haase, Greg Hartwig, Robert
+        Heath, Jonathan Hudson, Paul Kienitz, David Kirschbaum, Johnny
+        Lee, Onno van der Linden, Igor Mandrichenko, Steve P. Miller,
+        Sergio Monesi, Keith Owens, George Petrov, Greg Roelofs, Kai
+        Uwe Rommel, Steve Salisbury, Dave Smith, Steven M. Schweda,
+        Christian Spieler, Cosmin Truta, Antoine Verheijen, Paul von
+        Behren, Rich Wales, Mike White This software is provided "as
+        is," without warranty of any kind, express or implied. In no
+        event shall Info-ZIP or its contributors be held liable for
+        any direct, indirect, incidental, special or consequential
+        damages arising out of the use of or inability to use this
+        software. 
+
+        Permission is granted to anyone to use this software for any
+        purpose, including commercial applications, and to alter it
+        and redistribute it freely, subject to the following
+        restrictions: 
+
+        - Redistributions of source code must retain the above
+        copyright notice, definition, disclaimer, and this list of
+        conditions.
+        
+        - Redistributions in binary form (compiled executables) must
+        reproduce the above copyright notice, definition, disclaimer,
+        and this list of conditions in documentation and/or other
+        materials provided with the distribution. The sole exception
+        to this condition is redistribution of a standard UnZipSFX
+        binary (including SFXWiz) as part of a self-extracting
+        archive; that is permitted without inclusion of this license,
+        as long as the normal SFX banner has not been removed from the
+        binary or disabled.  
+
+        - Altered versions--including, but not limited to, ports to
+        new operating systems, existing ports with new graphical
+        interfaces, and dynamic, shared, or static library
+        versions--must be plainly marked as such and must not be
+        misrepresented as being the original source. Such altered
+        versions also must not be misrepresented as being Info-ZIP
+        releases--including, but not limited to, labeling of the
+        altered versions with the names "Info-ZIP" (or any variation
+        thereof, including, but not limited to, different
+        capitalizations), "Pocket UnZip," "WiZ" or "MacZip" without
+        the explicit permission of Info-ZIP. Such altered versions are
+        further prohibited from misrepresentative use of the Zip-Bugs
+        or Info-ZIP e-mail addresses or of the Info-ZIP URL(s).
+
+        - Info-ZIP retains the right to use the names "Info-ZIP,"
+        "Zip," "UnZip," "UnZipSFX," "WiZ," "Pocket UnZip," "Pocket
+        Zip," and "MacZip" for its own source and binary releases. 
+
+                                   ...
+
+This software incorporates portions of libmba, copyright 2003 by
+Michael B. Allen <mba2000 ioplex.com>.  The following is reproduced
+in accordance with the libmba license:
+
+        The MIT License
+
+        Permission is hereby granted, free of charge, to any person
+        obtaining a copy of this software and associated documentation
+        files (the "Software"), to deal in the Software without
+        restriction, including without limitation the rights to use,
+        copy, modify, merge, publish, distribute, sublicense, and/or
+        sell copies of the Software, and to permit persons to whom the
+        Software is furnished to do so, subject to the following
+        conditions:
+
+        The above copyright notice and this permission notice shall be
+        included in all copies or substantial portions of the Software.
+
+        THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY
+        KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE
+        WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR
+        PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR
+        COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+        LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR
+        OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
+        SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+
+                                   ...
+
+Portions of this software are based on the work of the Independent
+JPEG Group.
+
+                                   ...
+
+This software incorporates the PNG Reference Library, developed by
+Andreas Eric Dilger, Guy Eric Schalnat, and other Contributing
+Authors.
+
+                                   ...
+
+This software includes the ZLIB Compression Library, written by
+Jean-loup Gailly and Mark Adler.
+
+                                   ...
+
+This software incorporates libmng, the reference MNG library,
+written by Gerard Juyn.
+
+                                   ...
+
+This software includes portions of the amp MPEG audio decoder,
+copyright 1996, 1997 by Tomislav Uzelac.
+
+                                   ...
+
+This software includes the libvorbis Ogg Vorbis decoder.  The
+following notice is reproduced in accordance with the libvorbis
+copyright notice:
+
+        Copyright (c) 2001, Xiphophorus
+
+        Redistribution and use in source and binary forms, with or
+        without modification, are permitted provided that the
+        following conditions are met:
+
+        - Redistributions of source code must retain the above
+        copyright notice, this list of conditions and the following
+        disclaimer.
+
+        - Redistributions in binary form must reproduce the above
+        copyright notice, this list of conditions and the following
+        disclaimer in the documentation and/or other materials
+        provided with the distribution.
+
+        - Neither the name of the Xiphophorus nor the names of its
+        contributors may be used to endorse or promote products
+        derived from this software without specific prior written
+        permission.
+
+        THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND
+        CONTRIBUTORS ``AS IS'' AND ANY EXPRESS OR IMPLIED
+        WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
+        WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR
+        PURPOSE ARE DISCLAIMED.  IN NO EVENT SHALL THE REGENTS OR
+        CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
+        SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT
+        NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
+        LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION)
+        HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
+        CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR
+        OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
+        SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+
+                                   ...
+
+This software incorporates Dr Brian Gladman's Secure Hash Algorithm 2
+library.  The following notice is reproduced per the library license terms:
+
+        Copyright (c) 2002, Dr Brian Gladman <brg@gladman.me.uk>,
+        Worcester, UK.  All rights reserved.
+
+        LICENSE TERMS
+
+        The free distribution and use of this software in both
+        source and binary form is allowed (with or without changes)
+        provided that:
+
+        1. distributions of this source code include the above
+           copyright notice, this list of conditions and the following
+           disclaimer;
+
+        2. distributions in binary form include the above copyright
+           notice, this list of conditions and the following disclaimer
+           in the documentation and/or other associated materials;
+
+        3. the copyright holder's name is not used to endorse products 
+           built using this software without specific written permission. 
+
+        ALTERNATIVELY, provided that this notice is retained in
+        full, this product may be distributed under the terms of the
+        GNU General Public License (GPL), in which case the
+        provisions of the GPL apply INSTEAD OF those given above.
+
+        DISCLAIMER
+
+        This software is provided 'as is' with no explicit or
+        implied warranties in respect of its properties, including,
+        but not limited to, correctness and/or fitness for purpose.

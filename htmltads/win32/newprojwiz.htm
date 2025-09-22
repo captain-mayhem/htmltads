@@ -1,0 +1,565 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN" "http://www.w3.org/TR/html4/loose.dtd">
+<html>
+<head>
+   <link rel="stylesheet" type="text/css" href="dlg.css"></link>
+   <title>TADS Workbench</title>
+</head>
+<body onload="javascript:initPage();">
+
+<script type="text/javascript">
+function ele(name)
+{
+    return document.getElementById(name);
+}
+var args = window.dialogArguments ||
+{
+    unclose: function() { },
+    createProject: function() { alert("Create project!"); },
+    choosePath: function(old) { return prompt("Select path", old); },
+    getProjectInfoCount: function() { return this.pt.length; },
+    getProjectInfo: function(i) { return this.pt[i]; },
+
+    pt: [
+        "({sequence:2,id:\"startA3\",name:\"Adv3 - Advanced\",desc:\""
+         + "Create a game based on the Adv3 library, with a skeleton "
+         + "source file containing the minimal definitions needed "
+         + "to compile the project.\"})",
+
+        "({sequence:1,id:\"startI3\",name:\"Adv3 - Introductory\",desc:\""
+         + "Create a game based on the Adv3 library, "
+         + "the standard TADS 3 foundation for Interactive Fiction "
+         + "projects. This version sets you up with a starter source "
+         + "file with a simple, working game scenario, providing "
+         + "examples of the basic objects found in almost every IF game.\"})"
+    ]
+};
+
+function initPage()
+{
+    args.unclose();
+    document.onkeypress = docChar;
+
+    initProjectTypeList();
+}
+
+var curFocus = {
+   getFocus: function() { return document.activeElement; },
+   getFocusNodeName: function()
+   {
+      var f = this.getFocus();
+      return f && f.nodeName.toUpperCase();
+   },
+   getFocusInputType: function()
+   {
+      var f = this.getFocus();
+      return (this.getFocusNodeName() == "INPUT" && f.type);
+   },
+   isTextInput: function()
+   {
+       var n = this.getFocusNodeName();
+      var t = this.getFocusInputType();
+      return (n == "TEXTAREA" || t == "text" || t == "password");
+   },
+   isButton: function()
+   {
+      var n = this.getFocusNodeName();
+      var t = this.getFocusInputType();
+      return (n == "A" || t == "button" || t == "submit");
+   }
+};
+
+function docChar(event)
+{
+    event = event || window.event;
+    var key = (window.event ? event.keyCode : event.which);
+
+    if (!curFocus.isButton() && !curFocus.isTextInput()
+        && (key == 13 || key == 10))
+    {
+        nextPage();
+        return false;
+    }
+    if (key == 27)
+    {
+        cancelDialog();
+        return false;
+    }
+
+    if (!curFocus.isTextInput())
+    {
+        if (key == 78 || key == 110 /* N, n */)
+        {
+            nextPage();
+            return false;
+        }
+        if (key == 80 || key == 112 /* P, p */)
+        {
+            prevPage();
+            return false;
+        }
+    }
+
+    return true;
+}
+
+</script>
+
+<div class=topbar>
+   New Project Starter
+</div>
+
+<!-- ------------------------------------------------------------------- -->
+<div class=main id="Page1">
+
+<h1>Welcome to the TADS Project Starter!</h1>
+
+<p>This process will help you get started by creating a
+simple skeleton for your game, with all of the essential pieces
+in place so that you can immediately compile and run your game.
+
+<p>(Note: if you're working with an existing game, don't
+use the Project Starter.  Instead, click Cancel, then use
+the Open Project command on the File menu.)
+
+<p>Click the Next button to get started.
+
+
+</div>
+
+<!-- ------------------------------------------------------------------- -->
+<div class=main id="Page2">
+
+<h1>Name and location</h1>
+
+<p>The first step is to choose a name and folder location for your
+project.
+
+<p><b>Project Name.</b> This is used for naming files in the
+project, so it has to be a valid Windows file name. It
+can't contain any of these characters: \ / : * ? " &lt; &gt; | 
+<br><input class="text" type="text" size=50 id="projectName">
+
+<p><b>Folder location.</b>
+We recommend creating a new folder for each project.  This keeps all of
+the project's files together in one place, and keeps them separate
+from files belonging to other projects or other miscellaneous files.
+<br><input class="text empty" type="text" size=50 id="projectPath"
+   onfocus="javascript:var f=this;setTimeout(function() { f.blur(); }, 0);"
+   onclick="javscript:choosePath(this);"
+   value="Click to select">
+
+<style type="text/css">
+#Page2 input {
+    width: 60ex;
+}
+#projectPath.empty {
+    color: #808080;
+    font-style: italic;
+}
+</style>
+
+<script type="text/javascript">
+function choosePath(f)
+{
+    var txt = args.choosePath(/\bempty\b/.test(f.className) ? "" : f.value);
+    if (txt) {
+        f.value = txt;
+        f.className = f.className.replace(/\s+\bempty\b/g, "");
+    }
+}
+function leavePage2(dir)
+{
+    if (dir < 0)
+        return true;
+    
+    var namefld = ele("projectName");
+    var pathfld = ele("projectPath");
+    if (/[\\\/:*?"<>|]/.test(namefld.value)) {
+        alert("The project name can't use any of these characters: "
+              + "\ / : * ? \" < > |");
+        namefld.focus();
+        return false;
+    }
+    if (/^\s*$/.test(namefld.value)) {
+        alert("Please choose a name for your project.");
+        namefld.focus();
+        return false;
+    }
+    
+    if (/\bempty\b/.test(pathfld.className)) {
+        alert("Please choose a folder location for the project.");
+        return false;
+    }
+
+    return true;
+}
+</script>
+
+
+</div>
+
+<!-- ------------------------------------------------------------------- -->
+<div class=main id="Page3">
+
+<h1>Project type</h1>
+
+<p>Please select the type of project you'd like to create.
+
+<div id="projectTypeList">
+</div>
+
+<style type="text/css">
+#projectTypeList {
+    margin: 1em;
+    border: 1px solid #808080;
+    overflow-y: scroll;
+}
+.projectTypeItem {
+    padding: 1ex 1em;
+    border-bottom: 1px dotted #808080;
+}
+.projectTypeItem.even {
+}
+.projectTypeItem.odd {
+}
+.projectTypeName {
+    font-weight: bold;
+}
+.projectTypeItem:hover {
+    background: #e0ffff;
+}
+.projectTypeItem:active {
+    background: #80ffff;
+}
+.projectTypeItem.selected {
+    background: #ffff00;
+}
+.projectTypeDesc {
+    font-size: 85%;
+    line-height: 1.25;
+}
+</style>
+<script type="text/javascript">
+function initProjectTypeList()
+{
+    // load the project starter list
+    var n = args.getProjectInfoCount();
+    for (var i = 0, lst = [] ; i < n ; ++i)
+        lst.push(eval(args.getProjectInfo(i)));
+
+    // sort on sequence number, then on name
+    lst.sort(function(a, b) {
+        if (a.sequence && b.sequence)
+            return parseInt(a.sequence) - parseInt(b.sequence);
+        else if (a.sequence)
+            return -1;
+        else if (b.sequence)
+            return 1;
+        else {
+            var an = (a.name || "").toLowerCase();
+            var bn = (b.name || "").toLowerCase();
+            return (an < bn ? -1 : an > bn ? 1 : 0);
+        }
+    });
+
+    // build the display list
+    var lstele = ele("projectTypeList");
+    for (var i = 0 ; i < n ; ++i)
+    {
+        var t = lst[i];
+        var div = document.createElement("DIV");
+        div.className = "projectTypeItem " + (i % 2 ? "odd" : "even")
+                        + (i == 0 ? " first" : "");
+        div.onclick = (function(div) { return function(event) {
+            var sel = getSelectedProject();
+            if (sel)
+                sel.className = sel.className.replace(/\s*\bselected\b/g, "");
+            div.className += " selected";
+        }; })(div);
+        div.innerHTML =
+            "<input class=\"tplfile\" type=\"hidden\" value=\""
+            + attrify(t.id) + "\">"
+            + "<div class=\"projectTypeName\">" + htmlify(t.name) + "</div>"
+            + "<div class=\"projectTypeDesc\">" + htmlify(t.desc) + "</div>";
+        lstele.appendChild(div);
+    }
+}
+function htmlify(str)
+{
+    return str.replace(/[<>&]/g, function(m) {
+        return { '<': '&lt;', '>': '&gt', '&': '&amp;' }[m];
+    });
+}
+function attrify(str)
+{
+    return str.replace(/"/g, '&#34;');
+}
+function sizer()
+{
+    var bot = ele("botbar");
+    var lst = ele("projectTypeList");
+    lst.style.height = (getPos(bot).y - getPos(lst).y - 16) + "px";
+}
+function enterPage3()
+{
+    sizer();
+}
+function leavePage3(dir)
+{
+    if (dir > 0 && !getSelectedProject())
+    {
+        alert("Please select a project type.");
+        return false;
+    }
+    return true;
+}
+function getSelectedProject()
+{
+    var lst = ele("projectTypeList");
+    for (var chi = lst.firstChild ; chi ; chi = chi.nextSibling)
+    {
+        if (/\bselected\b/.test(chi.className))
+            return chi;
+    }
+    return null;
+}
+function getSelectedProjectID()
+{
+    var div = getSelectedProject();
+    if (div)
+    {
+        for (chi = div.firstChild ; chi ; chi = chi.nextSibling)
+        {
+            if (chi.nodeName == "INPUT" && chi.className == "tplfile")
+                return chi.value;
+        }
+    }
+    return null;
+}
+function getPos(e)
+{
+    var r = e.getBoundingClientRect();
+    var de = document.documentElement;
+    var dx = de.scrollLeft, dy = de.scrollTop;
+    if (dx == 0 && dy == 0)
+    {
+        de = document.body;
+        dx = de.scrollLeft;
+        dy = de.scrollTop;
+    }
+    return {
+        x: r.left + dx,
+        y: r.top + dy,
+        width: r.right - r.left,
+        height: r.bottom - r.top
+    };
+}
+</script>
+
+</div>
+
+<!-- ------------------------------------------------------------------- -->
+<div class=main id="Page4">
+
+<h1>Bibliography</h1>
+
+<p>The bibliography information below will be stored in your game file
+so that <a href="http://ifdb.tads.org" target="_blank">IFDB</a>, the
+<a href="http://www.ifarchive.org" target="_blank">IF Archive</a>, and
+other tools can find it and display it when you upload your game.
+You can change these settings later by editing your source code.
+
+<table class="biblio">
+   <tr>
+      <td class="lbl">Title</td><td>
+         <input class="text" type="text" size=50 id="bibTitle"
+                value="Your New Game Title">
+      </td>
+   </tr>
+   <tr>
+      <td class="lbl">Author name</td><td>
+         <input class="text" type="text" size=50 id="bibAuthor"
+                value="Your Name">
+      </td>
+   </tr>
+   <tr>
+      <td class="lbl">Author email</td><td>
+         <input class="text" type="email" size=50 id="bibEmail"
+                value="your-email@host.com">
+      </td>
+   </tr>
+   <tr>
+      <td class="lbl">Description</td><td>
+         <textarea cols=50 rows=4 id="bibDesc">Put a brief "blurb" about your game here</textarea>
+      </td>
+   </tr>
+</table>
+<style type="text/css">
+table.biblio {
+    margin: 1.5ex 0px;
+}
+table.biblio td {
+    vertical-align: middle;
+}
+table.biblio td.lbl {
+    text-align: right;
+    padding-right: 1em;
+}
+</style>
+
+</div>
+
+
+<!-- ------------------------------------------------------------------- -->
+<div class=main id="Page5">
+
+<h1>Ready to go</h1>
+
+<p>Congratulations!  We're ready to create your new project.
+Just click the Create button, and Workbench will set up the files for
+your new project and open the project for you.
+
+<p>We hope you enjoy using TADS!
+
+<div style="text-align: center; margin: 1em;">
+   <input id="goButton" type=button value=" Create! "
+     onclick="javascript:createProject();">
+</div>
+
+</div>
+
+<script type="text/javascript">
+function createProject()
+{
+    var name = ele("projectName").value;
+    var path = ele("projectPath").value;
+    var typ = getSelectedProjectID();
+
+    var title = ele("bibTitle").value;
+    var author = ele("bibAuthor").value;
+    var email = ele("bibEmail").value;
+    var desc = ele("bibDesc").value;
+
+    window.close();
+    args.createProject(name, path, typ, title, author, email, desc);
+}
+</script>
+
+
+
+<!-- ------------------------------------------------------------------- -->
+<div class="botbar" id="botbar">
+   <input id="prevButton" type=button value="<  Previous " accesskey="p"
+       onclick="javascript:prevPage();">
+   <input id="nextButton" type=button value=" Next  >" accesskey="n"
+       onclick="javascript:nextPage();">
+   <input id="cancelButton" type=button value=" Cancel "
+       onclick="javascript:cancelDialog();">
+</div>      
+
+<!-- ------------------------------------------------------------------- -->
+<script type="text/javascript">
+
+var pageno = 0;
+var pageEle = null;
+goToPage(1);
+document.onmousedown = function(event)
+{
+    var e = event || window.event;
+    var t = e.target || e.srcElement;
+    while (t)
+    {
+        if (t.nodeName == "A")
+            return true;
+        t = t.parentNode;
+    }
+    return true;
+}
+    
+function getPage(n)
+{
+    return ele("Page" + n);
+}
+function goToPage(n)
+{
+    if (pageno != n)
+    {
+        var pg;
+        var dir = (n < pageno ? -1 : 1);
+        
+        if (pageno)
+        {
+            var leave = "leavePage" + pageno;
+            if (window[leave] && !window[leave](dir))
+                return;
+            
+            pgEle.style.display = "none";
+        }
+
+        pgEle = pg = getPage(n);
+        pg.style.display = "block";
+        pageno = n;
+
+        var inp = pg.getElementsByTagName("input");
+        for (var i = 0 ; i < inp.length ; ++i)
+        {
+            if (inp[i].type == "text" || inp[i].type == "password")
+            {
+                inp[i].focus();
+                inp[i].select();
+                break;
+            }
+        }
+
+        var enter = "enterPage" + pageno;
+        if (window[enter])
+            window[enter](dir);
+
+        pbtn = ele("prevButton");
+        nbtn = ele("nextButton");
+
+        ele("cancelButton").value =
+            ('hasCloseButton' in pg ? " Close " : " Cancel ");
+
+        pbtn.disabled = !getPage(pageno - 1);
+        nbtn.disabled = !getPage(pageno + 1);
+    }
+}
+function nextPage()
+{
+    if (getPage(pageno + 1) != null)
+        goToPage(pageno + 1);
+}
+function prevPage()
+{
+    if (pageno > 1)
+        goToPage(pageno - 1);
+}
+
+function cancelDialog()
+{
+    var f = "cancelPage" + pageno;
+    if (window[f])
+        window[f]();
+    else
+        window.close();
+}
+function htmlify(str)
+{
+    if (str)
+        str = str.replace(/&/g, '&amp;').replace(/>/g, '&gt;')
+              .replace(/</g, '&lt;').replace(/"/g, '&#34;')
+              .replace(/'/g, '&#39;');
+    return str;
+}
+function trim(str)
+{
+    if (str)
+        str = str.replace(/^ +/, '').replace(/ +$/, '');
+    return str;
+}
+
+</script>
+
+</body>
+</html>
