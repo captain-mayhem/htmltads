@@ -118,21 +118,21 @@ make_trx(htmlt3 htmlt3_tmp ${CMAKE_CURRENT_BINARY_DIR}/htmlt3.t3r)
 trx_target_file(htmlt3 htmlt3_file)
 
 ### t3 debugger
-add_executable(htmltdb3
+add_executable(htmltdb3_tmp
 	WIN32
 	${trt3_src}
     win32/htmltdb3.rc
 )
 
-target_include_directories(htmltdb3 PRIVATE
+target_include_directories(htmltdb3_tmp PRIVATE
 .
 win32
 win32/mpegamp
 )
 
-target_link_libraries(htmltdb3 PRIVATE
+target_link_libraries(htmltdb3_tmp PRIVATE
 	Tads::t3htm
-    Tads::tr32h
+    Tads::trd32h
 
 	PNG::PNG
     JPEG::JPEG
@@ -150,9 +150,15 @@ target_link_libraries(htmltdb3 PRIVATE
     dxguid.lib
 )
 
+make_t3r(htmltdb3 win32/about3.jpg=about.jpg win32/aboutWB3.jpg=aboutwb.jpg)
+
+make_trx(htmltdb3 htmltdb3_tmp ${CMAKE_CURRENT_BINARY_DIR}/htmltdb3.t3r)
+
+trx_target_file(htmltdb3 htmltdb3_file)
+
 ###install rules
 
 install(PROGRAMS
-	${htmlt3_file}
+	${htmlt3_file} ${htmltdb3_file}
 	DESTINATION .
 )
