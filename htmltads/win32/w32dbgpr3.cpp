@@ -357,7 +357,7 @@ public:
         tpl_tail_ = tpl;
 
         /* scan the file */
-        char *p;
+        const char *p;
         size_t rem;
         for (p = buf, rem = len ; rem != 0 ; )
         {
@@ -373,7 +373,7 @@ public:
             }
             
             /* we must have the start of a name - note it */
-            char *name_start = p;
+            const char *name_start = p;
 
             /* skip ahead to a space or colon */
             while (rem != 0 && *p != ':' && !u_ishspace(*p))
@@ -398,7 +398,7 @@ public:
             for (++p, --rem ; rem != 0 && u_ishspace(*p) ; ++p, --rem) ;
 
             /* note where the value starts */
-            char *val_start = p;
+            const char *val_start = p;
 
             /*
              *   Scan the value to get its length.  The value runs from here
@@ -406,7 +406,7 @@ public:
              *   space.  We'll also delete leading spaces on continuation
              *   lines while we're scanning.
              */
-            char *dst = p;
+            char *dst = (char*)p;
             while (rem != 0)
             {
                 /* advance to the next line */
@@ -668,7 +668,8 @@ public:
         DWORD idx = get_long_arg(params, 0);
 
         /* find the entry */
-        for (new_proj_tpl *tpl = tpl_head_ ; tpl != 0 && idx != 0 ;
+        new_proj_tpl* tpl = NULL;
+        for (tpl = tpl_head_ ; tpl != 0 && idx != 0 ;
              tpl = tpl->nxt, --idx) ;
 
         /* if we found the entry, build the result */

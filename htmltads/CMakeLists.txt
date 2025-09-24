@@ -118,9 +118,24 @@ make_trx(htmlt3 htmlt3_tmp ${CMAKE_CURRENT_BINARY_DIR}/htmlt3.t3r)
 trx_target_file(htmlt3 htmlt3_file)
 
 ### t3 debugger
+
+set(tdbt3_src
+	  ${tr3_base_src}
+    ${tdb_base_src}
+    win32/w32tdbt3.cpp
+    htmldb3.cpp
+	htmldc3.cpp
+    win32/t3main.cpp
+    win32/w32prj.cpp
+	win32/w32script.cpp
+    win32/w32t3.cpp
+    win32/w32dbgpr3.cpp
+    tadshtml3.cpp
+)
+
 add_executable(htmltdb3_tmp
 	WIN32
-	${trt3_src}
+	${tdbt3_src}
     win32/htmltdb3.rc
 )
 
@@ -131,7 +146,7 @@ win32/mpegamp
 )
 
 target_link_libraries(htmltdb3_tmp PRIVATE
-	Tads::t3htm
+	Tads::t3htm_d
     Tads::trd32h
 
 	PNG::PNG
