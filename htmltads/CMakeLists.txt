@@ -119,8 +119,34 @@ trx_target_file(htmlt3 htmlt3_file)
 
 ### t3 debugger
 
+set(tdb_base_src
+	${base_src}
+    ${mpeg_src}
+    ${xzip_src}
+
+    win32/w32nogch.cpp
+	htmldcfg.cpp
+	htmldbg.cpp
+	#win32/w32tdb.cpp
+	win32/tinyxml.cpp
+	win32/tadshtmldlg.cpp
+	win32/w32help.cpp
+	win32/itadsworkbenchiid.cpp
+	#win32/w32sci.cpp
+	win32/tbarmbar.cpp
+	win32/mditab.cpp
+	win32/tadsifid.c
+	win32/w32expr.cpp
+	win32/w32bpdlg.cpp
+	win32/w32dbgpr.cpp
+	win32/tadstab.cpp
+	win32/tadsdde.cpp
+	win32/tadsdock.cpp
+	win32/w32dbwiz.cpp
+	#win32/babelifc.cpp
+)
+
 set(tdbt3_src
-	  ${tr3_base_src}
     ${tdb_base_src}
     win32/w32tdbt3.cpp
     htmldb3.cpp

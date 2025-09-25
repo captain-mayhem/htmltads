@@ -127,7 +127,7 @@ ToolbarMenubar::ToolbarMenubar(HINSTANCE inst, HWND parent,
 
     /* subclass the toolbar, so that we can handle private messages */
     SetProp(handle_, WINPROP_SELF, (HANDLE)this);
-    defproc_ = SetWindowLong(handle_, GWL_WNDPROC, (LONG)&S_subclass_proc);
+    defproc_ = SetWindowLongPtr(handle_, GWLP_WNDPROC, (LONG_PTR)&S_subclass_proc);
 }
 
 /* ------------------------------------------------------------------------ */
@@ -137,7 +137,7 @@ ToolbarMenubar::ToolbarMenubar(HINSTANCE inst, HWND parent,
 ToolbarMenubar::~ToolbarMenubar()
 {
     /* remove our subclassing of the toolbar window */
-    SetWindowLong(handle_, GWL_WNDPROC, (LONG)defproc_);
+    SetWindowLongPtr(handle_, GWLP_WNDPROC, (LONG_PTR)defproc_);
     RemoveProp(handle_, WINPROP_SELF);
 }
 

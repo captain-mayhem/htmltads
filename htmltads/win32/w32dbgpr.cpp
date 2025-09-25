@@ -6192,8 +6192,8 @@ public:
     ~CHtmlDialogBuildSrc()
     {
         /* restore the tree control's original window procedure */
-        SetWindowLong(GetDlgItem(handle_, IDC_FLD_RSC), GWL_WNDPROC,
-                      (LONG)tree_defproc_);
+        SetWindowLongPtr(GetDlgItem(handle_, IDC_FLD_RSC), GWLP_WNDPROC,
+                      (LONG_PTR)tree_defproc_);
 
         /* remove our property from the tree control */
         RemoveProp(GetDlgItem(handle_, IDC_FLD_RSC),
@@ -6598,8 +6598,8 @@ void CHtmlDialogBuildSrc::init()
      *   hook the window procedure for the list control so that we can
      *   intercept WM_DROPFILE messages 
      */
-    tree_defproc_ = (WNDPROC)SetWindowLong(tree, GWL_WNDPROC,
-                                           (LONG)&tree_proc);
+    tree_defproc_ = (WNDPROC)SetWindowLongPtr(tree, GWLP_WNDPROC,
+                                           (LONG_PTR)&tree_proc);
 
     /* 
      *   set a property with my 'this' pointer, so we can find it in the
@@ -7126,7 +7126,7 @@ int CHtmlDialogBuildOut::do_notify(NMHDR *nm, int ctl)
                        "TADS Debugger", MB_ICONEXCLAMATION | MB_OK);
 
             /* indicate that we cannot proceed */
-            SetWindowLong(handle_, DWL_MSGRESULT,
+            SetWindowLong(handle_, DWLP_MSGRESULT,
                           PSNRET_INVALID_NOCHANGEPAGE);
             return TRUE;
         }

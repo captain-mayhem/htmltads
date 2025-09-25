@@ -1610,7 +1610,7 @@ void CHtmlDbgExprWin::open_entry_field(const CHtmlRect *text_area,
 
     /* subclass the field instance so we can hook certain messages */
     entry_fld_defproc_ =
-        (WNDPROC)SetWindowLong(entry_fld_, GWL_WNDPROC, (LONG)&fld_proc);
+        (WNDPROC)SetWindowLongPtr(entry_fld_, GWLP_WNDPROC, (LONG_PTR)&fld_proc);
 
     /* 
      *   set a property with my 'this' pointer, so that we can find it
@@ -1710,7 +1710,7 @@ void CHtmlDbgExprWin::on_entry_field_killfocus()
                                       accept_entry_update_);
 
     /* restore the text field's original window procedure */
-    SetWindowLong(fld, GWL_WNDPROC, (LONG)entry_fld_defproc_);
+    SetWindowLongPtr(fld, GWLP_WNDPROC, (LONG_PTR)entry_fld_defproc_);
 
     /* remove our property from the text field */
     RemoveProp(fld, "CHtmlDbgExprWin.parent.this");
