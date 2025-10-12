@@ -7,6 +7,8 @@ add_subdirectory(libmng)
 add_subdirectory(libogg)
 add_subdirectory(libvorbis)
 
+add_subdirectory(textindex)
+
 if (NOT WIN32)
 	return()
 endif()

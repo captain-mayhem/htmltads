@@ -127,7 +127,7 @@ set(tdb_base_src
     win32/w32nogch.cpp
 	htmldcfg.cpp
 	htmldbg.cpp
-	#win32/w32tdb.cpp
+	win32/w32tdb.cpp
 	win32/tinyxml.cpp
 	win32/tadshtmldlg.cpp
 	win32/w32help.cpp
@@ -169,6 +169,7 @@ target_include_directories(htmltdb3_tmp PRIVATE
 .
 win32
 win32/mpegamp
+win32/xzip
 )
 
 target_link_libraries(htmltdb3_tmp PRIVATE
@@ -179,6 +180,7 @@ target_link_libraries(htmltdb3_tmp PRIVATE
     JPEG::JPEG
 	MNG::MNG
     Vorbis::vorbisfile
+    Docsearch::docsearch
 
 	Htmlhelp.lib
 	Comctl32.lib

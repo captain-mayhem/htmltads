@@ -5870,7 +5870,7 @@ void CHtmlSys_dbgmain::do_create()
 
     /* "subclass" the combo box's edit field */
     searchbox_orig_winproc_ = (WNDPROC)SetWindowLong(
-        cbi.hwndItem, GWL_WNDPROC, (DWORD)&searchbox_winproc);
+        cbi.hwndItem, GWLP_WNDPROC, (UINT_PTR)&searchbox_winproc);
 
     /* use the system font in the combo */
     SendMessage(searchbox_, WM_SETFONT,
