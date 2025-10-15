@@ -8,6 +8,7 @@ add_subdirectory(libogg)
 add_subdirectory(libvorbis)
 
 add_subdirectory(textindex)
+add_subdirectory(scintilla)
 
 if (NOT WIN32)
 	return()
