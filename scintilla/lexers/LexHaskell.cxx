@@ -81,7 +81,7 @@ static void ColorizeHaskellDoc(unsigned int startPos, int length, int initStyle,
    WordList &keywords = *keywordlists[0];
    WordList &ffi      = *keywordlists[1];
 
-   StyleContext sc(startPos, length, initStyle, styler);
+   StyleContext sc(startPos, length, initStyle, reinterpret_cast<LexAccessor&>(styler));
 
    int lineCurrent = styler.GetLine(startPos);
    int state = lineCurrent ? styler.GetLineState(lineCurrent-1)

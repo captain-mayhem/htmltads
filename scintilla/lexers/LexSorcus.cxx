@@ -73,7 +73,7 @@ static void ColouriseSorcusDoc(unsigned int startPos, int length, int initStyle,
     if (initStyle == SCE_SORCUS_STRINGEOL)
         initStyle = SCE_SORCUS_DEFAULT;
 
-    StyleContext sc(startPos, length, initStyle, styler);
+    StyleContext sc(startPos, length, initStyle, reinterpret_cast<LexAccessor&>(styler));
 
     for (; sc.More(); sc.Forward())
     {

@@ -186,7 +186,7 @@ void ColouriseCamlDoc(
 	Accessor &styler)
 {
 	// initialize styler
-	StyleContext sc(startPos, length, initStyle, styler);
+	StyleContext sc(startPos, length, initStyle, reinterpret_cast<LexAccessor&>(styler));
 
 	int chBase = 0, chToken = 0, chLit = 0;
 	WordList& keywords  = *keywordlists[0];

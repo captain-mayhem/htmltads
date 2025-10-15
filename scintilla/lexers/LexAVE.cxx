@@ -77,7 +77,7 @@ static void ColouriseAveDoc(
 		initStyle = SCE_AVE_DEFAULT;
 	}
 
-	StyleContext sc(startPos, length, initStyle, styler);
+	StyleContext sc(startPos, length, initStyle, reinterpret_cast<LexAccessor&>(styler));
 
 	for (; sc.More(); sc.Forward()) {
 		if (sc.atLineEnd) {

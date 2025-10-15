@@ -61,7 +61,7 @@ static void ColouriseCssDoc(unsigned int startPos, int length, int initStyle, Wo
 	WordList &exPseudoClasses = *keywordlists[6];
 	WordList &exPseudoElements = *keywordlists[7];
 
-	StyleContext sc(startPos, length, initStyle, styler);
+	StyleContext sc(startPos, length, initStyle, reinterpret_cast<LexAccessor&>(styler));
 
 	int lastState = -1; // before operator
 	int lastStateC = -1; // before comment

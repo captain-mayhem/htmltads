@@ -48,7 +48,7 @@ static void ColouriseBaanDoc(unsigned int startPos, int length, int initStyle, W
 
 	int visibleChars = 0;
 
-	StyleContext sc(startPos, length, initStyle, styler);
+	StyleContext sc(startPos, length, initStyle, reinterpret_cast<LexAccessor&>(styler));
 
 	for (; sc.More(); sc.Forward()) {
 

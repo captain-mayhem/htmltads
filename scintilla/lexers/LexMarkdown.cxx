@@ -152,7 +152,7 @@ static void ColorizeMarkdownDoc(unsigned int startPos, int length, int initStyle
     // in the default state.
     bool freezeCursor = false;
 
-    StyleContext sc(startPos, length, initStyle, styler);
+    StyleContext sc(startPos, length, initStyle, reinterpret_cast<LexAccessor&>(styler));
 
     while (sc.More()) {
         // Skip past escaped characters

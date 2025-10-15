@@ -128,7 +128,7 @@ static void ColouriseA68kDoc (unsigned int startPos, int length, int initStyle, 
 
 
     // Instanciate a context for our source
-    StyleContext sc(startPos, length, initStyle, styler);
+    StyleContext sc(startPos, length, initStyle, reinterpret_cast<LexAccessor&>(styler));
 
 
     /************************************************************

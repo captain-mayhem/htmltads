@@ -224,7 +224,7 @@ static void ColourisePascalDoc(unsigned int startPos, int length, int initStyle,
 	int curLine = styler.GetLine(startPos);
 	int curLineState = curLine > 0 ? styler.GetLineState(curLine - 1) : 0;
 
-	StyleContext sc(startPos, length, initStyle, styler);
+	StyleContext sc(startPos, length, initStyle, reinterpret_cast<LexAccessor&>(styler));
 
 	for (; sc.More(); sc.Forward()) {
 		if (sc.atLineEnd) {

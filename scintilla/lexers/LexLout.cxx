@@ -51,7 +51,7 @@ static void ColouriseLoutDoc(unsigned int startPos, int length, int initStyle,
 	int firstWordInLine = 0;
 	int leadingAtSign = 0;
 
-	StyleContext sc(startPos, length, initStyle, styler);
+	StyleContext sc(startPos, length, initStyle, reinterpret_cast<LexAccessor&>(styler));
 
 	for (; sc.More(); sc.Forward()) {
 

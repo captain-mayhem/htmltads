@@ -48,7 +48,7 @@ static void ColouriseVerilogDoc(unsigned int startPos, int length, int initStyle
 	if (initStyle == SCE_V_STRINGEOL)
 		initStyle = SCE_V_DEFAULT;
 
-	StyleContext sc(startPos, length, initStyle, styler);
+	StyleContext sc(startPos, length, initStyle, reinterpret_cast<LexAccessor&>(styler));
 
 	for (; sc.More(); sc.Forward()) {
 

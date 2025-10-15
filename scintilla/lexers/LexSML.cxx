@@ -39,7 +39,7 @@ void ColouriseSMLDoc(
 	WordList *keywordlists[],
 	Accessor &styler)
 {
-	StyleContext sc(startPos, length, initStyle, styler);
+	StyleContext sc(startPos, length, initStyle, reinterpret_cast<LexAccessor&>(styler));
 	int nesting = 0;
 	if (sc.state < SCE_SML_STRING)
 		sc.state = SCE_SML_DEFAULT;

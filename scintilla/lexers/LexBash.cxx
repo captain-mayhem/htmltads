@@ -171,7 +171,7 @@ static void ColouriseBashDoc(unsigned int startPos, int length, int initStyle,
 	}
 	initStyle = SCE_SH_DEFAULT;
 
-	StyleContext sc(startPos, endPos - startPos, initStyle, styler);
+	StyleContext sc(startPos, endPos - startPos, initStyle, reinterpret_cast<LexAccessor&>(styler));
 
 	for (; sc.More(); sc.Forward()) {
 

@@ -224,7 +224,7 @@ static void ColouriseAU3Doc(unsigned int startPos,
 	length = length + s_startPos - startPos;      // correct the total length to process
     styler.StartAt(startPos);
 
-    StyleContext sc(startPos, length, initStyle, styler);
+    StyleContext sc(startPos, length, initStyle, reinterpret_cast<LexAccessor&>(styler));
 	char si;     // string indicator "=1 '=2
 	char ni;     // Numeric indicator error=9 normal=0 normal+dec=1 hex=2 Enot=3
 	char ci;     // comment indicator 0=not linecomment(;)

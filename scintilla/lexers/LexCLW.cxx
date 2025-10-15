@@ -204,7 +204,7 @@ static void ColouriseClarionDoc(unsigned int uiStartPos, int iLength, int iInitS
 	WordList wlLegacyStatements;
 	wlLegacyStatements.Set(wlLegacyStatementsList);
 
-	StyleContext scDoc(uiStartPos, iLength, iInitStyle, accStyler);
+	StyleContext scDoc(uiStartPos, iLength, iInitStyle, reinterpret_cast<LexAccessor&>(accStyler));
 
 	// lex source code
     for (; scDoc.More(); scDoc.Forward())

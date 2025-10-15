@@ -46,7 +46,7 @@ static void ColouriseKixDoc(unsigned int startPos, int length, int initStyle,
 
 	styler.StartAt(startPos);
 
-	StyleContext sc(startPos, length, initStyle, styler);
+	StyleContext sc(startPos, length, initStyle, reinterpret_cast<LexAccessor&>(styler));
 
 	for (; sc.More(); sc.Forward()) {
 

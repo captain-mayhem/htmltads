@@ -55,7 +55,7 @@ static void Colourise4glDoc(unsigned int startPos, int length, int initStyle, Wo
 	int visibleChars = 0;
 	int mask;
 
-	StyleContext sc(startPos, length, initStyle, styler);
+	StyleContext sc(startPos, length, initStyle, reinterpret_cast<LexAccessor&>(styler));
 
 	for (; sc.More(); sc.Forward()) {
 

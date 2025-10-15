@@ -267,7 +267,7 @@ static void handleLetter(StyleContext& sc, WordList* specialSelectorList)
 
 static void colorizeSmalltalkDoc(unsigned int startPos, int length, int initStyle, WordList *wordLists[], Accessor &styler)
 {
-    StyleContext sc(startPos, length, initStyle, styler);
+    StyleContext sc(startPos, length, initStyle, reinterpret_cast<LexAccessor&>(styler));
 
     if (initStyle == SCE_ST_COMMENT) {
         skipComment(sc);

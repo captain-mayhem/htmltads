@@ -59,7 +59,7 @@ static void ColouriseFlagShipDoc(unsigned int startPos, int length, int initStyl
 	int styleBeforeDCKeyword = SCE_FS_DEFAULT;
 	bool bEnableCode = initStyle < SCE_FS_DISABLEDCODE;
 
-	StyleContext sc(startPos, length, initStyle, styler);
+	StyleContext sc(startPos, length, initStyle, reinterpret_cast<LexAccessor&>(styler));
 
 	for (; sc.More(); sc.Forward()) {
 
