@@ -1,3 +1,5 @@
+add_subdirectory(win32)
+
 set(base_src
 	win32/htmlw32.cpp
 	win32/w32main.cpp
@@ -119,6 +121,10 @@ trx_target_file(htmlt3 htmlt3_file)
 
 ### t3 debugger
 
+set(xzip_src
+    win32/xzip/XZip.cpp
+)
+
 set(tdb_base_src
 	${base_src}
     ${mpeg_src}
@@ -132,7 +138,7 @@ set(tdb_base_src
 	win32/tadshtmldlg.cpp
 	win32/w32help.cpp
 	win32/itadsworkbenchiid.cpp
-	#win32/w32sci.cpp
+	win32/w32sci.cpp
 	win32/tbarmbar.cpp
 	win32/mditab.cpp
 	win32/tadsifid.c
@@ -143,7 +149,7 @@ set(tdb_base_src
 	win32/tadsdde.cpp
 	win32/tadsdock.cpp
 	win32/w32dbwiz.cpp
-	#win32/babelifc.cpp
+	win32/babelifc.cpp
 )
 
 set(tdbt3_src
@@ -170,11 +176,13 @@ target_include_directories(htmltdb3_tmp PRIVATE
 win32
 win32/mpegamp
 win32/xzip
+../scintilla/include
 )
 
 target_link_libraries(htmltdb3_tmp PRIVATE
 	Tads::t3htm_d
     Tads::trd32h
+    Tads::babel
 
 	PNG::PNG
     JPEG::JPEG
@@ -191,6 +199,7 @@ target_link_libraries(htmltdb3_tmp PRIVATE
     Version.lib
     Shlwapi.lib
     dxguid.lib
+    Urlmon.lib
 )
 
 make_t3r(htmltdb3 win32/about3.jpg=about.jpg win32/aboutWB3.jpg=aboutwb.jpg)

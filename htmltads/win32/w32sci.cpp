@@ -229,7 +229,7 @@ ScintillaWin::ScintillaWin(IScintillaParent *parent)
                              0, 0, 1, 1, hwnd_, 0, 0, 0);
 
     /* get the direct function pointers we need */
-    call_sci_ = (int (__cdecl *)(void *, int, int, int))SendMessage(
+    call_sci_ = (int64_t (__cdecl *)(void *, int, int64_t, int64_t))SendMessage(
         hwnd_, SCI_GETDIRECTFUNCTION, 0, 0);
     call_sci_ctx_ = (void *)SendMessage(hwnd_, SCI_GETDIRECTPOINTER, 0, 0);
 
@@ -405,7 +405,7 @@ void ScintillaWin::set_doc(ScintillaWin *win)
     doc = (void *)win->call_sci(SCI_GETDOCPOINTER);
 
     /* set our document to point to the other window's document */
-    call_sci(SCI_SETDOCPOINTER, 0, (int)doc);
+    call_sci(SCI_SETDOCPOINTER, 0, (int64_t)doc);
 }
 
 /* ------------------------------------------------------------------------ */
@@ -660,7 +660,7 @@ int ScintillaWin::sc_notify(int control_id, NMHDR *nm, LRESULT *ret)
             /* get the text */
             len = tr.chrg.cpMax - tr.chrg.cpMin;
             tr.lpstrText = new char[len + 1];
-            call_sci(SCI_GETTEXTRANGE, 0, (int)&tr);
+            call_sci(SCI_GETTEXTRANGE, 0, (int64_t)&tr);
 
             /* 
              *   convert newlines and other controls to spaces, and remove
@@ -789,7 +789,7 @@ void ScintillaWin::load_marker(int id, int res)
         && (mem = LockResource(hgl)) != 0)
     {
         /* set up the pixmap with Scintilla */
-        call_sci(SCI_MARKERDEFINEPIXMAP, id, (int)mem);
+        call_sci(SCI_MARKERDEFINEPIXMAP, id, (int64_t)mem);
     }
 }
 
@@ -1991,7 +1991,7 @@ void ScintillaWin::set_base_custom_style(const CHtmlFontDesc *desc)
 void ScintillaWin::append_text(const char *txt, size_t len)
 {
     /* add the text to the control */
-    call_sci(SCI_APPENDTEXT, len, (int)txt);
+    call_sci(SCI_APPENDTEXT, len, (int64_t)txt);
 }
 
 /*
@@ -2150,7 +2150,7 @@ int ScintillaWin::save_file(const char *fname)
 
         /* read this chunk */
         tr.chrg.cpMax = tr.chrg.cpMin + cur;
-        call_sci(SCI_GETTEXTRANGE, 0, (int)&tr);
+        call_sci(SCI_GETTEXTRANGE, 0, (int64_t)&tr);
 
         /* write it out */
         if (fwrite(buf, cur, 1, fp) != 1)
@@ -3642,7 +3642,7 @@ void ScintillaWin::fill_paragraph()
     proto[i] = '\0';
         
     /* measure the pixel width for the wrapping, in the default style */
-    int pixwid = call_sci(SCI_TEXTWIDTH, STYLE_DEFAULT, (int)proto);
+    int pixwid = call_sci(SCI_TEXTWIDTH, STYLE_DEFAULT, (int64_t)proto);
         
     /* done with the prototype line */
     delete [] proto;

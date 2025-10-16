@@ -499,7 +499,7 @@ public:
 
 private:
     /* call Scintilla */
-    int call_sci(int msg, int a = 0, int b = 0)
+    int64_t call_sci(int msg, int64_t a = 0, int64_t b = 0)
         { return call_sci_(call_sci_ctx_, msg, a, b); }
 
     /* internal search handler */
@@ -590,7 +590,7 @@ private:
     HWND tooltip_;
 
     /* Scintilla direct function interface */
-    int (__cdecl *call_sci_)(void *, int, int, int);
+    int64_t (__cdecl *call_sci_)(void *, int, int64_t, int64_t);
     void *call_sci_ctx_;
 
     /* ITadsWorkbenchEditor extension object, if one has attached to us */

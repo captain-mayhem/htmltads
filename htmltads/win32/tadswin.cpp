@@ -485,6 +485,10 @@ LRESULT CALLBACK CTadsWin::
         SetWindowLongPtr(hwnd, 0, (LONG_PTR)win);
     }
 
+    if (msg == WM_NCDESTROY) {
+        return DefWindowProc(hwnd, msg, wpar, lpar);
+    }
+
     /* use the common message dispatcher */
     return win->common_msg_handler(hwnd, msg, wpar, lpar);
 }
@@ -543,6 +547,10 @@ LRESULT CALLBACK CTadsWin::
     case WM_SIZE:
         /* notify our parent, to let it manage its MDI child list */
         win->get_parent()->mdi_child_event(win, msg, wpar, lpar);
+    }
+
+    if (msg == WM_NCDESTROY) {
+        return DefWindowProc(hwnd, msg, wpar, lpar);
     }
 
     /* use the common message dispatcher */
@@ -1621,6 +1629,9 @@ void CTadsWin::do_destroy()
 
     /* if we're registered as a drop target, unregister now */
     drop_target_unregister();
+
+    /* reset the pointer attached to the window handle */
+    SetWindowLongPtr(handle_, 0, 0);
 
     /* our window handle is no longer valid */
     handle_ = 0;
