@@ -229,7 +229,7 @@ ScintillaWin::ScintillaWin(IScintillaParent *parent)
                              0, 0, 1, 1, hwnd_, 0, 0, 0);
 
     /* get the direct function pointers we need */
-    call_sci_ = (int64_t (__cdecl *)(void *, int, int64_t, int64_t))SendMessage(
+    call_sci_ = (intptr_t (__cdecl *)(void *, int, intptr_t, intptr_t))SendMessage(
         hwnd_, SCI_GETDIRECTFUNCTION, 0, 0);
     call_sci_ctx_ = (void *)SendMessage(hwnd_, SCI_GETDIRECTPOINTER, 0, 0);
 
