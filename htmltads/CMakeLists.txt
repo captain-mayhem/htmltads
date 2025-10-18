@@ -202,6 +202,11 @@ target_link_libraries(htmltdb3_tmp PRIVATE
     Urlmon.lib
 )
 
+target_link_options(htmltdb3_tmp PRIVATE
+	/MANIFEST:NO
+)
+
+
 make_t3r(htmltdb3 win32/about3.jpg=about.jpg win32/aboutWB3.jpg=aboutwb.jpg)
 
 make_trx(htmltdb3 htmltdb3_tmp ${CMAKE_CURRENT_BINARY_DIR}/htmltdb3.t3r)

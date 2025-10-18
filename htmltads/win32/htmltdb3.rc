@@ -28,6 +28,12 @@ Modified
 #include "htmldcmn.rc"
 
 
+/* 
+ *   The application manifest, for Win XP and later.  This is required to be
+ *   resource #1.  
+ */
+1 RT_MANIFEST "htmltdb3.exe.manifest"
+
 /* project-list icons */
 IDB_PROJ_ROOT           BITMAP  DISCARDABLE     "db_proj.bmp"
 IDB_PROJ_FOLDER         BITMAP  DISCARDABLE     "db_fold.bmp"
