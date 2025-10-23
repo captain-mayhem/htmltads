@@ -48,12 +48,6 @@ target_link_libraries(Scintilla
 
 add_library(Scintilla::Scintilla ALIAS Scintilla)
 
-install(TARGETS 
-	Scintilla
-	EXPORT TadsTargets
-	DESTINATION .
-)
-
 set(LEXSRC
 	lexers/LexA68k.cxx
 	lexers/LexAbaqus.cxx
@@ -213,7 +207,7 @@ INTERFACE
 add_library(Scintilla::SciInterface ALIAS SciInterface)
 
 install(TARGETS
-	SciLexer
+	Scintilla SciLexer
 	EXPORT TadsTargets
-	DESTINATION .
+	RUNTIME DESTINATION .
 )

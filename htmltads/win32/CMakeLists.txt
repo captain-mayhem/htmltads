@@ -33,4 +33,4 @@ set_target_properties(script PROPERTIES SUFFIX .twbAddIn)
 install(TARGETS 
 	tads3 html script
 	EXPORT TadsTargets
-	DESTINATION .)
+	RUNTIME DESTINATION .)
