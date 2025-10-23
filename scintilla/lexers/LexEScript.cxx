@@ -48,7 +48,7 @@ static void ColouriseESCRIPTDoc(unsigned int startPos, int length, int initStyle
 	/*if (initStyle == SCE_ESCRIPT_STRINGEOL)
 		initStyle = SCE_ESCRIPT_DEFAULT;*/
 
-	StyleContext sc(startPos, length, initStyle, reinterpret_cast<LexAccessor&>(styler));
+	StyleContext sc(startPos, length, initStyle, styler);
 
 	bool caseSensitive = styler.GetPropertyInt("escript.case.sensitive", 0) != 0;
 

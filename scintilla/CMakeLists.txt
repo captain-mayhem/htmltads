@@ -30,11 +30,12 @@ add_library(Scintilla SHARED
 )
 
 target_include_directories(Scintilla 
+PRIVATE
+	lexlib
+	src
 PUBLIC 
 	include 
-	lexlib
-PRIVATE
-	src)
+)
 
 target_compile_definitions(Scintilla
 PRIVATE
@@ -168,7 +169,7 @@ add_library(SciLexer SHARED
 	win32/ScintillaWin.cxx
 	src/Selection.cxx
 	src/Style.cxx
-	src/StyleContext.cxx
+	lexlib/StyleContext.cxx
 	src/UniConversion.cxx
 	src/ViewStyle.cxx
 	lexlib/WordList.cxx
@@ -181,11 +182,13 @@ add_library(SciLexer SHARED
 )
 
 target_include_directories(SciLexer 
-PUBLIC 
-	include 
-	lexlib
 PRIVATE
-	src)
+	lexlib
+	src
+	include
+PUBLIC 
+
+)
 
 target_compile_definitions(SciLexer
 PRIVATE
@@ -194,12 +197,22 @@ DLL
 )
 
 target_link_libraries(SciLexer
+PRIVATE
 	Imm32
 )
 
 add_library(Scintilla::SciLexer ALIAS SciLexer)
 
-install(TARGETS 
+add_library(SciInterface INTERFACE)
+
+target_include_directories(SciInterface 
+INTERFACE 
+	include 
+)
+
+add_library(Scintilla::SciInterface ALIAS SciInterface)
+
+install(TARGETS
 	SciLexer
 	EXPORT TadsTargets
 	DESTINATION .

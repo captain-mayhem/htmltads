@@ -70,7 +70,7 @@ static void ColourisePSDoc(
     WordList &keywords4 = *keywordlists[3];
     WordList &keywords5 = *keywordlists[4];
 
-    StyleContext sc(startPos, length, initStyle, reinterpret_cast<LexAccessor&>(styler));
+    StyleContext sc(startPos, length, initStyle, styler);
 
     bool tokenizing = styler.GetPropertyInt("ps.tokenize") != 0;
     int pslevel = styler.GetPropertyInt("ps.level", 3);

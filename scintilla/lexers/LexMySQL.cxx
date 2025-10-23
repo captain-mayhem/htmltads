@@ -96,7 +96,7 @@ static void CheckForKeyword(StyleContext& sc, WordList* keywordlists[])
 static void ColouriseMySQLDoc(unsigned int startPos, int length, int initStyle, WordList *keywordlists[],
                             Accessor &styler)
 {
-	StyleContext sc(startPos, length, initStyle, reinterpret_cast<LexAccessor&>(styler));
+	StyleContext sc(startPos, length, initStyle, styler);
 
 	for (; sc.More(); sc.Forward())
   {

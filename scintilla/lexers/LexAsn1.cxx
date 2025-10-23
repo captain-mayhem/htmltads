@@ -56,7 +56,7 @@ static void ColouriseAsn1Doc(unsigned int startPos, int length, int initStyle, W
 	WordList &Types = *keywordLists[3];
 
 	// Parse the whole buffer character by character using StyleContext
-	StyleContext sc(startPos, length, initStyle, reinterpret_cast<LexAccessor&>(styler));
+	StyleContext sc(startPos, length, initStyle, styler);
 	for (; sc.More(); sc.Forward())
 	{
 		// The state engine

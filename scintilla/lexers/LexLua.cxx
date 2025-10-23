@@ -88,7 +88,7 @@ static void ColouriseLuaDoc(
 		initStyle = SCE_LUA_DEFAULT;
 	}
 
-	StyleContext sc(startPos, length, initStyle, reinterpret_cast<LexAccessor&>(styler));
+	StyleContext sc(startPos, length, initStyle, styler);
 	if (startPos == 0 && sc.ch == '#') {
 		// shbang line: # is a comment only if first char of the script
 		sc.SetState(SCE_LUA_COMMENTLINE);

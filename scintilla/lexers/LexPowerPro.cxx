@@ -140,7 +140,7 @@ static void ColourisePowerProDoc(unsigned int startPos, int length, int initStyl
 	CharacterSet setWordStart(CharacterSet::setAlpha, "_@", 0x80, true);
 	CharacterSet setWord(CharacterSet::setAlphaNum, "._", 0x80, true);
 
-	StyleContext sc(startPos, length, initStyle, reinterpret_cast<LexAccessor&>(styler));
+	StyleContext sc(startPos, length, initStyle, styler);
 	char s_save[100]; //for last line highlighting
 
 	//are there only spaces between the first letter of the line and the beginning of the line

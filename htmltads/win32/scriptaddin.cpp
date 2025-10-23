@@ -166,7 +166,7 @@ public:
         CTadsWorkbenchEditor::init();
         
         /* tell Scintilla to use the command-script ("tadscmd") lexer */
-        call_sci(SCI_SETLEXERLANGUAGE, 0, (int)"tadscmd");
+        call_sci(SCI_SETLEXERLANGUAGE, 0, (intptr_t)"tadscmd");
         call_sci(SCI_SETPROPERTY, (WPARAM)"fold", (LPARAM)"1");
     }
 

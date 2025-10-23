@@ -198,7 +198,7 @@ static void ColouriseTeXDoc(
 
     WordList &keywords = *keywordlists[currentInterface-1] ;
 
-	StyleContext sc(startPos, length, SCE_TEX_TEXT, reinterpret_cast<LexAccessor&>(styler));
+	StyleContext sc(startPos, length, SCE_TEX_TEXT, styler);
 
 	bool going = sc.More() ; // needed because of a fuzzy end of file state
 

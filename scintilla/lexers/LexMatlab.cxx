@@ -67,7 +67,7 @@ static void ColouriseMatlabOctaveDoc(
 
 	bool transpose = false;
 
-	StyleContext sc(startPos, length, initStyle, reinterpret_cast<LexAccessor&>(styler));
+	StyleContext sc(startPos, length, initStyle, styler);
 
 	for (; sc.More(); sc.Forward()) {
 

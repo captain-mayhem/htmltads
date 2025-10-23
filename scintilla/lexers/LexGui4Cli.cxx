@@ -133,7 +133,7 @@ ColouriseGui4CliDoc(unsigned int startPos, int length, int initStyle,
 	bool noforward;
 	char buff[BUFFSIZE+1];	// buffer for command name
 
-	StyleContext sc(startPos, length, initStyle, reinterpret_cast<LexAccessor&>(styler));
+	StyleContext sc(startPos, length, initStyle, styler);
 	buff[0] = '\0'; // cbuff = 0;
 
 	if (sc.state != SCE_GC_COMMENTBLOCK) // colorize 1st word..

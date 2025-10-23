@@ -86,7 +86,7 @@ static void ColouriseTCLDoc(unsigned int startPos, int length, int , WordList *k
 	bool visibleChars = false;
 
 	int previousLevel = currentLevel;
-    StyleContext sc(startPos, length, SCE_TCL_DEFAULT, reinterpret_cast<LexAccessor&>(styler));
+    StyleContext sc(startPos, length, SCE_TCL_DEFAULT, styler);
 	for (; ; sc.Forward()) {
 next:
         if (sc.ch=='\r' && sc.chNext == '\n') // only ignore \r on PC process on the mac

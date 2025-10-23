@@ -112,7 +112,7 @@ static void ColorizeTxt2tagsDoc(unsigned int startPos, int length, int initStyle
     // in the default state.
     bool freezeCursor = false;
 
-    StyleContext sc(startPos, length, initStyle, reinterpret_cast<LexAccessor&>(styler));
+    StyleContext sc(startPos, length, initStyle, styler);
 
     while (sc.More()) {
         // Skip past escaped characters

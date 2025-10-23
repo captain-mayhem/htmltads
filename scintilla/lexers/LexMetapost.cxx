@@ -181,7 +181,7 @@ static void ColouriseMETAPOSTDoc(
 	WordList &keywords  = *keywordlists[0] ;
 	WordList &keywords2 = *keywordlists[extraInterface-1] ;
 
-	StyleContext sc(startPos, length, SCE_METAPOST_TEXT, reinterpret_cast<LexAccessor&>(styler)) ;
+	StyleContext sc(startPos, length, SCE_METAPOST_TEXT, styler) ;
 
 	char key[100] ;
 

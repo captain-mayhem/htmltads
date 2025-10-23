@@ -58,7 +58,7 @@ static void ColouriseGAPDoc(unsigned int startPos, int length, int initStyle, Wo
 	// Do not leak onto next line
 	if (initStyle == SCE_GAP_STRINGEOL) initStyle = SCE_GAP_DEFAULT;
 
-	StyleContext sc(startPos, length, initStyle, reinterpret_cast<LexAccessor&>(styler));
+	StyleContext sc(startPos, length, initStyle, styler);
 
 	for (; sc.More(); sc.Forward()) {
 

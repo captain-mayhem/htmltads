@@ -176,7 +176,6 @@ target_include_directories(htmltdb3_tmp PRIVATE
 win32
 win32/mpegamp
 win32/xzip
-../scintilla/include
 )
 
 target_link_libraries(htmltdb3_tmp PRIVATE
@@ -189,6 +188,7 @@ target_link_libraries(htmltdb3_tmp PRIVATE
 	MNG::MNG
     Vorbis::vorbisfile
     Docsearch::docsearch
+    Scintilla::SciInterface
 
 	Htmlhelp.lib
 	Comctl32.lib

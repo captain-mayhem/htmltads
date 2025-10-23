@@ -57,7 +57,7 @@ static void ColouriseAPDLDoc(unsigned int startPos, int length, int initStyle, W
 
 	// Do not leak onto next line
 	initStyle = SCE_APDL_DEFAULT;
-	StyleContext sc(startPos, length, initStyle, reinterpret_cast<LexAccessor&>(styler));
+	StyleContext sc(startPos, length, initStyle, styler);
 
 	for (; sc.More(); sc.Forward()) {
 		// Determine if the current state should terminate.

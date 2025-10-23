@@ -151,7 +151,7 @@ static void ColouriseCoffeeScriptDoc(unsigned int startPos, int length, int init
 		startPos = back;
 	}
 
-	StyleContext sc(startPos, endPos - startPos, initStyle, reinterpret_cast<LexAccessor&>(styler));
+	StyleContext sc(startPos, endPos - startPos, initStyle, styler);
 
 	for (; sc.More(); sc.Forward()) {
 

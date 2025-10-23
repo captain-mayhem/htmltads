@@ -54,7 +54,7 @@ static void ColouriseEiffelDoc(unsigned int startPos,
 
 	WordList &keywords = *keywordlists[0];
 
-	StyleContext sc(startPos, length, initStyle, reinterpret_cast<LexAccessor&>(styler));
+	StyleContext sc(startPos, length, initStyle, styler);
 
 	for (; sc.More(); sc.Forward()) {
 

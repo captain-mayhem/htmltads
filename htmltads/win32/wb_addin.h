@@ -99,7 +99,7 @@ public:
         hwnd_ = hwnd;
 
         /* set up the direct-call interface pointers */
-        call_sci_ = (int (__cdecl *)(void *, int, int, int))SendMessage(
+        call_sci_ = (intptr_t (__cdecl *)(void *, int, intptr_t, intptr_t))SendMessage(
             hwnd, SCI_GETDIRECTFUNCTION, 0, 0);
         call_sci_ctx_ = (void *)SendMessage(
             hwnd, SCI_GETDIRECTPOINTER, 0, 0);
@@ -118,7 +118,7 @@ public:
     }
 
     /* invoke Scintilla through the direct-call interface */
-    int invoke(int msg, int a = 0, int b = 0)
+    intptr_t invoke(int msg, intptr_t a = 0, intptr_t b = 0)
         { return call_sci_(call_sci_ctx_, msg, a, b); }
 
     /* call the various Workbench custom message handlers */
@@ -136,7 +136,7 @@ private:
     HWND hwnd_;
         
     /* Scintilla direct function interface */
-    int (__cdecl *call_sci_)(void *, int, int, int);
+    intptr_t (__cdecl *call_sci_)(void *, int, intptr_t, intptr_t);
     void *call_sci_ctx_;
 
     /* custom Workbench extension messages in the Scintilla window */
@@ -251,7 +251,7 @@ public:
             pos = sci_.invoke(SCI_POSITIONFROMLINE, l);
             
             /* retrieve it */
-            sci_.invoke(SCI_GETLINE, l, (int)txt);
+            sci_.invoke(SCI_GETLINE, l, (intptr_t)txt);
             
             /* null-terminate it */
             txt[len] = '\0';
@@ -862,7 +862,7 @@ protected:
      *   pass in a SCI_xxx message ID for 'msg', along with any parameters
      *   the message requires.  
      */
-    int call_sci(int msg, int a = 0, int b = 0)
+    intptr_t call_sci(int msg, intptr_t a = 0, intptr_t b = 0)
         { return sci_.invoke(msg, a, b); }
 
     /* call the various Workbench custom message handlers */
@@ -1039,7 +1039,7 @@ protected:
                 /* put in the '*' border */
                 call_sci(SCI_SETTARGETSTART, lin.pos);
                 call_sci(SCI_SETTARGETEND, lin.pos);
-                call_sci(SCI_REPLACETARGET, 1, (int)"*");
+                call_sci(SCI_REPLACETARGET, 1, (intptr_t)"*");
                 
                 /* indent it to the proper point */
                 call_sci(SCI_SETLINEINDENTATION, l, left + 1);
@@ -1171,7 +1171,7 @@ protected:
                 pos = call_sci(SCI_GETLINEINDENTPOSITION, l);
                 call_sci(SCI_SETTARGETSTART, pos);
                 call_sci(SCI_SETTARGETEND, pos);
-                call_sci(SCI_REPLACETARGET, 5, (int)" *   ");
+                call_sci(SCI_REPLACETARGET, 5, (intptr_t)" *   ");
                 
                 /* on to the next line */
                 ++l;
@@ -1260,7 +1260,7 @@ protected:
             {
                 /* insert a newline at the last breakpoint */
                 call_sci(SCI_SETSEL, lastbrk, lastbrk);
-                call_sci(SCI_INSERTTEXT, lastbrk, (int)get_nl());
+                call_sci(SCI_INSERTTEXT, lastbrk, (intptr_t)get_nl());
 
                 /* remember the line number of the next line */
                 int l = call_sci(SCI_LINEFROMPOSITION, lastbrk) + 1;
@@ -1312,7 +1312,7 @@ protected:
             /* delete the border text */
             call_sci(SCI_SETTARGETSTART, lin->pos);
             call_sci(SCI_SETTARGETEND, lin->pos + len);
-            call_sci(SCI_REPLACETARGET, 0, (int)"");
+            call_sci(SCI_REPLACETARGET, 0, (intptr_t)"");
             
             /* re-retrieve the line */
             lin->retrieve_line(lin->lin);
@@ -1332,7 +1332,7 @@ protected:
             /* trim off this many characters from the end of the line */
             call_sci(SCI_SETTARGETSTART, lin->pos + lin->len - sp);
             call_sci(SCI_SETTARGETEND, lin->pos + lin->len);
-            call_sci(SCI_REPLACETARGET, 0, (int)"");
+            call_sci(SCI_REPLACETARGET, 0, (intptr_t)"");
 
             /* re-retrieve the line */
             lin->retrieve_line(lin->lin);

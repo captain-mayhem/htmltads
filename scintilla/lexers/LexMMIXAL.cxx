@@ -54,7 +54,7 @@ static void ColouriseMMIXALDoc(unsigned int startPos, int length, int initStyle,
 	WordList &special_register = *keywordlists[1];
 	WordList &predef_symbols = *keywordlists[2];
 
-	StyleContext sc(startPos, length, initStyle, reinterpret_cast<LexAccessor&>(styler));
+	StyleContext sc(startPos, length, initStyle, styler);
 
 	for (; sc.More(); sc.Forward())
 	{

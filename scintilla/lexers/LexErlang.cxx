@@ -78,7 +78,7 @@ static inline bool IsAWordChar(const int ch) {
 static void ColouriseErlangDoc(unsigned int startPos, int length, int initStyle,
 								WordList *keywordlists[], Accessor &styler) {
 
-	StyleContext sc(startPos, length, initStyle, reinterpret_cast<LexAccessor&>(styler));
+	StyleContext sc(startPos, length, initStyle, styler);
 	WordList &reservedWords = *keywordlists[0];
 	WordList &erlangBIFs = *keywordlists[1];
 	WordList &erlangPreproc = *keywordlists[2];

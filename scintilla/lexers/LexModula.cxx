@@ -344,7 +344,7 @@ static void ColouriseModulaDoc(	unsigned int startPos,
 
 	int  charPos = 0;
 
-	StyleContext sc( startPos, length, initStyle, reinterpret_cast<LexAccessor&>(styler));
+	StyleContext sc( startPos, length, initStyle, styler );
 
 	while( sc.More() ) 	{
 		switch( sc.state )	{

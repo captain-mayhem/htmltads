@@ -71,7 +71,7 @@ static void ColouriseVHDLDoc(
   WordList &Types      = *keywordlists[5];
   WordList &User       = *keywordlists[6];
 
-  StyleContext sc(startPos, length, initStyle, reinterpret_cast<LexAccessor&>(styler));
+  StyleContext sc(startPos, length, initStyle, styler);
 
   for (; sc.More(); sc.Forward())
   {

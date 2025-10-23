@@ -97,7 +97,7 @@ static void ColouriseMagikDoc(unsigned int startPos, int length, int initStyle,
     WordList &flow = *keywordlists[3];
     WordList &characters = *keywordlists[4];
 
-	StyleContext sc(startPos, length, initStyle, reinterpret_cast<LexAccessor&>(styler));
+	StyleContext sc(startPos, length, initStyle, styler);
 
 
 	for (; sc.More(); sc.Forward()) {

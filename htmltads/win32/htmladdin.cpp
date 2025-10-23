@@ -560,7 +560,7 @@ public:
         CTadsWorkbenchEditor::init();
         
         /* tell Scintilla to use the "html" lexer */
-        call_sci(SCI_SETLEXERLANGUAGE, 0, (int)"xml");
+        call_sci(SCI_SETLEXERLANGUAGE, 0, (intptr_t)"xml");
         call_sci(SCI_SETPROPERTY, (WPARAM)"fold", (LPARAM)"1");
         call_sci(SCI_SETPROPERTY, (WPARAM)"fold.html", (LPARAM)"1");
 
@@ -569,11 +569,11 @@ public:
         call_sci(SCI_COLOURISE, 0, -1);
 
         /* add the SGML/DTD keywords */
-        call_sci(SCI_SETKEYWORDS, 5, (int)
+        call_sci(SCI_SETKEYWORDS, 5, (intptr_t)
                  "ELEMENT DOCTYPE ATTLIST ENTITY NOTATION");
 
         /* send the list of "word" characters */
-        call_sci(SCI_SETWORDCHARS, 0, (int)
+        call_sci(SCI_SETWORDCHARS, 0, (intptr_t)
                  "abcdefghijklmnopqrstuvwxyz"
                  "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
                  "0123456789_-");
@@ -617,7 +617,7 @@ public:
         CTadsWorkbenchEditor::init();
 
         /* tell Scintilla to use the "html" lexer */
-        call_sci(SCI_SETLEXERLANGUAGE, 0, (int)"hypertext");
+        call_sci(SCI_SETLEXERLANGUAGE, 0, (intptr_t)"hypertext");
         call_sci(SCI_SETPROPERTY, (WPARAM)"fold", (LPARAM)"1");
         call_sci(SCI_SETPROPERTY, (WPARAM)"fold.html", (LPARAM)"1");
 
@@ -626,7 +626,7 @@ public:
         call_sci(SCI_COLOURISE, 0, -1);
 
         /* send the lexer the standard list of HTML keywords */
-        call_sci(SCI_SETKEYWORDS, 0, (int)
+        call_sci(SCI_SETKEYWORDS, 0, (intptr_t)
                  /* elements */
                  "a abbr acronym address applet area b base basefont "
                  "bdo big blockquote body br button caption center "
@@ -671,7 +671,7 @@ public:
                  "public !doctype");
 
         /* add the javascript keywords */
-        call_sci(SCI_SETKEYWORDS, 1, (int)
+        call_sci(SCI_SETKEYWORDS, 1, (intptr_t)
                  "abstract boolean break byte case catch char class "
                  "const continue debugger default delete do double else "
                  "enum export extends "
@@ -683,7 +683,7 @@ public:
                  "transient try typeof var void volatile while with");
 
         /* add the VBScript keywords */
-        call_sci(SCI_SETKEYWORDS, 2, (int)
+        call_sci(SCI_SETKEYWORDS, 2, (intptr_t)
                  "addressof alias and as attribute base begin binary boolean "
                  "byref byte byval call case compare "
                  "const currency date decimal declare defbool defbyte defint "
@@ -702,14 +702,14 @@ public:
                  "withevents xor");
 
         /* add the Python keywords */
-        call_sci(SCI_SETKEYWORDS, 3, (int)
+        call_sci(SCI_SETKEYWORDS, 3, (intptr_t)
                  "and assert break class continue def del elif "
                  "else except exec finally for from global if import "
                  "in is lambda None not or pass print raise return try "
                  "while yield");
 
         /* add the PHP keywords */
-        call_sci(SCI_SETKEYWORDS, 4, (int)
+        call_sci(SCI_SETKEYWORDS, 4, (intptr_t)
                  "and array as bool boolean break case cfunction class "
                  "const continue declare "
                  "default die directory do double echo else elseif empty "
@@ -725,11 +725,11 @@ public:
                  "__file__ __function__ __line__ __sleep __wakeup");
 
         /* add the SGML/DTD keywords */
-        call_sci(SCI_SETKEYWORDS, 5, (int)
+        call_sci(SCI_SETKEYWORDS, 5, (intptr_t)
                  "ELEMENT DOCTYPE ATTLIST ENTITY NOTATION");
 
         /* send the list of "word" characters */
-        call_sci(SCI_SETWORDCHARS, 0, (int)
+        call_sci(SCI_SETWORDCHARS, 0, (intptr_t)
                  "abcdefghijklmnopqrstuvwxyz"
                  "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
                  "0123456789_-");
@@ -904,13 +904,13 @@ public:
         CTadsWorkbenchEditor::init();
 
         /* tell Scintilla to use the "css" lexer */
-        call_sci(SCI_SETLEXERLANGUAGE, 0, (int)"css");
+        call_sci(SCI_SETLEXERLANGUAGE, 0, (intptr_t)"css");
         call_sci(SCI_SETPROPERTY, (WPARAM)"fold", (LPARAM)"1");
         call_sci(SCI_SETSTYLEBITS, 5);
         call_sci(SCI_COLOURISE, 0, -1);
 
         /* CSS1 properties */
-        call_sci(SCI_SETKEYWORDS, 0, (int)
+        call_sci(SCI_SETKEYWORDS, 0, (intptr_t)
                  "font-family font-style font-variant font-weight font-size "
                  "font color background-color background-image "
                  "background-repeat background-attachment "
@@ -929,11 +929,11 @@ public:
                  "cursor page width height ");
 
         /* CSS pseudo-classes */
-        call_sci(SCI_SETKEYWORDS, 1, (int)
+        call_sci(SCI_SETKEYWORDS, 1, (intptr_t)
                  "link visited active hover focus lang");
 
         /* CSS2 properties */
-        call_sci(SCI_SETKEYWORDS, 2, (int)
+        call_sci(SCI_SETKEYWORDS, 2, (intptr_t)
                  "font-size-adjust font-stretch text-shadow list-style-type "
                  "outline-width outline-style outline-color outline "
                  "overflow visibility content counter-reset "
@@ -952,7 +952,7 @@ public:
                  "widows orphans size unicode-bidi");
 
         /* CSS3 properties */
-        call_sci(SCI_SETKEYWORDS, 3, (int)
+        call_sci(SCI_SETKEYWORDS, 3, (intptr_t)
                  "alignment-adjust alignment-baseline animation "
                  "animation-delay animation-direction animation-duration "
                  "animation-iteration-count animation-name "
@@ -1000,7 +1000,7 @@ public:
                  "word-break ");
 
         /* CSS pseudo-elements */
-        call_sci(SCI_SETKEYWORDS, 4, (int)
+        call_sci(SCI_SETKEYWORDS, 4, (intptr_t)
                  "first-line first-letter first-child before after");
 
     }

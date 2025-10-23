@@ -94,7 +94,7 @@ static void ColouriseRebolDoc(unsigned int startPos, int length, int initStyle, 
 		initStyle = SCE_REBOL_DEFAULT;
 	}
 
-	StyleContext sc(startPos, length, initStyle, reinterpret_cast<LexAccessor&>(styler));
+	StyleContext sc(startPos, length, initStyle, styler);
 	if (startPos == 0) {
 		sc.SetState(SCE_REBOL_PREFACE);
 	}

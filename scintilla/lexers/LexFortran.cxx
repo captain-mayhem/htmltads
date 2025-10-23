@@ -74,7 +74,7 @@ static void ColouriseFortranDoc(unsigned int startPos, int length, int initStyle
 	}
 	startPos = styler.LineStart(styler.GetLine(startPos));
 	initStyle = styler.StyleAt(startPos - 1);
-	StyleContext sc(startPos, endPos-startPos, initStyle, reinterpret_cast<LexAccessor&>(styler));
+	StyleContext sc(startPos, endPos-startPos, initStyle, styler);
 	/***************************************/
 	for (; sc.More(); sc.Forward()) {
 		// remember the start position of the line

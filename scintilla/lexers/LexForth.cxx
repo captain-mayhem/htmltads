@@ -58,7 +58,7 @@ static void ColouriseForthDoc(unsigned int startPos, int length, int initStyle, 
     WordList &preword2 = *keywordLists[4];
     WordList &strings = *keywordLists[5];
 
-	StyleContext sc(startPos, length, initStyle, reinterpret_cast<LexAccessor&>(styler));
+	StyleContext sc(startPos, length, initStyle, styler);
 
 	for (; sc.More(); sc.Forward())
 	{

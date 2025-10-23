@@ -89,7 +89,7 @@ static void ColourisePBDoc(unsigned int startPos, int length, int initStyle,Word
 
     styler.StartAt(startPos);
 
-    StyleContext sc(startPos, length, initStyle, reinterpret_cast<LexAccessor&>(styler));
+    StyleContext sc(startPos, length, initStyle, styler);
 
     for (; sc.More(); sc.Forward()) {
         switch (sc.state)

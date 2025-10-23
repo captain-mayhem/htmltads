@@ -688,7 +688,7 @@ static void ColouriseTADS3Doc(unsigned int startPos, int length, int initStyle,
     if (lineCurrent > 0) {
         lineState = styler.GetLineState(lineCurrent-1);
     }
-    StyleContext sc(startPos, length, initStyle, reinterpret_cast<LexAccessor&>(styler));
+    StyleContext sc(startPos, length, initStyle, styler);
 
     while (sc.More()) {
 

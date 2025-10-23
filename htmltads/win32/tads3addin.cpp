@@ -544,12 +544,12 @@ public:
         {
         case T3E_SUBLANG_T3:
             /* tell Scintilla to use the "tads3" lexer */
-            call_sci(SCI_SETLEXERLANGUAGE, 0, (int)"tads3");
+            call_sci(SCI_SETLEXERLANGUAGE, 0, (intptr_t)"tads3");
             call_sci(SCI_COLOURISE, 0, -1);
             call_sci(SCI_SETPROPERTY, (WPARAM)"fold", (LPARAM)"1");
 
             /* send the lexer the list of TADS 3 keywords */
-            call_sci(SCI_SETKEYWORDS, 0, (int)
+            call_sci(SCI_SETKEYWORDS, 0, (intptr_t)
                      "argcount break case catch class continue default "
                      "delegated definingobj dictionary do else enum "
                      "export extern external false finally for foreach "
@@ -562,7 +562,7 @@ public:
                      "while");
 
             /* send the list of "word" characters */
-            call_sci(SCI_SETWORDCHARS, 0, (int)
+            call_sci(SCI_SETWORDCHARS, 0, (intptr_t)
                      "abcdefghijklmnopqrstuvwxyz"
                      "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
                      "0123456789_#");
@@ -570,12 +570,12 @@ public:
 
         case T3E_SUBLANG_JS:
             /* tell Scintilla to use the "javascript" lexer */
-            call_sci(SCI_SETLEXERLANGUAGE, 0, (int)"cpp");
+            call_sci(SCI_SETLEXERLANGUAGE, 0, (intptr_t)"cpp");
             call_sci(SCI_COLOURISE, 0, -1);
             call_sci(SCI_SETPROPERTY, (WPARAM)"fold", (LPARAM)"1");
 
             /* send the lexer the list of TADS 3 keywords */
-            call_sci(SCI_SETKEYWORDS, 0, (int)
+            call_sci(SCI_SETKEYWORDS, 0, (intptr_t)
                      "break case catch const continue default "
                      "delete do else export false finally for foreach "
                      "function goto if import in instanceOf label let "
@@ -583,7 +583,7 @@ public:
                      "var void while with yield");
 
             /* send the list of "word" characters */
-            call_sci(SCI_SETWORDCHARS, 0, (int)
+            call_sci(SCI_SETWORDCHARS, 0, (intptr_t)
                      "abcdefghijklmnopqrstuvwxyz"
                      "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
                      "0123456789_#$");
@@ -621,7 +621,7 @@ public:
                 aval[len] = '\0';
 
                 /* set the keyword list */
-                call_sci(SCI_SETKEYWORDS, i, (int)aval);
+                call_sci(SCI_SETKEYWORDS, i, (intptr_t)aval);
 
                 /* done with the strings */
                 delete [] aval;
@@ -2687,7 +2687,7 @@ protected:
                 pos = call_sci(SCI_POSITIONAFTER, pos);
                 pos = call_sci(SCI_POSITIONAFTER, pos);
                 call_sci(SCI_SETTARGETEND, pos);
-                call_sci(SCI_REPLACETARGET, 0, (int)"");
+                call_sci(SCI_REPLACETARGET, 0, (intptr_t)"");
             }
         }
 

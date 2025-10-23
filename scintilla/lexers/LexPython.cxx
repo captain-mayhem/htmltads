@@ -180,7 +180,7 @@ static void ColourisePyDoc(unsigned int startPos, int length, int initStyle,
 	styler.IndentAmount(lineCurrent, &spaceFlags, IsPyComment);
 	bool base_n_number = false;
 
-	StyleContext sc(startPos, endPos - startPos, initStyle, reinterpret_cast<LexAccessor&>(styler));
+	StyleContext sc(startPos, endPos - startPos, initStyle, styler);
 
 	bool indentGood = true;
 	int startIndicator = sc.currentPos;
@@ -201,7 +201,7 @@ static void ColourisePyDoc(unsigned int startPos, int length, int initStyle,
 				indentGood = (spaceFlags & wsTab) == 0;
 			}
 			if (!indentGood) {
-				reinterpret_cast<LexAccessor&>(styler).IndicatorFill(startIndicator, sc.currentPos, indicatorWhitespace, 0);
+				styler.IndicatorFill(startIndicator, sc.currentPos, indicatorWhitespace, 0);
 				startIndicator = sc.currentPos;
 			}
 		}
@@ -348,7 +348,7 @@ static void ColourisePyDoc(unsigned int startPos, int length, int initStyle,
 		}
 
 		if (!indentGood && !IsASpaceOrTab(sc.ch)) {
-			reinterpret_cast<LexAccessor&>(styler).IndicatorFill(startIndicator, sc.currentPos, indicatorWhitespace, 1);
+			styler.IndicatorFill(startIndicator, sc.currentPos, indicatorWhitespace, 1);
 			startIndicator = sc.currentPos;
 			indentGood = true;
 		}
@@ -402,7 +402,7 @@ static void ColourisePyDoc(unsigned int startPos, int length, int initStyle,
 			}
 		}
 	}
-	reinterpret_cast<LexAccessor&>(styler).IndicatorFill(startIndicator, sc.currentPos, indicatorWhitespace, 0);
+	styler.IndicatorFill(startIndicator, sc.currentPos, indicatorWhitespace, 0);
 	sc.Complete();
 }
 
