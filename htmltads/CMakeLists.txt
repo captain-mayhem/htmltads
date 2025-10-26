@@ -1,3 +1,4 @@
+add_subdirectory(win32/babel)
 add_subdirectory(win32)
 
 set(base_src

@@ -1,4 +1,5 @@
-add_subdirectory(babel)
+cmake_minimum_required(VERSION 3.17)
+project(TadsAddins VERSION 3.1.3)
 
 add_library(tads3 SHARED
 	tads3addin.cpp
