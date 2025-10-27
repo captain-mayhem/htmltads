@@ -220,3 +220,17 @@ install(PROGRAMS
 	${htmlt3_file} ${htmltdb3_file}
 	DESTINATION .
 )
+
+install(FILES
+    win32/htmladdin.cpp
+    win32/htmladdin.h
+    win32/htmladdin.rc
+    win32/itadsworkbench.h
+    win32/itadsworkbenchiid.cpp
+    win32/make-addins.vc
+    win32/tads3addin.cpp
+    win32/tads3addin.h
+    win32/tads3addin.rc
+    win32/wb_addin.h
+    DESTINATION addins
+)
