@@ -239,3 +239,8 @@ install(FILES
 	notes3/authkit/license.txt
 	DESTINATION .
 )
+
+install(DIRECTORY
+	win32/mkwebfiles
+	DESTINATION .
+)
