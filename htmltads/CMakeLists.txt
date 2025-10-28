@@ -234,3 +234,8 @@ install(FILES
     win32/wb_addin.h
     DESTINATION addins
 )
+
+install(FILES
+	notes3/authkit/license.txt
+	DESTINATION .
+)

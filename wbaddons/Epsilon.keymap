@@ -1,0 +1,261 @@
+# TADS Workbench - Epsilon-style key bindings
+#
+# This defines a set of Workbench key bindings that mimic Epsilon,
+# an Emacs-like editor for Windows, Linux, and other platforms.
+# These bindings are substantially similar to the bindings used
+# in most Emacs-type editors, although there are a few small
+# differences.
+#
+# Epsilon and other Emacs-type editors make heavy use of the Ctrl
+# key, and they use many two-key sequences.  That's convenient for
+# our purposes because it leaves the "F-keys" (F1, F2, etc) largely
+# unspoken for, and the F-keys are heavily used in the default
+# Workbench key bindings.  This means that we can give the F-keys
+# their standard Workbench meanings, and give most of the rest of the 
+# keyboard to the Epsilon/Emacs-style bindings.  (Epsilon actually does
+# bind many of the F-keys as well, but those bindings are mostly
+# alternatives for commands that are also bound to Ctrl or Alt keys,
+# so it's not vital to have both.)
+
+
+# global keys - these are common to all Workbench windows
+[Global]
+
+# some basic windows mappings
+Shift+Backspace = Edit.DeleteBack
+Shift+Insert = Edit.Paste
+Shift+Delete = Edit.Cut
+Ctrl+Insert = Edit.Copy
+
+# Standard Workbench global bindings
+F12 = File.SaveAs
+Alt+Num* = Debug.ShowNextStatement
+F3 = Edit.FindNext
+F4 = Debug.RunToCursor
+F5 = Debug.Go
+Ctrl+F5 = Build.CompileAndRun
+F7 = Build.CompileForDebug
+Alt+F7 = Build.Settings
+F9 = Debug.SetClearBreakpoint
+Alt+F9 = Debug.EditBreakpoints
+Ctrl+F9 = Debug.DisableBreakpoint
+F10 = Debug.StepOver
+F11 = Debug.StepInto
+Shift+F11 = Debug.StepOut
+Ctrl+Shift+N = File.NewProject
+
+# Epsilon-style non-edit commands
+Ctrl+X Ctrl+N = File.New
+Ctrl+X Ctrl+C = File.Exit
+Ctrl+X Ctrl+P = File.Print
+Ctrl+X Ctrl+V = File.Open
+Ctrl+X Ctrl+F = File.Open
+Ctrl+X k = File.Close
+Ctrl+X Ctrl+K = File.Close
+Ctrl+X Ctrl+S = File.Save
+Ctrl+X Ctrl+W = File.SaveAs
+Ctrl+X s = File.SaveAll
+Ctrl+_ = Help.Topics
+Alt+? = Help.Topics
+F1 = Help.Topics
+Ctrl+X m = Build.CompileForDebug
+
+# Epsilon-style bookmark commands
+Alt+J = Edit.PopBookmark
+Ctrl+X J = Edit.JumpToNamedBookmark
+Ctrl+X Ctrl+J = Edit.JumpToNextBookmark
+
+
+# Text editor keys - these apply only in text editor windows
+[Text Editor]
+
+#
+# basic cursor key bindings
+#
+
+Down = Edit.LineDown
+Ctrl+Down = Edit.LineScrollDown
+Shift+Down = Edit.LineDownExtend
+Alt+Shift+Down = Edit.LineDownRectExtend
+Up = Edit.LineUp
+Ctrl+Up = Edit.LineScrollUp
+Shift+Up = Edit.LineUpExtend
+Alt+Shift+Up = Edit.LineUpRectExtend
+Left = Edit.CharLeft
+Shift+Left = Edit.CharLeftExtend
+Ctrl+Left = Edit.WordLeft
+Ctrl+Shift+Left = Edit.WordLeftExtend
+Alt+Shift+Left = Edit.CharLeftRectExtend
+Right = Edit.CharRight
+Shift+Right = Edit.CharRightExtend
+Ctrl+Right = Edit.WordRight
+Ctrl+Shift+Right = Edit.WordRightExtend
+Alt+Shift+Right = Edit.CharRightRectExtend
+Home = Edit.Home
+Ctrl+Home = Edit.DocumentStart
+Shift+Home = Edit.HomeExtend
+Alt+Shift+Home = Edit.IndentHomeRectExtend
+Ctrl+Shift+Home = Edit.DocumentStartExtend
+Alt+Home = Edit.HomeDisplay
+End = Edit.LineEnd
+Shift+End = Edit.LineEndExtend
+Ctrl+End = Edit.DocumentEnd
+Ctrl+Shift+End = Edit.DocumentEndExtend
+Alt+End = Edit.LineEndDisplay
+Alt+Shift+End = Edit.LineEndRectExtend
+PageUp = Edit.StutteredPageUp
+Shift+PageUp = Edit.StutteredPageUpExtend
+Alt+Shift+PageUp = Edit.PageUpRectExtend
+PageDown = Edit.StutteredPageDown
+Shift+PageDown = Edit.StutteredPageDownExtend
+Alt+Shift+PageDown = Edit.PageDownRectExtend
+Delete = Edit.DeleteChar
+Ctrl+Delete = Edit.DelWordRight
+Ctrl+Shift+Delete = Edit.DelLineRight
+Insert = Edit.ToggleOvertype
+Backspace = Edit.DeleteBack
+Shift+Backspace = Edit.DeleteBack
+Ctrl+Backspace = Edit.DelWordLeft
+Ctrl+Shift+Backspace = Edit.DelLineLeft
+Shift+Delete = Edit.Cut
+Tab = Edit.Tab
+Shift+Tab = Edit.BackTab
+Enter = Edit.Newline
+Shift+Enter = Edit.Newline
+
+
+#
+# Epsilon-style bindings
+#
+Ctrl+@ = Edit.SelectionMode
+Ctrl+Space = Edit.SelectionMode
+Ctrl+A = Edit.Home
+Ctrl+B = Edit.CharLeft
+Ctrl+D = Edit.DeleteChar
+Ctrl+E = Edit.LineEnd
+Ctrl+F = Edit.CharRight
+Ctrl+G = Edit.Cancel
+Ctrl+H = Edit.DeleteBack
+Ctrl+K = Edit.CutLineRight
+Ctrl+L = Edit.VCenterCaret
+Ctrl+N = Edit.LineDown
+Ctrl+O = Edit.OpenLine
+Ctrl+P = Edit.LineUp
+Ctrl+Q = Edit.QuoteKey
+Ctrl+R = Edit.SearchRevIncremental
+Ctrl+S = Edit.SearchIncremental
+Ctrl+T = Edit.CharTranspose
+Ctrl+U = Edit.RepeatCount
+Ctrl+V = Edit.StutteredPageDown
+Ctrl+W = Edit.Cut
+Ctrl+Y = Edit.Paste
+Ctrl+Z = Edit.LineScrollUp
+Ctrl+? = Edit.DeleteBack
+Ctrl+Alt+H = Edit.DelWordLeft
+Esc Ctrl+H = Edit.DelWordLeft
+Ctrl+Alt+R = Edit.SearchRevRegexIncremental
+Ctrl+Alt+S = Edit.SearchRegexIncremental
+#Ctrl+Alt+W = ???append-next-kill
+#Alt+# = ???insert-ascii
+Ctrl+8 = Edit.CommentRegion
+Alt+5 = Edit.Replace
+Esc % = Edit.Replace
+Alt+, = Edit.WindowHome
+Esc , = Edit.WindowHome
+Alt+. = Edit.WindowEnd
+Esc . = Edit.WindowEnd
+Alt+< = Edit.DocumentStart
+Esc < = Edit.DocumentStart
+Alt+> = Edit.DocumentEnd
+Esc > = Edit.DocumentEnd
+Alt+@ = Edit.SelectionMode
+Alt+[ = Edit.ParaUp
+Alt+] = Edit.ParaDown
+Alt+b = Edit.WordLeft
+Alt+c = Edit.Uppercase
+Alt+d = Edit.DelWordRight
+Alt+f = Edit.WordRight
+Alt+l = Edit.Lowercase
+Esc l = Edit.Lowercase
+Alt+m = Edit.IndentHome
+Esc m = Edit.IndentHome
+Alt+q = Edit.FillParagraph
+Esc q = Edit.FillParagraph
+Alt+r = Edit.Replace
+Alt+u = Edit.Uppercase
+Esc u = Edit.Uppercase
+Alt+v = Edit.StutteredPageUp
+Esc v = Edit.StutteredPageUp
+Esc w = Edit.Copy
+Alt+w = Edit.Copy
+Alt+y = Edit.PastePop
+Esc y = Edit.PastePop
+Alt+z = Edit.LineScrollDown
+Alt+{ = Edit.ScrollLeft
+Alt+} = Edit.ScrollRight
+Alt+` = Edit.ChangeModified
+Esc ~ = Edit.ChangeModified
+Ctrl+Alt+? = Edit.DelWordLeft
+Ctrl+End = Edit.DocumentEnd
+Ctrl+Home = Edit.DocumentStart
+#Alt+Num* = ???regex-replace
+Alt+Backspace = Edit.DelWordLeft
+Alt+Down = Edit.ParaDown
+Alt+PageDown = Edit.PageRight
+Alt+Left = Edit.Home
+Alt+Right = Edit.LineEnd
+Alt+Up = Edit.ParaUp
+Alt+PageUp = Edit.PageLeft
+
+Ctrl+X Ctrl+Q = Edit.ChangeReadOnly
+Ctrl+X Ctrl+T = Edit.LineTranspose
+Ctrl+X Ctrl+U = Edit.Undo
+Ctrl+X Ctrl+X = Edit.SwapMark
+Ctrl+X Ctrl+H = Edit.SelectToMark
+Ctrl+X # = Edit.RectSelectMode
+#Ctrl+X ( = ???start-kbd-macro
+#Ctrl+X ) = ???end-kbd-macro
+Ctrl+X 0 = Edit.UnsplitSwitchWindow
+Ctrl+X 1 = Edit.UnsplitWindow
+Ctrl+X 2 = Edit.SplitWindow
+Ctrl+X < = Edit.SwitchSplitWindow
+Ctrl+X > = Edit.SwitchSplitWindow
+#Ctrl+X e = ???last-kbd-macro
+#Ctrl+X f = ???set-fill-column
+Ctrl+X g = Edit.GoToLine
+Ctrl+X h = Edit.SelectAll
+Ctrl+X n = Edit.SwitchSplitWindow
+Ctrl+X o = Edit.SwitchSplitWindow
+Ctrl+X p = Edit.SwitchSplitWindow
+Ctrl+X r = Edit.Redo
+Ctrl+X u = Edit.Undo
+Ctrl+X z = Edit.UnsplitWindow
+#Ctrl+X Alt+n = ???name-kbd-macro
+Ctrl+F9 = Edit.Undo
+Ctrl+F10 = Edit.Redo
+
+Alt+/ = Edit.ToggleBookmark
+Esc / = Edit.ToggleBookmark
+Ctrl+X / = Edit.SetNamedBookmark
+
+Ctrl+Alt+\ = Ext.Edit.SyntaxIndent
+Ctrl+I = Ext.Edit.SyntaxIndent
+
+F6 = Edit.FindDefinition
+
+# we put a couple of Esc alternatives to Alt keys in the editor mode only,
+# to ensure that Esc keeps its usual Windows meaning in the global context
+Esc J = Edit.PopBookmark
+Esc ? = Help.Topics
+
+# incremental search commands
+[Incremental Search]
+
+Ctrl+S = Edit.IncSearch.Next
+Ctrl+R = Edit.IncSearch.Prev
+Backspace = Edit.IncSearch.Backspace
+Ctrl+C = Edit.IncSearch.ToggleExactCase
+Ctrl+T = Edit.IncSearch.ToggleRegEx
+Ctrl+W = Edit.IncSearch.ToggleWord
+Ctrl+G = Edit.IncSearch.Cancel
+Esc = Edit.IncSearch.Exit

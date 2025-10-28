@@ -16,3 +16,4 @@ endif()
 
 add_subdirectory(htmltads)
 add_subdirectory(t3doc)
+add_subdirectory(wbaddons)

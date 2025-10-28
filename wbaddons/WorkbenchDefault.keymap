@@ -1,0 +1,163 @@
+# Workbench default key mappings
+#
+# This is the out-of-the-box keymap for TADS Workbench.  The actual default
+# key map is built in to Workbench, so you don't technically need this file,
+# but this file is still handy in case you want to restore the default keys
+# after making changes.  It's also here as an example of how a key map
+# file looks, in case you want to create your own.  (The easy way to
+# create a map file, though, is to use the "Save Key Map" button in the
+# Workbench key assignment dialog.)
+#
+# Keys are given by their usual Windows names.  The Ctrl, Shift, and Alt
+# modifiers can be given in any order.
+#
+# The same command can be assigned to any number of keys.  The only caveat
+# is that only one key can be shown in a menu item for the command; in
+# such cases, the menu shows the *last* key assigned to the command (in 
+# file order or in interactive order using the Keyboard Command dialog).
+# You can still use the other keys assigned, of course; they're just not
+# mentioned in the menu item for the command.
+#
+# You can assign a multi-key sequence to a command, like in Emacs.  This
+# is also known as a "chord."  For example, you could assign the command 
+# File.Save to the sequence Ctrl+X Ctrl+S, which means that you activate
+# the command by pressing Ctrl+X first, then Ctrl+S.  If you create a
+# multi-key sequence like this, note that you effectively reserve the
+# first key as a prefix key - it can't be used for its own single-key
+# command, because Workbench has to wait to see what other key follows
+# whenever you press the prefix key.  You *can* re-use the first key as 
+# in other chords, though: if you define Ctrl+X Ctrl+S as File.Save,
+# you can also define Ctrl+X S as File.SaveAll, Ctrl+X Ctrl+C as
+# File.Exit, etc.  Workbench doesn't place a strict limit on the length
+# of a chord; you could make a ten-key chord if you really wanted to.
+# However, the Workbench key dialog arbitrarily limits chords to three
+# keys, mostly to avoid confusion.  Workbench imposes a limit of 99 
+# distinct prefix keys overall.
+
+# Global - these keys are active in any Workbench window
+[Global]
+
+Ctrl+A = Edit.SelectAll
+Ctrl+Insert = Edit.Copy
+Ctrl+C = Edit.Copy
+Ctrl+E = Debug.Evaluate
+Ctrl+F = Edit.Find
+Ctrl+R = Edit.Replace
+Ctrl+Shift+F = Project.SearchFiles
+Ctrl+L = Edit.GoToLine
+Shift+Delete = Edit.Cut
+Ctrl+X = Edit.Cut
+Shift+Insert = Edit.Paste
+Ctrl+V = Edit.Paste
+Alt+Backspace = Edit.Undo
+Ctrl+Z = Edit.Undo
+Ctrl+Y = Edit.Redo
+Ctrl+O = File.Open
+Ctrl+P = File.Print
+Shift+Ctrl+O = File.OpenProject
+Ctrl+S = File.Save
+Ctrl+Shift+S = File.SaveAll
+Ctrl+W = File.Close
+F12 = File.SaveAs
+Ctrl+N = File.New
+Ctrl+Shift+N = File.NewProject
+Ctrl+T = File.SendToExternalEditor
+Alt+Num* = Debug.ShowNextStatement
+F1 = Help.Topics
+Ctrl+G = Edit.FindNext
+F3 = Edit.FindNext
+F4 = Debug.RunToCursor
+F5 = Debug.Go
+Ctrl+F5 = Build.CompileAndRun
+F7 = Build.CompileForDebug
+Alt+F7 = Build.Settings
+F9 = Debug.SetClearBreakpoint
+Alt+F9 = Debug.EditBreakpoints
+Ctrl+F9 = Debug.DisableBreakpoint
+F10 = Debug.StepOver
+F11 = Debug.StepInto
+Shift+F11 = Debug.StepOut
+Alt+J = Edit.PopBookmark
+Ctrl+Shift+J = Edit.JumpToNextBookmark
+Ctrl+J = Edit.JumpToNamedBookmark
+
+# Text Editor keys - these are active in text editor windows
+[Text Editor]
+
+Ctrl+F3 = Edit.SearchIncremental
+Down = Edit.LineDown
+Ctrl+Down = Edit.LineScrollDown
+Shift+Down = Edit.LineDownExtend
+Alt+Shift+Down = Edit.LineDownRectExtend
+Up = Edit.LineUp
+Ctrl+Up = Edit.LineScrollUp
+Shift+Up = Edit.LineUpExtend
+Alt+Shift+Up = Edit.LineUpRectExtend
+Left = Edit.CharLeft
+Shift+Left = Edit.CharLeftExtend
+Ctrl+Left = Edit.WordLeft
+Ctrl+Shift+Left = Edit.WordLeftExtend
+Alt+Shift+Left = Edit.CharLeftRectExtend
+Right = Edit.CharRight
+Shift+Right = Edit.CharRightExtend
+Ctrl+Right = Edit.WordRight
+Ctrl+Shift+Right = Edit.WordRightExtend
+Alt+Shift+Right = Edit.CharRightRectExtend
+Home = Edit.Home
+Ctrl+Home = Edit.DocumentStart
+Shift+Home = Edit.HomeExtend
+Alt+Shift+Home = Edit.IndentHomeRectExtend
+Ctrl+Shift+Home = Edit.DocumentStartExtend
+Alt+Home = Edit.HomeDisplay
+End = Edit.LineEnd
+Shift+End = Edit.LineEndExtend
+Ctrl+End = Edit.DocumentEnd
+Ctrl+Shift+End = Edit.DocumentEndExtend
+Alt+End = Edit.LineEndDisplay
+Alt+Shift+End = Edit.LineEndRectExtend
+PageUp = Edit.StutteredPageUp
+Shift+PageUp = Edit.StutteredPageUpExtend
+Alt+Shift+PageUp = Edit.PageUpRectExtend
+PageDown = Edit.StutteredPageDown
+Shift+PageDown = Edit.StutteredPageDownExtend
+Alt+Shift+PageDown = Edit.PageDownRectExtend
+Delete = Edit.DeleteChar
+Ctrl+Delete = Edit.DelWordRight
+Ctrl+Shift+Delete = Edit.DelLineRight
+Insert = Edit.ToggleOvertype
+Backspace = Edit.DeleteBack
+Shift+Backspace = Edit.DeleteBack
+Ctrl+Backspace = Edit.DelWordLeft
+Ctrl+Shift+Backspace = Edit.DelLineLeft
+Shift+Delete = Edit.Cut
+Tab = Edit.Tab
+Shift+Tab = Edit.BackTab
+Enter = Edit.Newline
+Shift+Enter = Edit.Newline
+Esc = Edit.Cancel
+Ctrl+I = Ext.Edit.SyntaxIndent
+#Alt+/ = Ext.Edit.FormatComment
+#Alt+' = Ext.Edit.FormatString
+Ctrl+U = Edit.RepeatCount
+Ctrl+Q = Edit.QuoteKey
+Alt+Q = Edit.FillParagraph
+Alt+X = Edit.SwapMark
+Alt+Shift+X = Edit.SelectToMark
+Alt+/ = Edit.ToggleBookmark
+Alt+Shift+/ = Edit.SetNamedBookmark
+Ctrl+8 = Edit.CommentRegion
+F6 = Edit.FindDefinition
+
+
+# Incremental Search keys
+[Incremental Search]
+
+Ctrl+F = Edit.IncSearch.Next
+Ctrl+F3 = Edit.IncSearch.Next
+Ctrl+R = Edit.IncSearch.Prev
+Backspace = Edit.IncSearch.Backspace
+Ctrl+C = Edit.IncSearch.ToggleExactCase
+Ctrl+T = Edit.IncSearch.ToggleRegEx
+Ctrl+W = Edit.IncSearch.ToggleWord
+Ctrl+G = Edit.IncSearch.Cancel
+Esc = Edit.IncSearch.Exit
