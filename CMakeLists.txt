@@ -15,3 +15,4 @@ if (NOT WIN32)
 endif()
 
 add_subdirectory(htmltads)
+add_subdirectory(t3doc)
