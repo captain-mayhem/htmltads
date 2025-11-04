@@ -1,0 +1,48 @@
+<html>
+<title>About TADS</title>
+<body>
+
+<style type="text/css">
+body {
+    background: url("aboutbkg.jpg") no-repeat;
+    width: 100%;
+    height: 100%;
+    color: #ffffff;
+    font: 10pt/14pt Verdana, Helvetica, Sans-Serif;
+}
+a {
+    color: #ffffff;
+}
+</style>
+
+<script type="text/javascript">
+
+document.onkeydown = doKey;
+
+function doKey()
+{
+    var ev = window.event;
+    if (ev.keyCode == 27 || ev.keyCode == 10 || ev.keyCode == 13)
+        window.close();
+    return true;
+}
+
+</script>
+
+<div style="position: absolute; bottom: 1em; width: 100%;">
+   <div style="width: 100%; text-align: right; padding-right: 15px;
+        margin-bottom: 2em;">
+      TADS VM
+
+<script type="text/javascript">
+document.write(window.dialogArguments.tadsVersion);
+</script>
+
+   </div>
+   <div style="width: 100%; text-align: center; font-weight: bold;">
+      <a href="#" onclick="javascript:window.close();return false;">OK</a>
+   </div>
+</div>
+
+</body>
+</html>

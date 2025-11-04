@@ -1305,7 +1305,7 @@ int CHtmlSys_webuiwin::do_status_menuselect(WPARAM wpar, LPARAM lpar)
 /* 
  *   dialog hook for standard file dialog - centers it on the screen 
  */
-static UINT APIENTRY filedlg_hook(HWND dlg, UINT msg,
+static UINT_PTR APIENTRY filedlg_hook(HWND dlg, UINT msg,
                                   WPARAM wpar, LPARAM lpar)
 {
     /* if this is the post-initialization message, center the dialog */
@@ -1702,8 +1702,10 @@ int CHtmlSys_webuiwin::askfile(char *buf, size_t buflen, char *params)
 /* this configuration never generates MIDI messages */
 void CTadsMidiFilePlayer::do_midi_cb(UINT) { }
 
+#ifdef HAVE_DXMUSIC
 /* we never need the DirectMusic loader in this build */
 IDirectMusicLoader8 *CTadsDirectMusic::loader_ = 0;
+#endif
 
 /* dummy entrypoint for HTTPRequest intrinsic class construction */
 vm_obj_id_t TadsHttpRequest::prep_event_obj(VMG_ int *, int *)
@@ -2040,7 +2042,7 @@ int PASCAL WinMain(HINSTANCE inst, HINSTANCE pinst,
     comm_thread->release_ref();
     
     /* done with our window and preferences objects */
-    if (win->Release() != 0) __asm int 3;
+    if (win->Release() != 0) DebugBreak();
     prefs->release_ref();
 
     /* done with the application object */

@@ -214,7 +214,65 @@ make_trx(htmltdb3 htmltdb3_tmp ${CMAKE_CURRENT_BINARY_DIR}/htmltdb3.t3r)
 
 trx_target_file(htmltdb3 htmltdb3_file)
 
+#tadsweb
+add_executable(tadsweb
+	WIN32
+	win32/w32webui.cpp
+	win32/tadswebctl.cpp
+	win32/tadscom.cpp
+	win32/tadswin.cpp
+	win32/tadsapp.cpp
+	win32/htmlpref.cpp
+	htmlplst.cpp
+	win32/tadsdlg.cpp
+	win32/tadsdlg2.cpp
+	win32/tadscbtn.cpp
+	win32/foldsel2.cpp
+	win32/tadsreg.cpp
+	win32/tadsstat.cpp
+	win32/tadsfont.cpp
+	win32/tadskb.cpp
+	htmlhash.cpp
+	win32/w32nogch.cpp
+	tadshtml.cpp
+	win32/tadshtmldlg.cpp
+	tadshtml3.cpp
+	#$(T3OBJDIR)\osnetwin.obj \
+	#$(T3OBJDIR)\osnet-fgwin.obj \
+	#$(T3OBJDIR)\vmrefcnt.obj \
+	#$(T3OBJDIR)\vmnet.obj \
+	#$(T3OBJDIR)\std.obj \
+	#$(T3OBJDIR)\vmisaac.obj \
+	#$(T3OBJDIR)\sha2.obj \
+	#$(T3OBJDIR)\vmuni_cs.obj \
+	#$(TADSOBJDIR)\osdosnui.obj \
+	#$(TADSOBJDIR)\osnoui.obj \
+	#$(TADSOBJDIR)\oswinmem.obj \
+	win32/tadsweb.rc
+)
+
+target_include_directories(tadsweb PRIVATE
+.
+win32
+)
+
+target_link_libraries(tadsweb PRIVATE
+	Tads::t3htm
+    Tads::tr32h
+	PNG::PNG
+
+    Comctl32.lib
+    Shlwapi.lib
+    Mpr.lib
+    Urlmon.lib
+	Ws2_32.lib
+)
+
 ###install rules
+
+install(TARGETS tadsweb
+	DESTINATION .
+)
 
 install(PROGRAMS
 	${htmlt3_file} ${htmltdb3_file}
