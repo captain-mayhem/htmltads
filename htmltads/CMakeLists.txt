@@ -237,17 +237,6 @@ add_executable(tadsweb
 	tadshtml.cpp
 	win32/tadshtmldlg.cpp
 	tadshtml3.cpp
-	#$(T3OBJDIR)\osnetwin.obj \
-	#$(T3OBJDIR)\osnet-fgwin.obj \
-	#$(T3OBJDIR)\vmrefcnt.obj \
-	#$(T3OBJDIR)\vmnet.obj \
-	#$(T3OBJDIR)\std.obj \
-	#$(T3OBJDIR)\vmisaac.obj \
-	#$(T3OBJDIR)\sha2.obj \
-	#$(T3OBJDIR)\vmuni_cs.obj \
-	#$(TADSOBJDIR)\osdosnui.obj \
-	#$(TADSOBJDIR)\osnoui.obj \
-	#$(TADSOBJDIR)\oswinmem.obj \
 	win32/tadsweb.rc
 )
 

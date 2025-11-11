@@ -66,7 +66,7 @@ inline textchar_t *ansi_from_olestr(
 /*
  *   Allocate an ANSI string buffer from an OLESTR 
  */
-inline textchar_t *ansi_from_olestr(const OLECHAR *olestr, size_t olecnt);
+textchar_t *ansi_from_olestr(const OLECHAR *olestr, size_t olecnt);
 inline textchar_t *ansi_from_olestr(const OLECHAR *olestr)
 {
     return ansi_from_olestr(olestr, wcslen(olestr));
