@@ -73,3 +73,11 @@ Modified
 #include "hos_qt.h"
 #endif
 
+ /* ------------------------------------------------------------------------ */
+ /*
+  *   Include definitions for Emscripten
+  */
+#ifdef __EMSCRIPTEN__
+#include "hos_emscripten.h"
+#endif
+
