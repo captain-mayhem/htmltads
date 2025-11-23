@@ -20,7 +20,11 @@
 
 /* Define "boolean" as unsigned char, not enum, per Windows custom */
 #ifndef __RPCNDR_H__		/* don't conflict if rpcndr.h already read */
+#ifdef __EMSCRIPTEN__
+typedef int boolean;
+#else
 typedef unsigned char boolean;
+#endif
 #endif
 #ifndef FALSE			/* in case these macros already exist */
 #define FALSE	0		/* values of boolean */
