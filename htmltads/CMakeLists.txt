@@ -88,6 +88,16 @@ if (WIN32)
 	)
 endif()
 
+if (EMSCRIPTEN)
+	set(base_src
+		${base_src}
+		emscripten/emmain.cpp
+	)
+	set(trt3_src
+		emscripten/t3main.cpp
+	)
+endif()
+
 set(trt3_src
 	${base_src}
 	${trt3_src}
