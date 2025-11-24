@@ -91,7 +91,9 @@ endif()
 if (EMSCRIPTEN)
 	set(base_src
 		${base_src}
+		emscripten/htmlemscripten.cpp
 		emscripten/emmain.cpp
+		emscripten/hos_emscripten.cpp
 	)
 	set(trt3_src
 		emscripten/t3main.cpp

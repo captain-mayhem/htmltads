@@ -11,6 +11,6 @@ int main(int argc, char** argv){
 	 *   cleared out 
 	 */
 	memset(&appctx, 0, sizeof(appctx));
-	os0main2(argc, argv, t3main, "", nullptr, &appctx);
-	return 0;
+	int ret = os0main2(argc, argv, t3main, "", nullptr, &appctx);
+	return ret;
 }
