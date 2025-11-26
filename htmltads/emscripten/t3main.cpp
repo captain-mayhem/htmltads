@@ -295,11 +295,44 @@ private:
     char *exe_file_;
 };
 
-int t3main(int argc, char **argv, struct appctxdef *app_ctx, char *config_file){
+/* 
+ *   create a host interface 
+ */
+class CVmHostIfc *t3main_create_hostifc(const char *exe_file,
+                                        struct appctxdef *appctx)
+{
+    char exe_dir[OSFNMAX];
+
+    /* get the directory containing the executable */
+    os_get_path_name(exe_dir, sizeof(exe_dir), exe_file);
+
+    /* create and return a new host interface */
+    return new MyHostIfc(appctx, exe_dir, exe_file);
+}
+
+/*
+ *   delete a host interface 
+ */
+void t3main_delete_hostifc(class CVmHostIfc *hostifc)
+{
+    /* delete the interface implementation */
+    delete hostifc;
+}
+
+int t3main(int argc, char **argv, struct appctxdef *appctx, char *config_file){
 	MyClientIfc clientifc;
 	CVmHostIfc* hostifc;
+	char exe_file[OSFNMAX];
+	
+	os_get_exe_filename(exe_file, OSFNMAX, argv[0]);
+	/* set up the host context */
+	hostifc = t3main_create_hostifc(exe_file, appctx);
+	
 	/* run the program and return the result code */
 	int stat = vm_run_image_main(&clientifc, "htmlt3",
-							 argc, argv, true, false, hostifc);
+							 argc, argv, TRUE, FALSE, hostifc);
+	
+	/* delete the host interface */
+	t3main_delete_hostifc(hostifc);
 	return stat;
 }

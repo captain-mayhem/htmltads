@@ -156,6 +156,16 @@ if (EMSCRIPTEN)
 	target_include_directories(${htmlt3_target_name} PRIVATE
 		${CMAKE_CURRENT_SOURCE_DIR}/emscripten
 	)
+	set_target_properties(${htmlt3_target_name} PROPERTIES LINK_FLAGS "-s ASSERTIONS=1 -s WASM=1 -s ASYNCIFY -s FORCE_FILESYSTEM -Wl,--wrap=fgets,--wrap=fflush,--wrap=getchar")
+	
+	install(TARGETS ${htmlt3_target_name}
+		DESTINATION .
+	)
+	
+	install (FILES
+		"$<TARGET_FILE_DIR:htmlt3>/htmlt3.wasm"
+		${CMAKE_CURRENT_SOURCE_DIR}/emscripten/htmlt3.html
+		DESTINATION .)
 endif()
 
 #we only build the runtime for non-windows targets
