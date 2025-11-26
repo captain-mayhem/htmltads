@@ -66,6 +66,17 @@ textchar_t *os_prev_char(oshtml_charset_id_t id,
 
 /* ------------------------------------------------------------------------ */
 /*
+ *   get the current system time
+ */
+os_timer_t os_get_time()
+{
+	struct timespec tv;
+	clock_gettime(CLOCK_MONOTONIC, &tv);
+    return tv.tv_sec*1000+tv.tv_nsec/1000;
+}
+
+/* ------------------------------------------------------------------------ */
+/*
  *   Get system information 
  */
 int os_get_sysinfo(int code, void * /*param*/, long *result)
