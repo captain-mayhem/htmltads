@@ -55,6 +55,10 @@ int CHtmlSys_mainwin::get_input_timeout(textchar_t* buf, size_t bufsiz,
 	if (fgets(buf, bufsiz, stdin) == nullptr){
 		return OS_EVT_EOF;
 	}
+	int len = strlen(buf);
+	if (len > 0){
+		buf[len-1] = '\0';
+	}
 	return OS_EVT_LINE;
 }
 
