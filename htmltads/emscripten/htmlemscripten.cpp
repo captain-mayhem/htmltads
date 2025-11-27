@@ -52,7 +52,10 @@ int CHtmlSys_mainwin::get_exe_resource(const textchar_t* resname, size_t resname
 
 int CHtmlSys_mainwin::get_input_timeout(textchar_t* buf, size_t bufsiz,
 	unsigned long timeout, int use_timeout) {
-	return 0;
+	if (fgets(buf, bufsiz, stdin) == nullptr){
+		return OS_EVT_EOF;
+	}
+	return OS_EVT_LINE;
 }
 
 void CHtmlSys_mainwin::get_input_cancel(int reset) {
@@ -93,7 +96,7 @@ void CHtmlSys_mainwin::display_output_quoted(const textchar_t* buf, size_t len) 
 
 
 textchar_t CHtmlSys_mainwin::wait_for_keystroke(int pause_only) {
-	return 'A';
+	return getchar();
 }
 
 /* pause before exiting */
