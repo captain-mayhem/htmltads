@@ -3,7 +3,25 @@
 
 #include <htmlsys.h>
 
-class CHtmlSys_mainwin: public CHtmlSysFrame
+class CHtmlSysWin_emscripten : public CHtmlSysWin{
+public:
+	CHtmlSysWin_emscripten(class CHtmlFormatter *formatter);
+    ~CHtmlSysWin_emscripten();
+};
+
+/* ------------------------------------------------------------------------ */
+/*
+ *   Subclass of HTML System Window that allows text input.  This class
+ *   operates essentially the same as the normal HTML window, but extends
+ *   it to allow reading input.  
+ */
+class CHtmlSysWin_emscripten_Input: public CHtmlSysWin_emscripten
+{
+public:
+    CHtmlSysWin_emscripten_Input(class CHtmlFormatterInput *formatter);
+};
+
+class CHtmlSys_mainwin: public CHtmlSysFrame, public CHtmlSysWinGroup
 {
 public:
     CHtmlSys_mainwin(class CHtmlFormatterInput *formatter,
@@ -119,13 +137,46 @@ public:
 
 	/* display a message on the debug console */
 	void dbg_print(const char *msg) { dbg_print(msg, TRUE); }
+
+	/* ----------------------------------------------------------------- */
+    /*
+     *   CHtmlSysWinGroup implementation 
+     */
+
+    /* get the default character set */
+    oshtml_charset_id_t get_default_win_charset() const
+        { return default_charset_; }
+
+    /* translate an HTML 4 code point value */
+    virtual size_t xlat_html4_entity(textchar_t *result, size_t result_size,
+                                     unsigned int charval,
+                                     oshtml_charset_id_t *charset,
+                                     int *changed_charset);
 	
 	/* get my parser */
 	CHtmlParser *get_parser() { return parser_; }
 	
 private:
+	/* main HTML panel window */
+	CHtmlSysWin_emscripten_Input *main_panel_;
+
 	/* our parser */
 	class CHtmlParser *parser_;
+
+	/* text buffer for sending text to the parser */
+	class CHtmlTextBuffer *txtbuf_;
+
+	/* default character set */
+    oshtml_charset_id_t default_charset_;
+
+	/* 
+	*   default "invalid" character in default character set - this is
+	*   the character value that we'll display when we have an unmappable
+	*   character (this is normally rendered as an open rectangle, to
+	*   indicate a missing character) 
+	*/
+	textchar_t invalid_char_val_;
+
 };
 
 #endif
