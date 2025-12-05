@@ -1,5 +1,6 @@
 #include "htmlemscripten.h"
 #include "htmlprs.h"
+#include "htmlfmt.h"
 
 /*
  *   Kill the process 
@@ -9,6 +10,265 @@ void CHtmlSysFrame::kill_process()
     exit(0);
 }
 
+
+CHtmlSysWin_emscripten::CHtmlSysWin_emscripten(class CHtmlFormatter *formatter) : CHtmlSysWin(formatter){
+
+}
+
+CHtmlSysWin_emscripten::~CHtmlSysWin_emscripten(){
+
+}
+
+class CHtmlSysWinGroup *CHtmlSysWin_emscripten::get_win_group(){
+    return nullptr;
+}
+
+void CHtmlSysWin_emscripten::notify_clear_contents(){
+
+}
+
+int CHtmlSysWin_emscripten::close_window(int force){
+    return 0;
+}
+
+long CHtmlSysWin_emscripten::get_disp_width(){
+    return 1024;
+}
+
+long CHtmlSysWin_emscripten::get_disp_height(){
+    return 768;
+}
+
+long CHtmlSysWin_emscripten::get_pix_per_inch(){
+    return 72;
+}
+
+CHtmlPoint CHtmlSysWin_emscripten::measure_text(class CHtmlSysFont *font,
+                                   const textchar_t *str, size_t len,
+                                   int *ascent){
+    return CHtmlPoint(0, 0);
+}
+
+CHtmlPoint CHtmlSysWin_emscripten::measure_dbgsrc_icon(){
+    return CHtmlPoint(0, 0);
+}
+
+size_t CHtmlSysWin_emscripten::get_max_chars_in_width(class CHtmlSysFont *font,
+                                         const textchar_t *str,
+                                         size_t len, long wid){
+                                            return 200;
+                                         }
+
+void CHtmlSysWin_emscripten::draw_text(int hilite, long x, long y,
+                          class CHtmlSysFont *font,
+                          const textchar_t *str, size_t len){
+
+                          }
+
+void CHtmlSysWin_emscripten::draw_text_space(int hilite, long x, long y,
+                                class CHtmlSysFont *font, long wid){
+
+                                }
+
+void CHtmlSysWin_emscripten::draw_bullet(int hilite, long x, long y,
+                            class CHtmlSysFont *font,
+                            HTML_SysWin_Bullet_t style){
+
+                            }
+
+void CHtmlSysWin_emscripten::draw_hrule(const CHtmlRect *pos, int shade){
+
+}
+
+void CHtmlSysWin_emscripten::draw_table_border(const CHtmlRect *pos, int width,
+                                  int cell){
+
+}
+
+void CHtmlSysWin_emscripten::draw_table_bkg(const CHtmlRect *pos,
+                               HTML_color_t bgcolor){
+
+}
+
+void CHtmlSysWin_emscripten::draw_dbgsrc_icon(const CHtmlRect *pos,
+                                 unsigned int stat){
+
+}
+
+int CHtmlSysWin_emscripten::do_formatting(int show_status, int update_win,
+                             int freeze_display){
+    int drawn = FALSE;
+    while(formatter_->more_to_do()){
+        formatter_->do_formatting();
+    }
+    return drawn;
+}
+
+void CHtmlSysWin_emscripten::recalc_palette(){
+
+}
+
+int CHtmlSysWin_emscripten::get_use_palette(){
+    return FALSE;
+}
+
+class CHtmlSysFont *CHtmlSysWin_emscripten::get_default_font(){
+    return nullptr;
+}
+
+class CHtmlSysFont
+       *CHtmlSysWin_emscripten::get_font(const class CHtmlFontDesc *font_desc){
+        return nullptr;
+}
+
+class CHtmlSysFont
+       *CHtmlSysWin_emscripten::get_bullet_font(class CHtmlSysFont *current_font){
+        return nullptr;
+       }
+
+void CHtmlSysWin_emscripten::register_timer_func(void (*timer_func)(void *),
+                                    void *func_ctx){
+
+}
+
+void CHtmlSysWin_emscripten::unregister_timer_func(void (*timer_func)(void *),
+                                      void *func_ctx){
+
+}
+
+class CHtmlSysTimer *CHtmlSysWin_emscripten::create_timer(void (*timer_func)(void *),
+                                             void *func_ctx){
+    return nullptr;
+}
+
+void CHtmlSysWin_emscripten::set_timer(class CHtmlSysTimer *timer, long interval_ms,
+                          int repeat){
+
+                          }
+
+void CHtmlSysWin_emscripten::cancel_timer(class CHtmlSysTimer *timer){
+
+}
+   
+void CHtmlSysWin_emscripten::delete_timer(class CHtmlSysTimer *timer){
+
+}
+
+void CHtmlSysWin_emscripten::fmt_adjust_hscroll(){
+
+}
+
+void CHtmlSysWin_emscripten::fmt_adjust_vscroll(){
+
+}
+
+void CHtmlSysWin_emscripten::inval_doc_coords(const class CHtmlRect *area){
+
+}
+
+void CHtmlSysWin_emscripten::advise_clearing_disp_list(){
+
+}
+
+void CHtmlSysWin_emscripten::scroll_to_doc_coords(const class CHtmlRect *pos){
+
+}
+
+void CHtmlSysWin_emscripten::get_scroll_doc_coords(class CHtmlRect *pos){
+
+}
+
+void CHtmlSysWin_emscripten::set_window_title(const textchar_t *title){
+
+}
+
+void CHtmlSysWin_emscripten::set_html_bg_color(HTML_color_t color, int use_default){
+
+}
+
+void CHtmlSysWin_emscripten::set_html_text_color(HTML_color_t color, int use_default){
+
+}
+
+void CHtmlSysWin_emscripten::set_html_input_color(HTML_color_t clr, int use_default){
+
+}
+
+void CHtmlSysWin_emscripten::set_html_link_colors(HTML_color_t link_color,
+                                     int link_use_default,
+                                     HTML_color_t vlink_color,
+                                     int vlink_use_default,
+                                     HTML_color_t alink_color,
+                                     int alink_use_default,
+                                     HTML_color_t hlink_color,
+                                     int hlink_use_default){
+
+}
+
+HTML_color_t CHtmlSysWin_emscripten::map_system_color(HTML_color_t color){
+    return color;
+}
+
+HTML_color_t CHtmlSysWin_emscripten::get_html_link_color() const{
+    return 0;
+}
+
+HTML_color_t CHtmlSysWin_emscripten::get_html_alink_color() const{
+    return 0;
+}
+
+HTML_color_t CHtmlSysWin_emscripten::get_html_vlink_color() const{
+    return 0;
+}
+
+HTML_color_t CHtmlSysWin_emscripten::get_html_hlink_color() const{
+    return 0;
+}
+
+int CHtmlSysWin_emscripten::get_html_link_underline() const{
+    return FALSE;
+}
+
+int CHtmlSysWin_emscripten::get_html_show_links() const{
+    return TRUE;
+}
+
+int CHtmlSysWin_emscripten::get_html_show_graphics() const{
+    return TRUE;
+}
+
+void CHtmlSysWin_emscripten::set_html_bg_image(class CHtmlResCacheObject *image){
+
+}
+
+void CHtmlSysWin_emscripten::inval_html_bg_image(unsigned int x, unsigned int y,
+                                    unsigned int wid, unsigned int ht){
+
+                                    }
+
+void CHtmlSysWin_emscripten::set_banner_size(
+       long width, HTML_BannerWin_Units_t width_units, int use_width,
+       long height, HTML_BannerWin_Units_t height_units, int use_height){
+
+       }
+
+void CHtmlSysWin_emscripten::set_banner_info(HTML_BannerWin_Pos_t pos,
+                                unsigned long style){
+
+                                }
+
+void CHtmlSysWin_emscripten::get_banner_info(HTML_BannerWin_Pos_t *pos,
+                                unsigned long *style){
+
+                                }
+
+
+CHtmlSysWin_emscripten_Input::CHtmlSysWin_emscripten_Input(class CHtmlFormatterInput *formatter) : CHtmlSysWin_emscripten(formatter){
+
+}
+
+
+
 CHtmlSys_mainwin::CHtmlSys_mainwin(class CHtmlFormatterInput *formatter,
                      class CHtmlParser *parser, int in_debugger) : parser_(parser){
 	/* create a text buffer */
@@ -16,7 +276,7 @@ CHtmlSys_mainwin::CHtmlSys_mainwin(class CHtmlFormatterInput *formatter,
 	/* set the global frame object pointer to point to me */
 	CHtmlSysFrame::set_frame_obj(this);
 	/* create the main HTML display panel window */
-	//main_panel_ = new CHtmlSysWin_emscripten_Input(formatter);
+	main_panel_ = new CHtmlSysWin_emscripten_Input(formatter);
 }
 
 CHtmlSys_mainwin::~CHtmlSys_mainwin(){
@@ -103,7 +363,7 @@ void CHtmlSys_mainwin::flush_txtbuf(int fmt, int immediate_redraw) {
 	txtbuf_->clear();
 
 	if (fmt){
-
+        main_panel_->do_formatting(FALSE, FALSE, FALSE);
 	}
 }
 
@@ -124,6 +384,7 @@ void CHtmlSys_mainwin::display_output_quoted(const textchar_t* buf, size_t len) 
 
 
 textchar_t CHtmlSys_mainwin::wait_for_keystroke(int pause_only) {
+    flush_txtbuf(TRUE, FALSE);
 	return getchar();
 }
 
