@@ -12,7 +12,12 @@ void CHtmlSysFrame::kill_process()
 
 
 CHtmlSysWin_emscripten::CHtmlSysWin_emscripten(class CHtmlFormatter *formatter) : CHtmlSysWin(formatter){
+    CHtmlRect margins;
 
+    /* set a small inset from the margins */
+    margins.set(8, 2, 8, 2);
+
+    formatter_->set_win(this, &margins);
 }
 
 CHtmlSysWin_emscripten::~CHtmlSysWin_emscripten(){
@@ -46,7 +51,8 @@ long CHtmlSysWin_emscripten::get_pix_per_inch(){
 CHtmlPoint CHtmlSysWin_emscripten::measure_text(class CHtmlSysFont *font,
                                    const textchar_t *str, size_t len,
                                    int *ascent){
-    return CHtmlPoint(0, 0);
+    printf("measure\n");
+    return CHtmlPoint(100, 20);
 }
 
 CHtmlPoint CHtmlSysWin_emscripten::measure_dbgsrc_icon(){
@@ -62,7 +68,7 @@ size_t CHtmlSysWin_emscripten::get_max_chars_in_width(class CHtmlSysFont *font,
 void CHtmlSysWin_emscripten::draw_text(int hilite, long x, long y,
                           class CHtmlSysFont *font,
                           const textchar_t *str, size_t len){
-
+    printf("at %ix%i: %s\n", x, y, str);
                           }
 
 void CHtmlSysWin_emscripten::draw_text_space(int hilite, long x, long y,
@@ -262,6 +268,17 @@ void CHtmlSysWin_emscripten::get_banner_info(HTML_BannerWin_Pos_t *pos,
 
                                 }
 
+void CHtmlSysWin_emscripten::doPaint(){
+    CHtmlRect area;
+    area.set(0, 0, 1000000, 1000000);
+    int clip_lines = FALSE;
+    long clip_ypos_ = 0;
+    /* draw everything in the client area */
+    if (formatter_ != 0)
+        formatter_->draw(&area, clip_lines, &clip_ypos_);
+}
+
+
 
 CHtmlSysWin_emscripten_Input::CHtmlSysWin_emscripten_Input(class CHtmlFormatterInput *formatter) : CHtmlSysWin_emscripten(formatter){
 
@@ -363,7 +380,8 @@ void CHtmlSys_mainwin::flush_txtbuf(int fmt, int immediate_redraw) {
 	txtbuf_->clear();
 
 	if (fmt){
-        main_panel_->do_formatting(FALSE, FALSE, FALSE);
+        //main_panel_->do_formatting(FALSE, FALSE, FALSE);
+        //main_panel_->doPaint();
 	}
 }
 

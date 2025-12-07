@@ -762,6 +762,7 @@ public:
    virtual void get_banner_info(HTML_BannerWin_Pos_t *pos,
                                 unsigned long *style);
 
+    void doPaint();
 };
 
 /* ------------------------------------------------------------------------ */
