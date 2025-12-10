@@ -1,6 +1,7 @@
 #include "htmlemscripten.h"
 #include "htmlprs.h"
 #include "htmlfmt.h"
+#include "emfont.h"
 
 /*
  *   Kill the process 
@@ -16,6 +17,13 @@ CHtmlSysWin_emscripten::CHtmlSysWin_emscripten(class CHtmlFormatter *formatter) 
 
     /* set a small inset from the margins */
     margins.set(8, 2, 8, 2);
+
+    /* create the default font */
+    CHtmlFontDesc font_desc;
+    font_desc.htmlsize = 3;
+    font_desc.default_charset = FALSE;
+    //font_desc.charset = owner->owner_get_default_charset();
+    //default_font_ = (CHtmlSysFont_win32 *)get_font(&font_desc);
 
     formatter_->set_win(this, &margins);
 }
@@ -51,7 +59,6 @@ long CHtmlSysWin_emscripten::get_pix_per_inch(){
 CHtmlPoint CHtmlSysWin_emscripten::measure_text(class CHtmlSysFont *font,
                                    const textchar_t *str, size_t len,
                                    int *ascent){
-    printf("measure\n");
     return CHtmlPoint(100, 20);
 }
 
@@ -119,12 +126,18 @@ int CHtmlSysWin_emscripten::get_use_palette(){
 }
 
 class CHtmlSysFont *CHtmlSysWin_emscripten::get_default_font(){
-    return nullptr;
+    CHtmlFontDesc desc;
+
+    /* get a font matching the current defaults */
+    desc.htmlsize = 3;
+    desc.default_charset = FALSE;
+    //desc.charset = owner_->owner_get_default_charset();
+    return get_font(&desc);
 }
 
 class CHtmlSysFont
        *CHtmlSysWin_emscripten::get_font(const class CHtmlFontDesc *font_desc){
-        return nullptr;
+        return new CHtmlSysFont_emscripten();
 }
 
 class CHtmlSysFont
@@ -380,7 +393,7 @@ void CHtmlSys_mainwin::flush_txtbuf(int fmt, int immediate_redraw) {
 	txtbuf_->clear();
 
 	if (fmt){
-        //main_panel_->do_formatting(FALSE, FALSE, FALSE);
+        main_panel_->do_formatting(FALSE, FALSE, FALSE);
         //main_panel_->doPaint();
 	}
 }

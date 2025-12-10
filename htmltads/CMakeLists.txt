@@ -31,6 +31,7 @@ if (WIN32)
 		win32/htmlw32.cpp
 		win32/w32main.cpp
 		win32/w32font.cpp
+		win32/w32font.h
 		win32/w32snd.cpp
 		win32/w32img.cpp
 		win32/hos_w32.cpp
@@ -92,6 +93,8 @@ if (EMSCRIPTEN)
 	set(base_src
 		${base_src}
 		emscripten/htmlemscripten.cpp
+		emscripten/emfont.cpp
+		emscripten/emfont.h
 		emscripten/emmain.cpp
 		emscripten/hos_emscripten.cpp
 	)
