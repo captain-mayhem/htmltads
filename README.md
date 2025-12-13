@@ -17,8 +17,8 @@ this project is supposed to fall under the porting TADS exception.
 ## How to build
 
 ### Prerequisites to install
-- Visual Studio 2022 with C++ Compiler
-- CMake (Version 3.x recommended, 4.x untested so far)
+- Visual Studio 2022 or 2026 with C++ Compiler
+- CMake (Version 4.x recommended, Version >= 3.19 required)
 - git
 
 ### Directory setup
@@ -27,9 +27,9 @@ this project is supposed to fall under the porting TADS exception.
 - create an empty folder parallel to the two git repositories as build directory, e.g. build_tads
 
 ### Build instructions
-- Open a Visual Studio "x64 Native Tools Command Prompt for VS 2022"
+- Open a Visual Studio "x64 Native Tools Command Prompt"
 - enter your build directory (cd build_tads)
-- Call CMake: cmake -G "Visual Studio 17 2022" -DCMAKE_INSTALL_PREFIX=install ..\tads-runner
+- Call CMake: cmake -DCMAKE_INSTALL_PREFIX=install ..\tads-runner
 - This will create a Tads.sln solution file in your build Directory
 - Double click on it to open Visual Studio
 - In the drop down, switch from "Debug" to "Release" (unless you want to build a Debug version)

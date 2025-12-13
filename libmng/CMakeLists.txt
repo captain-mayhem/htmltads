@@ -102,7 +102,7 @@ ENDIF(WORDS_BIGENDIAN)
 OPTION(BUILD_STATIC_LIBS
  "Build MNG static library and link executables against it." ON)
 OPTION(BUILD_SHARED_LIBS
- "Build MNG shared library and link executables against it." ON)
+ "Build MNG shared library and link executables against it." OFF)
 #
 OPTION(BUILD_MAN
  "Build MAN pages" OFF)
