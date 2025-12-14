@@ -416,6 +416,13 @@ target_include_directories(${MNG_LIBRARY_NAME} PRIVATE BEFORE ${CMAKE_CURRENT_BI
 #
 target_include_directories(${MNG_LIBRARY_NAME} PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 
+if (EMSCRIPTEN)
+target_compile_options(
+	${MNG_LIBRARY_NAME} PRIVATE
+	-pthread
+)
+endif()
+
 add_library(MNG::MNG ALIAS ${MNG_LIBRARY_NAME})
 
 #--- fin

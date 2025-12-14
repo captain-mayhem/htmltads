@@ -146,4 +146,11 @@ endif(MINGW)
 add_library(zlibstatic STATIC ${ZLIB_SRCS} ${ZLIB_DLL_SRCS} ${ZLIB_PUBLIC_HDRS} ${ZLIB_PRIVATE_HDRS})
 target_include_directories(zlibstatic PUBLIC ${CMAKE_CURRENT_BINARY_DIR} ${CMAKE_CURRENT_SOURCE_DIR})
 
+if (EMSCRIPTEN)
+	target_compile_options(
+		zlibstatic PRIVATE
+		-pthread
+	)
+endif()
+
 add_library(ZLIB::ZLIB ALIAS zlibstatic)

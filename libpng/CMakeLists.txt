@@ -719,6 +719,12 @@ if(PNG_STATIC)
                              INTERFACE "$<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}/libpng${PNGLIB_ABI_VERSION}>")
   target_link_libraries(png_static
                         PUBLIC ${PNG_LINK_LIBRARIES})
+  if (EMSCRIPTEN)
+	target_compile_options(
+		png_static PRIVATE
+		-pthread
+	)
+  endif()
 endif()
 
 if(PNG_FRAMEWORK AND NOT APPLE)

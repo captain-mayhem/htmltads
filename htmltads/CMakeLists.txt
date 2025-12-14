@@ -159,7 +159,18 @@ if (EMSCRIPTEN)
 	target_include_directories(${htmlt3_target_name} PRIVATE
 		${CMAKE_CURRENT_SOURCE_DIR}/emscripten
 	)
-	set_target_properties(${htmlt3_target_name} PROPERTIES LINK_FLAGS "-s ASSERTIONS=1 -s WASM=1 -s ASYNCIFY -s FORCE_FILESYSTEM -s INITIAL_MEMORY=256MB -s SAFE_HEAP=1 -Wl,--wrap=fgets,--wrap=fflush,--wrap=getchar")
+	
+	target_compile_options(
+		${htmlt3_target_name} PRIVATE
+		-pthread
+	)
+	
+	target_link_libraries(${htmlt3_target_name} PRIVATE
+		pthread
+	)
+	
+	#-sPROXY_TO_PTHREAD
+	set_target_properties(${htmlt3_target_name} PROPERTIES LINK_FLAGS "-s ASSERTIONS=1 -s WASM=1 -s ASYNCIFY -s FORCE_FILESYSTEM -s INITIAL_MEMORY=256MB -s SAFE_HEAP=1 -lwebsocket.js -sPROXY_POSIX_SOCKETS -pthread -Wl,--wrap=fgets,--wrap=fflush,--wrap=getchar")
 	
 	install(TARGETS ${htmlt3_target_name}
 		DESTINATION .
