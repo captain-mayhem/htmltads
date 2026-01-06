@@ -170,7 +170,7 @@ if (EMSCRIPTEN)
 	)
 	
 	#-sPROXY_TO_PTHREAD,  -s EXPORTED_RUNTIME_METHODS=ccall -sEXPORTED_FUNCTIONS=_real_socket,_main -sPROXY_POSIX_SOCKETS 
-	set_target_properties(${htmlt3_target_name} PROPERTIES LINK_FLAGS "-s ASSERTIONS=1 -s WASM=1 -s ASYNCIFY -s ASYNCIFY_IMPORTS=_emscripten_receive_on_main_thread_js -s PROXY_TO_PTHREAD -s FORCE_FILESYSTEM -s INITIAL_MEMORY=256MB -s SAFE_HEAP=1 -lwebsocket.js -gsource-map -pthread -sPROXY_POSIX_SOCKETS -Wl,--wrap=fgets,--wrap=fflush,--wrap=getchar,--wrap=socket")
+	set_target_properties(${htmlt3_target_name} PROPERTIES LINK_FLAGS "-s ASSERTIONS=1 -s WASM=1 -s ASYNCIFY -s ASYNCIFY_IMPORTS=_emscripten_receive_on_main_thread_js -s PROXY_TO_PTHREAD -s FORCE_FILESYSTEM -s INITIAL_MEMORY=256MB -s SAFE_HEAP=1 -lwebsocket.js -gsource-map -pthread -sPROXY_POSIX_SOCKETS -Wl,--wrap=fgets,--wrap=fflush,--wrap=getchar,--wrap=socket,--wrap=getsockname,--wrap=getpeername")
 	
 	install(TARGETS ${htmlt3_target_name}
 		DESTINATION .
