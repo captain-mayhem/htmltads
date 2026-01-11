@@ -24,8 +24,16 @@
             bottom: 10px;
         }
 
-        #terminal {
+        #canvas {
             height: 100%;
+            width: 100%;
+            border: 0px none;
+        }
+
+        #terminal {
+            position: relative;
+            bottom: 50%;
+            height: 50%;
             width: 100%;
             overflow: hidden;
         }
@@ -54,6 +62,9 @@
 
 <body>
     <div id="content">
+        <div class="emscripten_border">
+            <canvas class="emscripten" id="canvas" oncontextmenu="event.preventDefault()" tabindex=-1></canvas>
+        </div>
         <div id="terminal"></div>
     </div>
     <script src="./logic.js"></script>

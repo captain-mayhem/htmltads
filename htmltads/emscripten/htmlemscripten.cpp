@@ -1,7 +1,9 @@
+#include <string>
 #include "htmlemscripten.h"
 #include "htmlprs.h"
 #include "htmlfmt.h"
 #include "emfont.h"
+#include <emscripten/emscripten.h>
 
 /*
  *   Kill the process 
@@ -26,6 +28,13 @@ CHtmlSysWin_emscripten::CHtmlSysWin_emscripten(class CHtmlFormatter *formatter) 
     //default_font_ = (CHtmlSysFont_win32 *)get_font(&font_desc);
 
     formatter_->set_win(this, &margins);
+
+MAIN_THREAD_EM_ASM
+	({
+    var canvas = document.getElementById("canvas");
+    canvas.width = window.innerWidth;
+    canvas.height = window.innerHeight;
+    });
 }
 
 CHtmlSysWin_emscripten::~CHtmlSysWin_emscripten(){
@@ -45,11 +54,17 @@ int CHtmlSysWin_emscripten::close_window(int force){
 }
 
 long CHtmlSysWin_emscripten::get_disp_width(){
-    return 1024;
+    int width;
+    int height;
+    emscripten_get_screen_size(&width, &height);
+    return width;
 }
 
 long CHtmlSysWin_emscripten::get_disp_height(){
-    return 768;
+    int width;
+    int height;
+    emscripten_get_screen_size(&width, &height);
+    return height;
 }
 
 long CHtmlSysWin_emscripten::get_pix_per_inch(){
@@ -59,7 +74,19 @@ long CHtmlSysWin_emscripten::get_pix_per_inch(){
 CHtmlPoint CHtmlSysWin_emscripten::measure_text(class CHtmlSysFont *font,
                                    const textchar_t *str, size_t len,
                                    int *ascent){
-    return CHtmlPoint(100, 20);
+    if (ascent != nullptr){
+        *ascent = 18;
+    }
+    std::string substr(str, 0, len);
+    int txtlen = MAIN_THREAD_EM_ASM_INT
+	({
+        const ctx = document.getElementById("canvas").getContext("2d");
+		ctx.font = "18px serif";
+        let text = ctx.measureText($0);
+        return Math.ceil(Math.abs(text.actualBoundingBoxLeft) + Math.abs(text.actualBoundingBoxRight));;
+	}, substr.c_str());
+    //printf("str: %s %i %i\n", substr.c_str(), len, txtlen); 
+    return CHtmlPoint(txtlen, 20);
 }
 
 CHtmlPoint CHtmlSysWin_emscripten::measure_dbgsrc_icon(){
@@ -75,8 +102,16 @@ size_t CHtmlSysWin_emscripten::get_max_chars_in_width(class CHtmlSysFont *font,
 void CHtmlSysWin_emscripten::draw_text(int hilite, long x, long y,
                           class CHtmlSysFont *font,
                           const textchar_t *str, size_t len){
-    printf("at %ix%i: %s\n", x, y, str);
-                          }
+    std::string substr(str, 0, len);
+MAIN_THREAD_EM_ASM
+	({
+        const ctx = document.getElementById("canvas").getContext("2d");
+		ctx.font = "18px serif";
+        ctx.fillStyle = "orange";
+        ctx.fillText(UTF8ToString($2), $0, $1);
+	}, x, y, substr.c_str());
+    //printf("at %ix%i: %s (len %i)\n", x, y, substr.c_str(), len);
+}
 
 void CHtmlSysWin_emscripten::draw_text_space(int hilite, long x, long y,
                                 class CHtmlSysFont *font, long wid){
@@ -394,7 +429,7 @@ void CHtmlSys_mainwin::flush_txtbuf(int fmt, int immediate_redraw) {
 
 	if (fmt){
         main_panel_->do_formatting(FALSE, FALSE, FALSE);
-        //main_panel_->doPaint();
+        main_panel_->doPaint();
 	}
 }
 
