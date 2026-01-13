@@ -82,8 +82,12 @@ CHtmlPoint CHtmlSysWin_emscripten::measure_text(class CHtmlSysFont *font,
 	({
         const ctx = document.getElementById("canvas").getContext("2d");
 		ctx.font = "18px serif";
-        let text = ctx.measureText($0);
+        let text = ctx.measureText(UTF8ToString($0));
         return Math.ceil(Math.abs(text.actualBoundingBoxLeft) + Math.abs(text.actualBoundingBoxRight));;
+        //const newDiv = document.createElement("div");
+        //const newContent = document.createTextNode(UTF8ToString($0));
+        //newDiv.appendChild(newContent);
+        //return newDiv.getBoundingClientRect().right;
 	}, substr.c_str());
     //printf("str: %s %i %i\n", substr.c_str(), len, txtlen); 
     return CHtmlPoint(txtlen, 20);
@@ -105,10 +109,12 @@ void CHtmlSysWin_emscripten::draw_text(int hilite, long x, long y,
     std::string substr(str, 0, len);
 MAIN_THREAD_EM_ASM
 	({
-        const ctx = document.getElementById("canvas").getContext("2d");
-		ctx.font = "18px serif";
-        ctx.fillStyle = "orange";
-        ctx.fillText(UTF8ToString($2), $0, $1);
+        //const ctx = document.getElementById("canvas").getContext("2d");
+		//ctx.font = "18px serif";
+        //ctx.fillStyle = "orange";
+        //ctx.fillText(UTF8ToString($2), $0, $1);
+        document.getElementById("main_window")
+                .innerHTML += '<div style="position:absolute;top:'+$1+'px;left:'+$0+'px;">'+UTF8ToString($2)+'</div>'
 	}, x, y, substr.c_str());
     //printf("at %ix%i: %s (len %i)\n", x, y, substr.c_str(), len);
 }
