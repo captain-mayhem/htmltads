@@ -83,14 +83,21 @@ CHtmlPoint CHtmlSysWin_emscripten::measure_text(class CHtmlSysFont *font,
         const ctx = document.getElementById("canvas").getContext("2d");
 		ctx.font = "18px serif";
         let text = ctx.measureText(UTF8ToString($0));
-        return Math.ceil(Math.abs(text.actualBoundingBoxLeft) + Math.abs(text.actualBoundingBoxRight));;
+        return Math.ceil(Math.abs(text.actualBoundingBoxLeft) + Math.abs(text.actualBoundingBoxRight));
         //const newDiv = document.createElement("div");
         //const newContent = document.createTextNode(UTF8ToString($0));
         //newDiv.appendChild(newContent);
         //return newDiv.getBoundingClientRect().right;
 	}, substr.c_str());
-    //printf("str: %s %i %i\n", substr.c_str(), len, txtlen); 
-    return CHtmlPoint(txtlen, 20);
+    int txtheight = MAIN_THREAD_EM_ASM_INT
+	({
+        const ctx = document.getElementById("canvas").getContext("2d");
+		ctx.font = "18px serif";
+        let text = ctx.measureText(UTF8ToString($0));
+        return text.actualBoundingBoxAscent;
+	}, substr.c_str());
+    //printf("str: %s %i %i %i, \n", substr.c_str(), len, txtlen, txtheight); 
+    return CHtmlPoint(txtlen, txtheight+8);
 }
 
 CHtmlPoint CHtmlSysWin_emscripten::measure_dbgsrc_icon(){
@@ -114,7 +121,7 @@ MAIN_THREAD_EM_ASM
         //ctx.fillStyle = "orange";
         //ctx.fillText(UTF8ToString($2), $0, $1);
         document.getElementById("main_window")
-                .innerHTML += '<div style="position:absolute;top:'+$1+'px;left:'+$0+'px;">'+UTF8ToString($2)+'</div>'
+                .innerHTML += '<div style="position:absolute;top:'+$1+'px;left:'+$0+'px;height=20px;line-height: 20px;">'+UTF8ToString($2)+'</div>'
 	}, x, y, substr.c_str());
     //printf("at %ix%i: %s (len %i)\n", x, y, substr.c_str(), len);
 }
@@ -323,8 +330,13 @@ void CHtmlSysWin_emscripten::get_banner_info(HTML_BannerWin_Pos_t *pos,
                                 }
 
 void CHtmlSysWin_emscripten::doPaint(){
+MAIN_THREAD_EM_ASM
+	({
+        document.getElementById("main_window")
+                .innerHTML = " ";
+	});
     CHtmlRect area;
-    area.set(0, 0, 1000000, 1000000);
+    area.set(0, 0, 1920, 1000000);
     int clip_lines = FALSE;
     long clip_ypos_ = 0;
     /* draw everything in the client area */
