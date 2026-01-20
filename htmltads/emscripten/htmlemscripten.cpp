@@ -57,7 +57,7 @@ long CHtmlSysWin_emscripten::get_disp_width(){
     int width;
     int height;
     emscripten_get_screen_size(&width, &height);
-    return width;
+    return width-100;
 }
 
 long CHtmlSysWin_emscripten::get_disp_height(){
@@ -107,8 +107,23 @@ CHtmlPoint CHtmlSysWin_emscripten::measure_dbgsrc_icon(){
 size_t CHtmlSysWin_emscripten::get_max_chars_in_width(class CHtmlSysFont *font,
                                          const textchar_t *str,
                                          size_t len, long wid){
-                                            return 200;
-                                         }
+  std::string substr(str, 0, len);
+  int numchars = MAIN_THREAD_EM_ASM_INT
+	({
+        const ctx = document.getElementById("canvas").getContext("2d");
+		ctx.font = "18px serif";
+        let str = UTF8ToString($0);
+        for (let txtpos = str.length; txtpos >= 0; txtpos--){
+            let text = ctx.measureText(str.substring(0, txtpos));
+            let width = Math.ceil(Math.abs(text.actualBoundingBoxLeft) + Math.abs(text.actualBoundingBoxRight));
+            if (width < $1)
+                return txtpos;
+        }
+        return 0;
+	}, substr.c_str(), wid);
+    printf("measure %i %i %i\n", numchars, len, wid);
+    return numchars;
+}
 
 void CHtmlSysWin_emscripten::draw_text(int hilite, long x, long y,
                           class CHtmlSysFont *font,
@@ -121,7 +136,7 @@ MAIN_THREAD_EM_ASM
         //ctx.fillStyle = "orange";
         //ctx.fillText(UTF8ToString($2), $0, $1);
         document.getElementById("main_window")
-                .innerHTML += '<div style="position:absolute;top:'+$1+'px;left:'+$0+'px;height=20px;line-height: 20px;">'+UTF8ToString($2)+'</div>'
+                .innerHTML += '<div style="position:absolute;top:'+$1+'px;left:'+$0+'px;height=20px;line-height: 20px;font=18px serif;">'+UTF8ToString($2)+'</div>'
 	}, x, y, substr.c_str());
     //printf("at %ix%i: %s (len %i)\n", x, y, substr.c_str(), len);
 }
