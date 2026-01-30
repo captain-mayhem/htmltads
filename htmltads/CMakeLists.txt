@@ -185,6 +185,10 @@ endif()
 
 tads_source_group(${htmlt3_target_name} ${HTMLTADS_DIR})
 
+if (IMGUI_TADS)
+	add_subdirectory(imgui)
+endif()
+
 #we only build the runtime for non-windows targets
 if(NOT WIN32)
 	return()

@@ -3,6 +3,13 @@ add_subdirectory(libpng)
 add_subdirectory(jpeg)
 add_subdirectory(libmng)
 
+option(IMGUI_TADS "Build Tads based on glfw and imgui" ON)
+
+if (IMGUI_TADS)
+	set(GLFW_LIBRARY_TYPE "STATIC")
+	add_subdirectory(glfw)
+endif()
+
 if (WIN32)
 	add_subdirectory(libogg)
 	add_subdirectory(libvorbis)
