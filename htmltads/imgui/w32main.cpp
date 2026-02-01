@@ -337,7 +337,7 @@ static void set_game_name(void *ctx0, const char *fname)
  *   Runtime startup 
  */
 
-static void run_game(char *cmdline,
+static void run_game(int argc, char** argv,
                      int (*tadsmain)(int, char **, appctxdef *, char *),
                      char *before_opts, char *config_file)
 {
@@ -347,11 +347,10 @@ static void run_game(char *cmdline,
     RECT pos;
     const CHtmlRect *winpos;
     const int MAX_ARGS = 50;
-    char *argv[MAX_ARGS];
+    char* new_argv[MAX_ARGS];
     appctxdef appctx;
-    int argc;
+    int new_argc = 1;
     char exefile[256];
-    char *p;
     int debugwin_opt = FALSE;
     CHtmlParser *dbgprs = 0;
     CHtmlFormatter *dbgfmt = 0;
@@ -381,7 +380,7 @@ static void run_game(char *cmdline,
     /* get the executable's filename and use it as argv[0] */
     GetModuleFileName(CTadsApp::get_app()->get_instance(),
                       exefile, sizeof(exefile));
-    argv[0] = exefile;
+    new_argv[0] = exefile;
 
     /* 
      *   Create the parser, and start it off in literal mode.  We'll stay
@@ -452,58 +451,7 @@ static void run_game(char *cmdline,
     /*
      *   Parse the command line 
      */
-    for (argc = 1, p = cmdline, done = FALSE, respath_arg = FALSE ;
-         !done && p != 0 && *p != '\0' && argc + 1 < MAX_ARGS ; ++p)
-    {
-        char inquote;
-        
-        /* skip leading spaces */
-        while (*p != '\0' && isspace(*p))
-            ++p;
-
-        /* if we're done, quit */
-        if (*p == '\0')
-            break;
-
-        /* start a new argument */
-        argv[argc] = p;
-
-        /* scan the argument */
-        for (inquote = '\0' ; *p != '\0' ; ++p)
-        {
-            /* if this is a space and we're not in a quote, we're done */
-            if (isspace(*p) && inquote == '\0')
-                break;
-
-            /* if it's a quote, enter/exit quotes */
-            if ((inquote == '\0' && (*p == '"' || *p == '\''))
-                || (inquote != '\0' && *p == inquote))
-            {
-                /* start/close the quote */
-                inquote = (inquote ? '\0' : *p);
-
-                /* remove the quote from the argument text */
-                memmove(p, p + 1, strlen(p));
-
-                /* back off one to adjust for the movement */
-                --p;
-            }
-            else if (inquote != '\0' && *p == '\\' && *(p+1) == inquote)
-            {
-                /* 
-                 *   it's a quoted quote within a quoted section - remove
-                 *   the backslash, and proceed, ignoring the quote 
-                 */
-                memmove(p, p + 1, strlen(p));
-            }
-        }
-
-        /* note if we're at the end of the string */
-        done = (*p == '\0');
-
-        /* end the argument */
-        *p = '\0';
-
+    for (int i = 1, respath_arg = FALSE; i < argc; ++i) {
         /*
          *   Check for html-specific arguments.  If we see an argument
          *   that's special to the HTML run-time, note it, then remove it
@@ -519,7 +467,7 @@ static void run_game(char *cmdline,
              *   resource path value.  Copy it to our buffer, and make
              *   sure it ends in a path separator.  
              */
-            strcpy(respathbuf, argv[argc]);
+            strcpy(respathbuf, argv[i]);
             if ((len = strlen(respathbuf)) != 0
                 && respathbuf[len - 1] != '\\'
                 && respathbuf[len - 1] != '/'
@@ -535,17 +483,17 @@ static void run_game(char *cmdline,
             /* we've now fetched the resource path argument */
             respath_arg = FALSE;
         }
-        else if (w32_allow_debugwin && !stricmp(argv[argc], "-debugwin"))
+        else if (w32_allow_debugwin && !stricmp(argv[i], "-debugwin"))
         {
             /* turn on the debug window */
             debugwin_opt = TRUE;
         }
-        else if (!stricmp(argv[argc], "-respath"))
+        else if (!stricmp(argv[i], "-respath"))
         {
             /* the next argument is the resource path */
             respath_arg = TRUE;
         }
-        else if (!stricmp(argv[argc], "-noalphablend"))
+        else if (!stricmp(argv[i], "-noalphablend"))
         {
             /* turn off alpha blending in the image subsystem */
             CTadsImage::disable_alpha_support();
@@ -556,12 +504,13 @@ static void run_game(char *cmdline,
              *   this isn't an HTML argument, so pass it to the normal
              *   run-time by including it in the argument vector 
              */
-            ++argc;
+            new_argv[new_argc] = argv[i];
+            ++new_argc;
         }
     }
 
     /* run the pre-show-window routine */
-    if (!w32_pre_show_window(argc, argv))
+    if (!w32_pre_show_window(new_argc, new_argv))
     {
         /* 
          *   they want to quit immediately - notify the main window that we
@@ -860,9 +809,7 @@ done:
 /*
  *   Main entrypoint 
  */
-int PASCAL WinMain(HINSTANCE inst, HINSTANCE pinst,
-                   LPSTR cmdline, int cmdshow)
-{
+int main(int argc, char** argv){
     HINSTANCE rich_ed_hdl;
     INITCOMMONCONTROLSEX ice;
 
@@ -880,16 +827,8 @@ int PASCAL WinMain(HINSTANCE inst, HINSTANCE pinst,
     /* load the Rich Edit control in case we need it */
     rich_ed_hdl = LoadLibrary("RICHED32.DLL");
 
-    /*
-     *   Ensure that we have the right version of the common controls.  If
-     *   we have an older version, we'll run into problems, so at least
-     *   warn the user about it.  
-     */
-    if (!check_common_ctl_vsn(inst))
-        return 0;
-
     /* set the application instance in the TADS os layer */
-    oss_G_hinstance = inst;
+    oss_G_hinstance = GetModuleHandle(NULL);
 
     /* initialize the debug console */
     init_debug_console();
@@ -898,7 +837,7 @@ int PASCAL WinMain(HINSTANCE inst, HINSTANCE pinst,
     CHtmlResType::add_basic_types();
 
     /* create the main application object */
-    CTadsApp::create_app(inst, pinst, cmdline, cmdshow);
+    CTadsApp::create_app(argc, argv);
 
     /* 
      *   Tell the PNG reader to keep transparency information.  Also, tell
@@ -919,7 +858,7 @@ int PASCAL WinMain(HINSTANCE inst, HINSTANCE pinst,
     CHtmlJpeg::set_options(HTMLJPEG_OPT_RGB24);
 
     /* go run the game */
-    run_game(cmdline, w32_tadsmain, w32_beforeopts, w32_configfile);
+    run_game(argc, argv, w32_tadsmain, w32_beforeopts, w32_configfile);
 
     /* done with the main application object */
     CTadsApp::delete_app();

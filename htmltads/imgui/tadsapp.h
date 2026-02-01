@@ -30,6 +30,8 @@ Modified
 #include "tadsfont.h"
 #endif
 
+class GLFWwindow;
+
 /* ------------------------------------------------------------------------ */
 /*
  *   accelerator save/restore structure 
@@ -184,8 +186,7 @@ public:
     void do_idle();
 
     /* create the application object */
-    static void create_app(HINSTANCE inst, HINSTANCE pinst,
-                           LPSTR cmdline, int cmdshow);
+    static void create_app(int argc, char** argv);
 
     /* get the main application object */
     static CTadsApp *get_app() { return app_; }
@@ -435,7 +436,7 @@ public:
 
 private:
     CTadsApp();
-    CTadsApp(HINSTANCE inst, HINSTANCE pinst, LPSTR cmdline, int cmdshow);
+    CTadsApp(int argc, char** argv);
 
     virtual ~CTadsApp();
 
@@ -469,6 +470,8 @@ private:
     }
 
 private:
+    /* application window */
+    GLFWwindow* m_window;
     /* application instance handle */
     HINSTANCE  instance_;
 

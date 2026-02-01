@@ -72,6 +72,8 @@ add_executable(glt3
 	tadswebctl.cpp
 	tadscom.cpp
 	
+	tadsapp.h
+	
 	hos_gui.h
 	
 	w32tr.cpp
@@ -93,7 +95,6 @@ add_executable(glt3
 	imgui/imgui_internal.h
 	imgui/imgui_tables.cpp
 	imgui/imgui_widgets.cpp
-	imgui/main.cpp
 	imgui/imstb_textedit.h
 	imgui/imstb_rectpack.h
 	imgui/imstb_truetype.h
