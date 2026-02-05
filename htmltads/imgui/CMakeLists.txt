@@ -98,6 +98,8 @@ add_executable(glt3
 	imgui/imstb_textedit.h
 	imgui/imstb_rectpack.h
 	imgui/imstb_truetype.h
+
+	../win32/htmlt3.rc
 )
 
 target_compile_definitions(glt3 PRIVATE

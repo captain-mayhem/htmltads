@@ -394,6 +394,9 @@ int CTadsWin::create_system_window(CTadsWin *parent, HWND parent_hwnd,
 {
     /* note my parent */
     parent_ = parent;
+    if (parent != nullptr) {
+        parent->m_children.push_back(this);
+    }
 
     /* remember the system interface object */
     sysifc_ = sysifc;
@@ -1519,6 +1522,20 @@ int CTadsWin::do_paint()
 }
 
 /*
+ *   render the window
+ */
+int CTadsWin::do_render()
+{
+    do_render_content();
+
+    for (auto childwin : m_children) {
+        childwin->do_render();
+    }
+
+    return TRUE;
+}
+
+/*
  *   paint the window minimized 
  */
 int CTadsWin::do_paint_iconic()
@@ -1547,6 +1564,11 @@ void CTadsWin::do_paint_content(HDC hdc, const RECT *area_to_draw)
 {
     /* fill the affected area with a white background */
     FillRect(hdc, area_to_draw, (HBRUSH)GetStockObject(WHITE_BRUSH));
+}
+
+void CTadsWin::do_render_content()
+{
+    
 }
 
 /*

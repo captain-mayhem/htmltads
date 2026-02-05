@@ -60,6 +60,8 @@ Modified
 #ifndef TADSMIDI_H
 #include "tadsmidi.h"
 #endif
+#include "htmlgui.h"
+#include "htmlprs.h"
 
 
 /* ------------------------------------------------------------------------ */
@@ -535,6 +537,10 @@ int CTadsApp::event_loop(int *flag)
                 show_another_window = false;
             ImGui::End();
         }
+
+        CHtmlSysFrame* frame = CHtmlSysFrame::get_frame_obj();
+        CHtmlSys_mainwin* win = static_cast<CHtmlSys_mainwin*>(frame);
+        win->do_render();
 
         // Rendering
         ImGui::Render();

@@ -868,6 +868,9 @@ protected:
     /* paint the window contents */
     void do_paint_content(HDC hdc, const RECT *area_to_draw);
 
+    /* render the window contents */
+    void do_render_content();
+
     /* get my palette for painting */
     virtual HPALETTE get_paint_palette() { return hpal_; }
 

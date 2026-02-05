@@ -32,6 +32,9 @@ Modified
 #include <stdarg.h>
 #include <ctype.h>
 
+#include <imgui/imgui.h>
+#include <imgui/imgui_internal.h>
+
 /* include TADS OS headers */
 #include <os.h>
 #include <osifcext.h>
@@ -5427,6 +5430,138 @@ void CHtmlSysWin_win32::do_paint_content(HDC dc, const RECT *rc)
     }
 }
 
+/*
+* paint the window contents
+*/
+void CHtmlSysWin_win32::do_render_content()
+{
+    CHtmlRect area;
+    RECT more_rc;
+    int clip_lines;
+
+    ImGui::Begin("SysWin");
+
+    /* adjust the paint area to local coordinates */
+   // area.set(rc->left, rc->top, rc->right, rc->bottom);
+
+    /*
+     *   Fill the redraw area with the background brush.  Do this even if we
+     *   have a background image, in case the image has any transparent
+     *   sections.
+     */
+   // FillRect(dc, rc, bgbrush_);
+
+    /*
+     *   First, draw the background.  If I have an image, draw it;
+     *   otherwise, use the background color
+     */
+    if (bg_image_ != 0)
+    {
+        CHtmlSysImage* img;
+
+        /* figure out where the image goes, taking scrolling into account */
+        img = bg_image_->get_image();
+        if (img != 0)
+        {
+            unsigned long ht, wid;
+
+            /* get the height and width of the image */
+            ht = img->get_height();
+            wid = img->get_width();
+            if (ht != 0 && wid != 0)
+            {
+                CHtmlRect docrc;
+                long x1, y1;
+                long x, y;
+
+                /* compute where we're drawing, in document coordinates */
+                docrc = screen_to_doc(area);
+
+                /*
+                 *   compute, in document coordinates, the location of the
+                 *   tile that overlaps the rectangle, assuming that the
+                 *   image is tiled from the upper left of the document
+                 */
+                x1 = (docrc.left / wid) * wid;
+                y1 = (docrc.top / ht) * ht;
+
+                /* tile the image until we've filled up the drawing area */
+                for (y = y1; y < docrc.bottom; y += ht)
+                {
+                    /* tile across the current row */
+                    for (x = x1; x < docrc.right; x += wid)
+                    {
+                        CHtmlRect pos;
+
+                        /* draw this copy of the image */
+                        pos.set(x, y, x + wid, y + ht);
+                        img->draw_image(this, &pos, HTMLIMG_DRAW_CLIP);
+                    }
+                }
+            }
+        }
+    }
+
+    /* assume we'll allow the last line to show */
+    clip_lines = FALSE;
+
+    /*
+     *   if we're in "MORE" mode, clip the drawing area to the line
+     *   before the prompt
+     */
+    if (more_mode_)
+    {
+        /* get the prompt area */
+        get_moreprompt_rect(&more_rc);
+
+        /*
+         *   if the drawing area intersects the prompt area, clip out the
+         *   prompt area and tell the formatter not to draw lines that are
+         *   partially clipped
+         */
+        if (area.bottom >= more_rc.top)
+        {
+            area.bottom = more_rc.top - 1;
+            clip_lines = TRUE;
+        }
+    }
+
+    /* offset by scrolling position */
+    //area = screen_to_doc(area);
+    area.left = 0;
+    area.right = 10000;
+    area.top = 0;
+    area.bottom = 10000;
+
+    /* draw everything in the client area */
+    if (formatter_ != 0)
+        formatter_->draw(&area, clip_lines, &clip_ypos_);
+
+    /* if we're in "MORE" mode, draw a prompt at the bottom */
+    if (more_mode_ && !prefs_->get_alt_more_style())
+    {
+        COLORREF oldclr;
+        int oldbkmode;
+#if 0
+        /* write the prompt in white text in the default font */
+        select_font(dc, get_default_font());
+        oldclr = SetTextColor(dc, GetSysColor(COLOR_HIGHLIGHTTEXT));
+        oldbkmode = SetBkMode(dc, TRANSPARENT);
+
+        /* write the MORE prompt over a dark gray background */
+        FillRect(dc, &more_rc, GetSysColorBrush(COLOR_HIGHLIGHT));
+        ExtTextOut(dc, more_rc.left, more_rc.top, 0, 0,
+            more_prompt_str_.get(), strlen(more_prompt_str_.get()), 0);
+
+        /* restore the old text color and mode */
+        SetBkMode(dc, oldbkmode);
+        SetTextColor(dc, oldclr);
+#endif
+    }
+
+    ImGui::End();
+}
+
 
 /*
  *   Get the window group 
@@ -5747,6 +5882,10 @@ void CHtmlSysWin_win32::draw_text_clip(int hilite, long x, long y,
 
     /* restore original background mode */
     SetBkMode(hdc_, oldbkmode);
+    if (ImGui::GetCurrentContext()->CurrentWindow) {
+        ImGui::SetCursorPos(ImVec2(x, y));
+        ImGui::Text(str);
+    }
 }
 
 /*

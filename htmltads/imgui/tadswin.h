@@ -21,6 +21,7 @@ Modified
 #include <Windows.h>
 #include <commctrl.h>
 #include <Shlobj.h>
+#include <vector>
 
 #ifndef TADSWIN_H
 #define TADSWIN_H
@@ -481,6 +482,7 @@ struct check_cmd_info
 
 class CTadsWin: public IDropSource, public IDropTarget
 {
+    friend class CTadsApp;
 public:
     /* static class initialization/termination */
     static void class_init(class CTadsApp *app);
@@ -1058,6 +1060,9 @@ protected:
     /* paint the window */
     virtual int do_paint();
 
+    /* render the window */
+    virtual int do_render();
+
     /*
      *   Get the window style flags, and the extended style flags (for
      *   window creation).  The default flags are suitable for a main
@@ -1080,6 +1085,15 @@ protected:
      *   background. 
      */
     virtual void do_paint_content(HDC hdc, const RECT *area_to_draw);
+
+    /*
+     *   Render the content area.  Most windows will not need to override
+     *   do_paint(), which does the standard painting setup, but will
+     *   instead override only this routine, which does the actual
+     *   drawing.  The default routine simply erases the area with a white
+     *   background.
+     */
+    virtual void do_render_content();
 
     /* 
      *   Get the palette for painting.  This is required only if we're in a
@@ -1657,6 +1671,8 @@ protected:
 
     /* in-use timer list */
     static struct tadswin_timer_alo *inuse_timers_;
+
+    std::vector<CTadsWin*> m_children;
 };
 
 /* ------------------------------------------------------------------------ */
