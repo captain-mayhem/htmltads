@@ -32,6 +32,8 @@ Modified
 #include <stdarg.h>
 #include <ctype.h>
 
+#include <string>
+
 #include <imgui/imgui.h>
 #include <imgui/imgui_internal.h>
 
@@ -5883,8 +5885,9 @@ void CHtmlSysWin_win32::draw_text_clip(int hilite, long x, long y,
     /* restore original background mode */
     SetBkMode(hdc_, oldbkmode);
     if (ImGui::GetCurrentContext()->CurrentWindow) {
+        std::string text(str, len);
         ImGui::SetCursorPos(ImVec2(x, y));
-        ImGui::Text(str);
+        ImGui::TextUnformatted(text.c_str());
     }
 }
 

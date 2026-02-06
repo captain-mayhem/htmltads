@@ -309,6 +309,18 @@ CTadsWin::~CTadsWin()
      */
     if (scroll_win_ != 0)
         scroll_win_->Release();
+
+    if (parent_) {
+        for (auto it = parent_->m_children.begin(); it != parent_->m_children.end(); ++it) {
+            if (*it == this) {
+                parent_->m_children.erase(it);
+                break;
+            }
+        }
+    }
+    for (auto child : m_children) {
+        child->parent_ = nullptr;
+    }
 }
 
 /*
