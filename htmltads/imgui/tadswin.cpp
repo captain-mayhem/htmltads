@@ -28,6 +28,9 @@ Modified
 #include <stdarg.h>
 #include <stdio.h>
 
+#include <imgui/imgui.h>
+#include <imgui/imgui_impl_glfw.h>
+#include <imgui/imgui_impl_opengl3.h>
 
 #ifndef HTMLRES_H
 #include "htmlres.h"
@@ -422,6 +425,14 @@ int CTadsWin::create_system_window(CTadsWin *parent, HWND parent_hwnd,
         (pos->bottom == CW_USEDEFAULT && pos->bottom == CW_USEDEFAULT
          ? CW_USEDEFAULT : pos->bottom - pos->top),
         parent_hwnd, 0, CTadsApp::get_app()->get_instance(), this);
+    if (parent == nullptr) {
+        m_window = sysifc->syswin_create_system_window(
+            title, get_winstyle(), pos->left, pos->top,
+            (pos->right == CW_USEDEFAULT && pos->left == CW_USEDEFAULT
+                ? CW_USEDEFAULT : pos->right - pos->left),
+            (pos->bottom == CW_USEDEFAULT && pos->bottom == CW_USEDEFAULT
+                ? CW_USEDEFAULT : pos->bottom - pos->top));
+    }
 
     /* if that failed, return a failure indication */
     if (handle_ == 0)
@@ -3208,6 +3219,87 @@ HWND CTadsSyswin::syswin_create_system_window(DWORD ex_style,
     return CreateWindowEx(ex_style, CTadsWin::win_class_name,
                           wintitle, style,
                           x, y, wid, ht, parent, menu, inst, param);
+}
+
+static void charCallback(GLFWwindow* window, unsigned int codepoint) {
+
+}
+
+GLFWwindow* CTadsSyswin::syswin_create_system_window(
+    const textchar_t* wintitle,
+    DWORD sstyle,
+    int x, int y, int wid, int ht) {
+    if (wid == CW_USEDEFAULT)
+        wid = 1426;
+    if (ht == CW_USEDEFAULT)
+        ht = 746;
+    // Decide GL+GLSL versions
+#if defined(IMGUI_IMPL_OPENGL_ES2)
+    // GL ES 2.0 + GLSL 100 (WebGL 1.0)
+    const char* glsl_version = "#version 100";
+    glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 2);
+    glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 0);
+    glfwWindowHint(GLFW_CLIENT_API, GLFW_OPENGL_ES_API);
+#elif defined(IMGUI_IMPL_OPENGL_ES3)
+    // GL ES 3.0 + GLSL 300 es (WebGL 2.0)
+    const char* glsl_version = "#version 300 es";
+    glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 3);
+    glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 0);
+    glfwWindowHint(GLFW_CLIENT_API, GLFW_OPENGL_ES_API);
+#elif defined(__APPLE__)
+    // GL 3.2 + GLSL 150
+    const char* glsl_version = "#version 150";
+    glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 3);
+    glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 2);
+    glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);  // 3.2+ only
+    glfwWindowHint(GLFW_OPENGL_FORWARD_COMPAT, GL_TRUE);            // Required on Mac
+#else
+    // GL 3.0 + GLSL 130
+    const char* glsl_version = "#version 130";
+    glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 3);
+    glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 0);
+    //glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);  // 3.2+ only
+    //glfwWindowHint(GLFW_OPENGL_FORWARD_COMPAT, GL_TRUE);            // 3.0+ only
+#endif
+
+    // Create window with graphics context
+    float main_scale = ImGui_ImplGlfw_GetContentScaleForMonitor(glfwGetPrimaryMonitor()); // Valid on GLFW 3.3+ only
+    GLFWwindow* window = glfwCreateWindow((int)(wid * main_scale), (int)(ht * main_scale), wintitle, nullptr, nullptr);
+    if (window == nullptr) {
+        fprintf(stderr, "glfwCreateWindow failed\n");
+        return nullptr;
+    }
+    glfwMakeContextCurrent(window);
+    glfwSwapInterval(1); // Enable vsync
+
+    // Setup Dear ImGui context
+    IMGUI_CHECKVERSION();
+    ImGui::CreateContext();
+    ImGuiIO& io = ImGui::GetIO(); (void)io;
+    io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;     // Enable Keyboard Controls
+    io.ConfigFlags |= ImGuiConfigFlags_NavEnableGamepad;      // Enable Gamepad Controls
+#ifdef __EMSCRIPTEN__
+    // For an Emscripten build we are disabling file-system access, so let's not attempt to do a fopen() of the imgui.ini file.
+    // You may manually call LoadIniSettingsFromMemory() to load settings from your own storage.
+    io.IniFilename = nullptr;
+#endif
+
+    // Setup Dear ImGui style
+    ImGui::StyleColorsDark();
+    //ImGui::StyleColorsLight();
+
+    // Setup scaling
+    ImGuiStyle& style = ImGui::GetStyle();
+    style.ScaleAllSizes(main_scale);        // Bake a fixed style scale. (until we have a solution for dynamic style scaling, changing this requires resetting Style + calling this again)
+    style.FontScaleDpi = main_scale;        // Set initial font scale. (in docking branch: using io.ConfigDpiScaleFonts=true automatically overrides this for every window depending on the current monitor)
+
+    // Setup Platform/Renderer backends
+    ImGui_ImplGlfw_InitForOpenGL(window, true);
+#ifdef __EMSCRIPTEN__
+    ImGui_ImplGlfw_InstallEmscriptenCallbacks(window, "#canvas");
+#endif
+    ImGui_ImplOpenGL3_Init(glsl_version);
+    return window;
 }
 
 /*

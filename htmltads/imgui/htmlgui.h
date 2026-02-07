@@ -2937,6 +2937,8 @@ public:
     int owner_process_moremode_key(int vkey, TCHAR ch);
     virtual void release_all_moremode();
 
+    int event_loop(int* flag);
+
 private:
     /* finish command line input */
     void get_input_done();

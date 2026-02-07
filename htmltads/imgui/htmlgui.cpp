@@ -36,6 +36,8 @@ Modified
 
 #include <imgui/imgui.h>
 #include <imgui/imgui_internal.h>
+#include <imgui/imgui_impl_opengl3.h>
+#include <imgui/imgui_impl_glfw.h>
 
 /* include TADS OS headers */
 #include <os.h>
@@ -10320,6 +10322,16 @@ CHtmlSys_mainwin::~CHtmlSys_mainwin()
     /* delete our menu icon handler */
     delete iconmenu_;
 
+    if (m_window) {
+        // Cleanup
+        ImGui_ImplOpenGL3_Shutdown();
+        ImGui_ImplGlfw_Shutdown();
+        ImGui::DestroyContext();
+
+        glfwDestroyWindow(m_window);
+        glfwTerminate();
+    }
+
     /* terminate the application */
     PostQuitMessage(0);
 }
@@ -14206,6 +14218,130 @@ void CHtmlSys_mainwin::release_all_moremode()
 
     /* iterate over all elements, releasing MORE mode in each */
     more_wins_.iterate(&cb);
+}
+
+// Our state
+bool show_demo_window = true;
+bool show_another_window = false;
+ImVec4 clear_color = ImVec4(0.45f, 0.55f, 0.60f, 1.00f);
+
+int CHtmlSys_mainwin::event_loop(int* flag) {
+#ifdef __EMSCRIPTEN__
+    EMSCRIPTEN_MAINLOOP_BEGIN
+#else
+    while (!glfwWindowShouldClose(m_window))
+#endif
+    {
+
+        // Poll and handle events (inputs, window resize, etc.)
+        // You can read the io.WantCaptureMouse, io.WantCaptureKeyboard flags to tell if dear imgui wants to use your inputs.
+        // - When io.WantCaptureMouse is true, do not dispatch mouse input data to your main application, or clear/overwrite your copy of the mouse data.
+        // - When io.WantCaptureKeyboard is true, do not dispatch keyboard input data to your main application, or clear/overwrite your copy of the keyboard data.
+        // Generally you may always pass all inputs to dear imgui, and hide them from your application based on those two flags.
+        glfwPollEvents();
+
+        ImGuiIO& io = ImGui::GetIO();
+
+        for (int key = ImGuiKey_NamedKey_BEGIN; key < ImGuiKey_NamedKey_END; ++key)
+            if (ImGui::IsKeyPressed((ImGuiKey)key)) {
+            //    do_char(key, 0);
+            }
+
+        /*if (io.AddInputCharactersUTF8) {
+            if (!(io.KeyCtrl && !io.KeyAlt) && is_editable) {
+                for (int n = 0; n < IM_ARRAYSIZE(io.InputCharacters) && io.InputCharacters[n]; n++) {
+                    if (unsigned int c = (unsigned int)io.InputCharacters[n]) {
+                        if (bufLen < buf_size) {
+                            buf[bufLen++] = (char)c;
+                        }
+                    }
+                }
+            }
+
+            // Consume characters
+            memset(g.IO.InputCharacters, 0, sizeof(g.IO.InputCharacters));
+        }*/
+
+        if (glfwGetWindowAttrib(m_window, GLFW_ICONIFIED) != 0)
+        {
+            ImGui_ImplGlfw_Sleep(10);
+            return TRUE;
+        }
+
+        // Start the Dear ImGui frame
+        ImGui_ImplOpenGL3_NewFrame();
+        ImGui_ImplGlfw_NewFrame();
+        ImGui::NewFrame();
+
+        for (int i = 0; i < io.InputQueueCharacters.size(); ++i) {
+            ImWchar ch = io.InputQueueCharacters[i];
+            do_char(ch, 0);
+        }
+
+        // 1. Show the big demo window (Most of the sample code is in ImGui::ShowDemoWindow()! You can browse its code to learn more about Dear ImGui!).
+        if (show_demo_window)
+            ImGui::ShowDemoWindow(&show_demo_window);
+
+        // 2. Show a simple window that we create ourselves. We use a Begin/End pair to create a named window.
+        {
+            static float f = 0.0f;
+            static int counter = 0;
+
+            ImGui::Begin("Hello, world!");                          // Create a window called "Hello, world!" and append into it.
+
+            ImGui::Text("This is some useful text.");               // Display some text (you can use a format strings too)
+            ImGui::Checkbox("Demo Window", &show_demo_window);      // Edit bools storing our window open/close state
+            ImGui::Checkbox("Another Window", &show_another_window);
+
+            ImGui::SliderFloat("float", &f, 0.0f, 1.0f);            // Edit 1 float using a slider from 0.0f to 1.0f
+            ImGui::ColorEdit3("clear color", (float*)&clear_color); // Edit 3 floats representing a color
+
+            if (ImGui::Button("Button"))                            // Buttons return true when clicked (most widgets return true when edited/activated)
+                counter++;
+            ImGui::SameLine();
+            ImGui::Text("counter = %d", counter);
+
+            ImGui::Text("Application average %.3f ms/frame (%.1f FPS)", 1000.0f / io.Framerate, io.Framerate);
+            ImGui::End();
+        }
+
+        // 3. Show another simple window.
+        if (show_another_window)
+        {
+            ImGui::Begin("Another Window", &show_another_window);   // Pass a pointer to our bool variable (the window will have a closing button that will clear the bool when clicked)
+            ImGui::Text("Hello from another window!");
+            if (ImGui::Button("Close Me"))
+                show_another_window = false;
+            ImGui::End();
+        }
+
+        CHtmlSysFrame* frame = CHtmlSysFrame::get_frame_obj();
+        CHtmlSys_mainwin* win = static_cast<CHtmlSys_mainwin*>(frame);
+        win->do_render();
+
+        // Rendering
+        ImGui::Render();
+        int display_w, display_h;
+        glfwGetFramebufferSize(m_window, &display_w, &display_h);
+        glViewport(0, 0, display_w, display_h);
+        glClearColor(clear_color.x * clear_color.w, clear_color.y * clear_color.w, clear_color.z * clear_color.w, clear_color.w);
+        glClear(GL_COLOR_BUFFER_BIT);
+        ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
+
+        glfwSwapBuffers(m_window);
+
+        /*
+        *   if a flag variable was provided, and the flag variable has
+        *   become true, we're done -- return true to indicate that the
+        *   application is to continue running
+        */
+        if (flag != 0 && *flag != 0)
+            return TRUE;
+    }
+#ifdef __EMSCRIPTEN__
+    EMSCRIPTEN_MAINLOOP_END;
+#endif
+    return FALSE;
 }
 
 /* ------------------------------------------------------------------------ */

@@ -21,6 +21,7 @@ Modified
 #include <Windows.h>
 #include <commctrl.h>
 #include <Shlobj.h>
+#include <GLFW/glfw3.h>
 #include <vector>
 
 #ifndef TADSWIN_H
@@ -182,6 +183,14 @@ public:
                                              int x, int y, int wid, int ht,
                                              HWND parent, HMENU menu,
                                              HINSTANCE inst, void *param);
+
+    /*
+     *   Create the system window object
+     */
+    virtual GLFWwindow* syswin_create_system_window(
+        const textchar_t* wintitle,
+        DWORD style,
+        int x, int y, int wid, int ht);
 
     /* determine if I'm maximized */
     virtual int syswin_is_maximized(class CTadsWin *parent) const;
@@ -1336,7 +1345,13 @@ protected:
      *   do_hotkey() handles a registered hot-key message.  All of these
      *   should return true if they handled the event, false if not.  
      */
-    virtual int do_char(TCHAR, long /*keydata*/) { return FALSE; }
+    virtual int do_char(TCHAR ch, long /*keydata*/) {
+        for (auto childwin : m_children) {
+            if (childwin->do_char(ch, 0))
+                return TRUE;
+        }
+        return FALSE; 
+    }
     virtual int do_keydown(int /*virtual_key*/, long /*keydata*/)
         { return FALSE; }
     virtual int do_keyup(int /*virtual_key*/, long /*keydata*/)
@@ -1567,6 +1582,7 @@ protected:
     
     /* our handle */
     HWND handle_;
+    GLFWwindow* m_window = nullptr;
 
     /* our device context handle, valid during painting */
     HDC hdc_;

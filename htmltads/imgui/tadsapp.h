@@ -30,8 +30,6 @@ Modified
 #include "tadsfont.h"
 #endif
 
-class GLFWwindow;
-
 /* ------------------------------------------------------------------------ */
 /*
  *   accelerator save/restore structure 
@@ -470,8 +468,6 @@ private:
     }
 
 private:
-    /* application window */
-    GLFWwindow* m_window;
     /* application instance handle */
     HINSTANCE  instance_;
 
