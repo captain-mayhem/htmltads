@@ -21,6 +21,7 @@ Modified
 #define HTMLSYS_GUI_H
 
 #include <windows.h>
+#include <imgui/imgui.h>
 
 /* TADS OS layer - for I/O routines */
 #include <os.h>
@@ -1361,11 +1362,11 @@ protected:
     class CHtmlResCacheObject *bg_image_;
 
     /* background color and brush */
-    COLORREF bgcolor_;
+    ImVec4 bgcolor_;
     HBRUSH bgbrush_;
 
     /* default text color */
-    COLORREF text_color_;
+    ImVec4 text_color_;
 
     /* input text color */
     COLORREF input_color_;

@@ -1549,6 +1549,9 @@ int CTadsWin::do_paint()
  */
 int CTadsWin::do_render()
 {
+    if (!IsWindowVisible(handle_))
+        return TRUE;
+
     do_render_content();
 
     for (auto childwin : m_children) {
@@ -3229,6 +3232,10 @@ GLFWwindow* CTadsSyswin::syswin_create_system_window(
     const textchar_t* wintitle,
     DWORD sstyle,
     int x, int y, int wid, int ht) {
+    //we want only one real main window
+    if (glfwGetCurrentContext() != nullptr) {
+        return nullptr;
+    }
     if (wid == CW_USEDEFAULT)
         wid = 1426;
     if (ht == CW_USEDEFAULT)

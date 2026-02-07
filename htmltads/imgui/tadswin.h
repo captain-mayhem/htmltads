@@ -22,6 +22,7 @@ Modified
 #include <commctrl.h>
 #include <Shlobj.h>
 #include <GLFW/glfw3.h>
+#include <imgui/imgui.h>
 #include <vector>
 
 #ifndef TADSWIN_H
@@ -90,6 +91,22 @@ inline COLORREF HTML_color_to_COLORREF(HTML_color_t htmlcolor)
 inline HTML_color_t COLORREF_to_HTML_color(COLORREF rgb)
 {
     return HTML_make_color(GetRValue(rgb), GetGValue(rgb), GetBValue(rgb));
+}
+
+/* ------------------------------------------------------------------------ */
+/*
+ *   Convert an HTML_color_t to a ImVec4, and vice versa
+ */
+inline ImVec4 HTML_color_to_ImVec4(HTML_color_t htmlcolor)
+{
+	return ImVec4(HTML_color_red(htmlcolor) / 255.0f,
+		HTML_color_green(htmlcolor) / 255.0f,
+		HTML_color_blue(htmlcolor) / 255.0f, 1.0f);
+}
+
+inline HTML_color_t ImVec4_to_HTML_color(ImVec4 rgb)
+{
+    return HTML_make_color((int)(rgb.x*255), (int)(rgb.y * 255), (int)(rgb.z * 255));
 }
 
 

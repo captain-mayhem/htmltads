@@ -328,7 +328,8 @@ public:
         }
         
         /* update the status line message to account for the change */
-        stat_->update();
+        if (stat_)
+            stat_->update();
     }
 
 protected:

@@ -5442,7 +5442,7 @@ void CHtmlSysWin_win32::do_render_content()
     CHtmlRect area;
     RECT more_rc;
     int clip_lines;
-
+    ImGui::PushStyleColor(ImGuiCol_WindowBg, bgcolor_);
     ImGui::Begin("SysWin");
 
     /* adjust the paint area to local coordinates */
@@ -5538,7 +5538,7 @@ void CHtmlSysWin_win32::do_render_content()
     area.bottom = 10000;
 
     /* draw everything in the client area */
-    if (formatter_ != 0)
+    if (formatter_ != 0 && formatter_->get_win() != nullptr)
         formatter_->draw(&area, clip_lines, &clip_ypos_);
 
     /* if we're in "MORE" mode, draw a prompt at the bottom */
@@ -5564,6 +5564,7 @@ void CHtmlSysWin_win32::do_render_content()
     }
 
     ImGui::End();
+    ImGui::PopStyleColor();
 }
 
 
@@ -5811,6 +5812,7 @@ void CHtmlSysWin_win32::draw_text_clip(int hilite, long x, long y,
 
     /* presume we won't have to change the background color */
     reset_bkcolor = FALSE;
+    ImVec4 textColor(0.0f, 0.0f, 0.0f, 1.0f);
 
     /* 
      *   If highlighting, turn on text highlight colors.  If drawing with an
@@ -5870,8 +5872,10 @@ void CHtmlSysWin_win32::draw_text_clip(int hilite, long x, long y,
                 oldtxtcolor = SetTextColor(
                     hdc_, HTML_color_to_COLORREF(font->get_font_color()));
         }
-        else
-            oldtxtcolor = SetTextColor(hdc_, text_color_);
+        else {
+            oldtxtcolor = SetTextColor(hdc_, HTML_color_to_COLORREF(ImVec4_to_HTML_color(text_color_)));
+            textColor = text_color_;
+        }
     }
 
     /* draw the text */
@@ -5887,9 +5891,10 @@ void CHtmlSysWin_win32::draw_text_clip(int hilite, long x, long y,
     /* restore original background mode */
     SetBkMode(hdc_, oldbkmode);
     if (ImGui::GetCurrentContext()->CurrentWindow) {
-        std::string text(str, len);
         ImGui::SetCursorPos(ImVec2(x, y));
-        ImGui::TextUnformatted(text.c_str());
+        ImGui::PushStyleColor(ImGuiCol_Text, textColor);
+        ImGui::TextUnformatted(str, str+len);
+        ImGui::PopStyleColor();
     }
 }
 
@@ -7194,13 +7199,13 @@ void CHtmlSysWin_win32::note_debug_format_changes(
 void CHtmlSysWin_win32::internal_set_bg_color(COLORREF rgb)
 {
     LOGBRUSH lbr;
-
+    ImVec4 col(GetRValue(rgb)/255.0f, GetGValue(rgb) / 255.0f, GetBValue(rgb) / 255.0f, 1.0f);
     /* if the color isn't changing, there's nothing more to do */
-    if (bgbrush_ != 0 && rgb == bgcolor_)
+    if (bgbrush_ != 0 && col.x == bgcolor_.x && col.y == bgcolor_.y && col.z == bgcolor_.z && col.w == bgcolor_.w)
         return;
 
     /* remember the new color */
-    bgcolor_ = rgb;
+    bgcolor_ = col;
 
     /* discard the old background brush */
     if (bgbrush_ != 0)
@@ -7248,12 +7253,13 @@ void CHtmlSysWin_win32::set_html_text_color(HTML_color_t color,
  */
 void CHtmlSysWin_win32::internal_set_text_color(COLORREF new_color)
 {
+    ImVec4 newcol = HTML_color_to_ImVec4(COLORREF_to_HTML_color(new_color));
     /* if we're not changing the color, there's nothing to do */
-    if (new_color == text_color_)
+    if (newcol.x == text_color_.x && newcol.y == text_color_.y && newcol.z == text_color_.z && newcol.w == text_color_.w)
         return;
 
     /* set the new color */
-    text_color_ = new_color;
+    text_color_ = newcol;
 
     /* invalidate the whole window so we draw in the new color */
     if (handle_ != 0)
