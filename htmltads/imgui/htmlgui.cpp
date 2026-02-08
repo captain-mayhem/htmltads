@@ -5437,13 +5437,18 @@ void CHtmlSysWin_win32::do_paint_content(HDC dc, const RECT *rc)
 /*
 * paint the window contents
 */
-void CHtmlSysWin_win32::do_render_content()
+void CHtmlSysWin_win32::do_render_content_begin()
 {
     CHtmlRect area;
     RECT more_rc;
     int clip_lines;
-    ImGui::PushStyleColor(ImGuiCol_WindowBg, bgcolor_);
-    ImGui::Begin("SysWin");
+    if (parent_) {
+        ImGui::PushStyleColor(ImGuiCol_ChildBg, bgcolor_);
+    }
+    else {
+        ImGui::PushStyleColor(ImGuiCol_WindowBg, bgcolor_);
+    }
+    CTadsWin::do_render_content_begin();
 
     /* adjust the paint area to local coordinates */
    // area.set(rc->left, rc->top, rc->right, rc->bottom);
@@ -5562,8 +5567,10 @@ void CHtmlSysWin_win32::do_render_content()
         SetTextColor(dc, oldclr);
 #endif
     }
+}
 
-    ImGui::End();
+void CHtmlSysWin_win32::do_render_content_end() {
+    CTadsWin::do_render_content_end();
     ImGui::PopStyleColor();
 }
 
@@ -10614,11 +10621,11 @@ void CHtmlSys_mainwin::do_create()
     main_panel_->set_status_line(statusline_);
 
     /* create the history panel window, keeping it hidden for now */
-    hist_panel_->create_system_window(this, FALSE, "", &panel_pos);
+    hist_panel_->create_system_window(this, FALSE, "HistoryPanel", &panel_pos);
 
     /* create the main panel's system window */
     GetClientRect(handle_, &panel_pos);
-    main_panel_->create_system_window(this, TRUE, "", &panel_pos);
+    main_panel_->create_system_window(this, TRUE, "MainPanel", &panel_pos);
 
     /* load my menu */
     SetMenu(handle_, LoadMenu(CTadsApp::get_app()->get_instance(),
@@ -13993,7 +14000,7 @@ CHtmlSysWin *CHtmlSys_mainwin::
     GetClientRect(handle_, &rc);
     rc.right -= 2;
     rc.bottom = rc.top;
-    subwin->create_system_window(this, TRUE, "", &rc);
+    subwin->create_system_window(this, TRUE, "Banner", &rc);
 
     /* let the window know it's being used as a banner */
     subwin->set_is_banner_win(TRUE, (CHtmlSysWin_win32 *)parent,
@@ -15623,7 +15630,7 @@ void CHtmlSys_dbgwin::do_create()
     
     /* create the main panel's system window */
     GetClientRect(handle_, &pos);
-    html_panel_->create_system_window(this, TRUE, "", &pos);
+    html_panel_->create_system_window(this, TRUE, "HtmlPanel", &pos);
 
     /* load my menu */
     load_menu();
@@ -16598,7 +16605,7 @@ void CHtmlSys_aboutgamewin::create_html_subwin(CHtmlFormatter *formatter)
     /* create the panel's system window */
     GetClientRect(handle_, &rc);
     rc.bottom -= okbtn_ht + 2;
-    html_subwin_->create_system_window(this, TRUE, "", &rc);
+    html_subwin_->create_system_window(this, TRUE, "HtmlSubwin", &rc);
 }
 
 /*
@@ -16846,7 +16853,7 @@ void CHtmlSys_top_win::do_create()
         rc.bottom -= GetSystemMetrics(SM_CYHSCROLL);
 
     /* create the system window for the HTML panel */
-    html_subwin_->create_system_window(this, TRUE, "", &rc);
+    html_subwin_->create_system_window(this, TRUE, "HtmlWindow", &rc);
 
     /* build, parse, and format our contents */
     build_contents(&txtbuf);
@@ -17363,7 +17370,7 @@ int os_show_popup_menu(int default_pos, int x, int y,
     /* create the system window */
     SetRect(&rc, 0, 0, 1000, 100);
     win->create_system_window(CHtmlSys_mainwin::get_main_win(),
-                              FALSE, "", &rc, new CTadsSyswinMenu(win));
+                              FALSE, "PopupMenu", &rc, new CTadsSyswinMenu(win));
 
     /* size to the window's contents */
     win->set_pos_and_size(default_pos, x, y);

@@ -5,7 +5,7 @@ if (NOT WIN32)
 	return()
 endif()
 
-add_executable(glt3
+add_executable(guit3
 	../tadshtml.cpp
 	../tadsrtyp.cpp
 	../htmlprs.cpp
@@ -102,15 +102,15 @@ add_executable(glt3
 	../win32/htmlt3.rc
 )
 
-target_compile_definitions(glt3 PRIVATE
+target_compile_definitions(guit3 PRIVATE
   IMGUI
 )
 
-target_include_directories(glt3 PRIVATE
+target_include_directories(guit3 PRIVATE
 ..
 )
 
-target_link_libraries(glt3 PRIVATE
+target_link_libraries(guit3 PRIVATE
 	Tads::t3htm
     Tads::tr32h
 	
@@ -119,12 +119,12 @@ target_link_libraries(glt3 PRIVATE
 	MNG::MNG
 )
 
-target_include_directories(glt3 PRIVATE
+target_include_directories(guit3 PRIVATE
 	.
 	../win32/mpegamp
 )
 
-target_link_libraries(glt3 PRIVATE
+target_link_libraries(guit3 PRIVATE
 	Vorbis::vorbisfile
 
 	Htmlhelp.lib
@@ -138,8 +138,8 @@ target_link_libraries(glt3 PRIVATE
 	dxguid.lib
 )
 
-target_link_libraries(glt3 PRIVATE glfw)
+target_link_libraries(guit3 PRIVATE glfw)
 
 if (WIN32)
-	target_link_libraries(glt3 PRIVATE Opengl32.lib)
+	target_link_libraries(guit3 PRIVATE Opengl32.lib)
 endif()

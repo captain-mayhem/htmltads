@@ -413,6 +413,8 @@ int CTadsWin::create_system_window(CTadsWin *parent, HWND parent_hwnd,
         parent->m_children.push_back(this);
     }
 
+    m_title = title;
+
     /* remember the system interface object */
     sysifc_ = sysifc;
 
@@ -1552,11 +1554,13 @@ int CTadsWin::do_render()
     if (!IsWindowVisible(handle_))
         return TRUE;
 
-    do_render_content();
+    do_render_content_begin();
 
     for (auto childwin : m_children) {
         childwin->do_render();
     }
+
+    do_render_content_end();
 
     return TRUE;
 }
@@ -1592,9 +1596,29 @@ void CTadsWin::do_paint_content(HDC hdc, const RECT *area_to_draw)
     FillRect(hdc, area_to_draw, (HBRUSH)GetStockObject(WHITE_BRUSH));
 }
 
-void CTadsWin::do_render_content()
+void CTadsWin::do_render_content_begin()
 {
-    
+    float border_thickness = 0;
+    //ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, border_thickness);
+    if (parent_) {
+        ImGui::BeginChild(m_title.c_str(), ImVec2(0, 0), ImGuiChildFlags_AutoResizeX | ImGuiChildFlags_AutoResizeY);
+    }
+    else {
+        ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0.0f, 0.0f));
+        ImGui::Begin(m_title.c_str());
+        //ImGui::SetCursorPos(ImVec2());
+    }
+}
+
+void CTadsWin::do_render_content_end()
+{
+    if (parent_) {
+        ImGui::EndChild();
+    }
+    else {
+        ImGui::End();
+        ImGui::PopStyleVar();
+    }
 }
 
 /*

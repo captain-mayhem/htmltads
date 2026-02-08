@@ -24,6 +24,7 @@ Modified
 #include <GLFW/glfw3.h>
 #include <imgui/imgui.h>
 #include <vector>
+#include <string>
 
 #ifndef TADSWIN_H
 #define TADSWIN_H
@@ -1119,7 +1120,8 @@ protected:
      *   drawing.  The default routine simply erases the area with a white
      *   background.
      */
-    virtual void do_render_content();
+    virtual void do_render_content_begin();
+    virtual void do_render_content_end();
 
     /* 
      *   Get the palette for painting.  This is required only if we're in a
@@ -1706,6 +1708,8 @@ protected:
     static struct tadswin_timer_alo *inuse_timers_;
 
     std::vector<CTadsWin*> m_children;
+
+    std::string m_title;
 };
 
 /* ------------------------------------------------------------------------ */
