@@ -39,6 +39,22 @@ CTadsFont::CTadsFont(const CTadsLOGFONT *logfont)
     
     /* create the system font */
     handle_ = CreateFontIndirect(&logfont->lf);
+
+    ImGuiIO& io = ImGui::GetIO();
+    logfont->lf.lfFaceName;
+    HDC deskdc = GetDC(GetDesktopWindow());
+    SelectObject(deskdc, handle_);
+    const size_t size = ::GetFontData(deskdc, 0, 0, NULL, 0);
+    char* buffer = (char*)malloc(size);
+    if (GetFontData(deskdc, 0, 0, buffer, size) == size) {
+        ImFontConfig font_cfg;
+        strcpy(font_cfg.Name, logfont->lf.lfFaceName);
+        io.Fonts->AddFontFromMemoryTTF(buffer, size, 0, &font_cfg, 0);
+    }
+    else {
+        free(buffer);
+    }
+    ReleaseDC(GetDesktopWindow(), deskdc);
 }
 
 CTadsFont::~CTadsFont()

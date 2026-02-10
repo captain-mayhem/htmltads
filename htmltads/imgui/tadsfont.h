@@ -20,6 +20,7 @@ Modified
 #ifndef TADSFONT_H
 #define TADSFONT_H
 
+#include <imgui/imgui.h>
 #include <windows.h>
 
 /*
@@ -99,6 +100,8 @@ protected:
     
     /* my font handle */
     HFONT handle_;
+
+    ImFont* m_font;
 
     /* logical font description */
     CTadsLOGFONT logfont_;
