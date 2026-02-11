@@ -4357,6 +4357,7 @@ void CHtmlSysWin_win32::get_moreprompt_rect(RECT *rc)
 
     /* done with the device context */
     ReleaseDC(handle_, dc);
+    ImGui::PopFont();
 }
 
 /*
@@ -5431,6 +5432,7 @@ void CHtmlSysWin_win32::do_paint_content(HDC dc, const RECT *rc)
         /* restore the old text color and mode */
         SetBkMode(dc, oldbkmode);
         SetTextColor(dc, oldclr);
+        ImGui::PopFont();
     }
 }
 
@@ -5657,6 +5659,8 @@ CHtmlPoint CHtmlSysWin_win32::measure_text(CHtmlSysFont *font,
     /* done with the DC */
     ReleaseDC(handle_, dc);
 
+    ImGui::PopFont();
+
     /* return the value, reinterpreted into our own Point type */
     return CHtmlPoint(txtsiz.cx, txtsiz.cy);
 }
@@ -5683,6 +5687,7 @@ size_t CHtmlSysWin_win32::get_max_chars_in_width(
 
     /* done with the DC */
     ReleaseDC(handle_, dc);
+    ImGui::PopFont();
 
     /* return the number that fit */
     return (size_t)fit_cnt;
@@ -5903,6 +5908,7 @@ void CHtmlSysWin_win32::draw_text_clip(int hilite, long x, long y,
         ImGui::TextUnformatted(str, str+len);
         ImGui::PopStyleColor();
     }
+    ImGui::PopFont();
 }
 
 /*

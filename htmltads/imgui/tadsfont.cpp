@@ -40,19 +40,23 @@ CTadsFont::CTadsFont(const CTadsLOGFONT *logfont)
     /* create the system font */
     handle_ = CreateFontIndirect(&logfont->lf);
 
+    /* Get the font data as blob and put it into imgui */
     ImGuiIO& io = ImGui::GetIO();
     logfont->lf.lfFaceName;
     HDC deskdc = GetDC(GetDesktopWindow());
     SelectObject(deskdc, handle_);
+    auto pixperinch = GetDeviceCaps(deskdc, LOGPIXELSY);
+    float ptsize = -logfont->lf.lfHeight * 72 / (float)pixperinch;
+
     const size_t size = ::GetFontData(deskdc, 0, 0, NULL, 0);
-    char* buffer = (char*)malloc(size);
+    char* buffer = (char*)ImGui::MemAlloc(size);
     if (GetFontData(deskdc, 0, 0, buffer, size) == size) {
         ImFontConfig font_cfg;
-        strcpy(font_cfg.Name, logfont->lf.lfFaceName);
-        io.Fonts->AddFontFromMemoryTTF(buffer, size, 0, &font_cfg, 0);
+        strncpy(font_cfg.Name, logfont->lf.lfFaceName, 40);
+        m_font = io.Fonts->AddFontFromMemoryTTF(buffer, size, -logfont->lf.lfHeight, &font_cfg, 0);
     }
     else {
-        free(buffer);
+        ImGui::MemFree(buffer);
     }
     ReleaseDC(GetDesktopWindow(), deskdc);
 }
@@ -65,6 +69,10 @@ CTadsFont::~CTadsFont()
         DeleteObject(handle_);
         handle_ = 0;
     }
+    if (m_font != nullptr && ImGui::GetCurrentContext() != nullptr) {
+        ImGuiIO& io = ImGui::GetIO();
+        io.Fonts->RemoveFont(m_font);
+    }
 }
 
 /*
@@ -73,6 +81,7 @@ CTadsFont::~CTadsFont()
  */
 HGDIOBJ CTadsFont::select(HDC dc)
 {
+    ImGui::PushFont(m_font);
     return SelectObject(dc, handle_);
 }
 
