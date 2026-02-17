@@ -99,6 +99,9 @@ add_executable(guit3
 	imgui/imstb_rectpack.h
 	imgui/imstb_truetype.h
 
+	imgui/misc/freetype/imgui_freetype.cpp
+	imgui/misc/freetype/imgui_freetype.h
+
 	../win32/htmlt3.rc
 )
 
@@ -107,7 +110,8 @@ target_compile_definitions(guit3 PRIVATE
 )
 
 target_include_directories(guit3 PRIVATE
-..
+	${CMAKE_CURRENT_SOURCE_DIR}/..
+	${CMAKE_CURRENT_SOURCE_DIR}/imgui
 )
 
 target_link_libraries(guit3 PRIVATE
@@ -138,7 +142,10 @@ target_link_libraries(guit3 PRIVATE
 	dxguid.lib
 )
 
-target_link_libraries(guit3 PRIVATE glfw)
+target_link_libraries(guit3 PRIVATE 
+	glfw 
+	freetype
+)
 
 if (WIN32)
 	target_link_libraries(guit3 PRIVATE Opengl32.lib)

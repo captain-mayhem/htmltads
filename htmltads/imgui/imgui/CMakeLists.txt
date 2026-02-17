@@ -16,9 +16,18 @@ add_executable(imgui_test
 	imstb_textedit.h
 	imstb_rectpack.h
 	imstb_truetype.h
+	misc/freetype/imgui_freetype.cpp
+	misc/freetype/imgui_freetype.h
 )
 
 target_link_libraries(imgui_test PRIVATE glfw)
+
+target_include_directories(imgui_test
+PRIVATE
+${CMAKE_CURRENT_SOURCE_DIR}
+)
+
+target_link_libraries(imgui_test PRIVATE freetype)
 
 if (WIN32)
 	target_link_libraries(imgui_test PRIVATE Opengl32.lib)

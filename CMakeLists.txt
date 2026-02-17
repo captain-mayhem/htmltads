@@ -8,6 +8,10 @@ option(IMGUI_TADS "Build Tads based on glfw and imgui" ON)
 if (IMGUI_TADS)
 	set(GLFW_LIBRARY_TYPE "STATIC")
 	add_subdirectory(glfw)
+	
+	set (BUILD_SHARED_LIBS OFF)
+	set(SKIP_INSTALL_ALL ON)
+	add_subdirectory(freetype)
 endif()
 
 if (WIN32)
