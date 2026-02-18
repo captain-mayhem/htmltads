@@ -24,6 +24,7 @@ Modified
 #include <stdlib.h>
 #include <stdio.h>
 #include <memory.h>
+#include <imgui/misc/freetype/imgui_freetype.h>
 
 #ifndef TADSFONT_H
 #include "tadsfont.h"
@@ -53,6 +54,7 @@ CTadsFont::CTadsFont(const CTadsLOGFONT *logfont)
     if (GetFontData(deskdc, 0, 0, buffer, size) == size) {
         ImFontConfig font_cfg;
         strncpy(font_cfg.Name, logfont->lf.lfFaceName, 40);
+        font_cfg.FontLoaderFlags = ImGuiFreeTypeLoaderFlags_Bitmap;
         m_font = io.Fonts->AddFontFromMemoryTTF(buffer, size, -logfont->lf.lfHeight, &font_cfg, 0);
     }
     else {
