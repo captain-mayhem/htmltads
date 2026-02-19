@@ -2365,6 +2365,19 @@ HRESULT STDMETHODCALLTYPE CTadsWin::Drop(
     return S_OK;
 }
 
+void CTadsWin::setWindowTitle(const textchar_t* title) {
+    if (m_window) {
+        glfwSetWindowTitle(m_window, title);
+    }
+    auto pos = m_title.find("##");
+    if (pos == m_title.npos) {
+        m_title = title + std::string("##") + m_title;
+    }
+    else {
+        m_title = title + m_title.substr(pos);
+    }
+}
+
 /* ------------------------------------------------------------------------ */
 /*
  *   scrolling window implementation 

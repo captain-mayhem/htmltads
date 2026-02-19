@@ -5651,6 +5651,7 @@ CHtmlPoint CHtmlSysWin_win32::measure_text(CHtmlSysFont *font,
     /* get the height from the text metrics */
     GetTextMetrics(dc, &tm);
     txtsiz.cy = tm.tmHeight;
+    ImVec2 size = ImGui::CalcTextSize(txt, txt + len);
 
     /* return the ascender height if the caller wants it */
     if (ascent != 0)
@@ -5662,7 +5663,7 @@ CHtmlPoint CHtmlSysWin_win32::measure_text(CHtmlSysFont *font,
     ImGui::PopFont();
 
     /* return the value, reinterpreted into our own Point type */
-    return CHtmlPoint(txtsiz.cx, txtsiz.cy);
+    return CHtmlPoint(size.x, size.y/*txtsiz.cx, txtsiz.cy*/);
 }
 
 /*
@@ -7064,6 +7065,7 @@ void CHtmlSysWin_win32::set_window_title(const textchar_t *title)
 {
     /* set the caption of my parent, which is the main window */
     SetWindowText(parent_->get_handle(), title);
+    parent_->setWindowTitle(title);
 }
 
 /*

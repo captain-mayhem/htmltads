@@ -952,6 +952,8 @@ public:
             drop_target_helper_->Show(show);
     }
 
+    void setWindowTitle(const textchar_t* title);
+
     /* names of window classes registered with the system */
     static const char win_class_name[];
     static const char mdichild_win_class_name[];
