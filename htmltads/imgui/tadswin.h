@@ -954,6 +954,9 @@ public:
 
     void setWindowTitle(const textchar_t* title);
 
+    /* render the window */
+    virtual int do_render();
+
     /* names of window classes registered with the system */
     static const char win_class_name[];
     static const char mdichild_win_class_name[];
@@ -1088,9 +1091,6 @@ protected:
     
     /* paint the window */
     virtual int do_paint();
-
-    /* render the window */
-    virtual int do_render();
 
     /*
      *   Get the window style flags, and the extended style flags (for

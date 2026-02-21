@@ -5904,9 +5904,17 @@ void CHtmlSysWin_win32::draw_text_clip(int hilite, long x, long y,
     /* restore original background mode */
     SetBkMode(hdc_, oldbkmode);
     if (ImGui::GetCurrentContext()->CurrentWindow) {
+        int bufsize = MultiByteToWideChar(font->get_charset().codepage, MB_PRECOMPOSED, str, len, NULL, 0);
+        std::vector<wchar_t> strdata;
+        strdata.resize(bufsize);
+        MultiByteToWideChar(font->get_charset().codepage, MB_PRECOMPOSED, str, len, strdata.data(), bufsize);
+        int utf8size = WideCharToMultiByte(CP_UTF8, 0, strdata.data(), bufsize, NULL, 0, NULL, NULL);
+        std::vector<char> utf8data;
+        utf8data.resize(utf8size);
+        WideCharToMultiByte(CP_UTF8, 0, strdata.data(), bufsize, utf8data.data(), utf8size, NULL, NULL);
         ImGui::SetCursorPos(ImVec2(x, y));
         ImGui::PushStyleColor(ImGuiCol_Text, textColor);
-        ImGui::TextUnformatted(str, str+len);
+        ImGui::TextUnformatted(utf8data.data(), utf8data.data() + utf8size);
         ImGui::PopStyleColor();
     }
     ImGui::PopFont();
@@ -11313,6 +11321,13 @@ void CHtmlSys_mainwin::create_toolbar()
     iconmenu_->map_command(ID_HELP_WWWTADSORG, menu_icon_base + 18);
 }
 
+int CHtmlSys_mainwin::do_render() {
+    const ImGuiViewport* viewport = ImGui::GetMainViewport();
+    ImGui::SetNextWindowPos(viewport->WorkPos);
+    ImGui::SetNextWindowSize(viewport->WorkSize);
+    return CTadsWin::do_render();
+}
+
 /*
  *   Update the recent game menu in the File menu 
  */
@@ -14261,7 +14276,6 @@ void CHtmlSys_mainwin::release_all_moremode()
 
 // Our state
 bool show_demo_window = true;
-bool show_another_window = false;
 ImVec4 clear_color = ImVec4(0.45f, 0.55f, 0.60f, 1.00f);
 
 int CHtmlSys_mainwin::event_loop(int* flag) {
@@ -14320,46 +14334,14 @@ int CHtmlSys_mainwin::event_loop(int* flag) {
             do_char('\r', 0);
         }
 
+        main_win_->do_render();
+
+        if (dbgwin_) {
+            dbgwin_->do_render();
+        }
+
         // 1. Show the big demo window (Most of the sample code is in ImGui::ShowDemoWindow()! You can browse its code to learn more about Dear ImGui!).
-        if (show_demo_window)
-            ImGui::ShowDemoWindow(&show_demo_window);
-
-        // 2. Show a simple window that we create ourselves. We use a Begin/End pair to create a named window.
-        {
-            static float f = 0.0f;
-            static int counter = 0;
-
-            ImGui::Begin("Hello, world!");                          // Create a window called "Hello, world!" and append into it.
-
-            ImGui::Text("This is some useful text.");               // Display some text (you can use a format strings too)
-            ImGui::Checkbox("Demo Window", &show_demo_window);      // Edit bools storing our window open/close state
-            ImGui::Checkbox("Another Window", &show_another_window);
-
-            ImGui::SliderFloat("float", &f, 0.0f, 1.0f);            // Edit 1 float using a slider from 0.0f to 1.0f
-            ImGui::ColorEdit3("clear color", (float*)&clear_color); // Edit 3 floats representing a color
-
-            if (ImGui::Button("Button"))                            // Buttons return true when clicked (most widgets return true when edited/activated)
-                counter++;
-            ImGui::SameLine();
-            ImGui::Text("counter = %d", counter);
-
-            ImGui::Text("Application average %.3f ms/frame (%.1f FPS)", 1000.0f / io.Framerate, io.Framerate);
-            ImGui::End();
-        }
-
-        // 3. Show another simple window.
-        if (show_another_window)
-        {
-            ImGui::Begin("Another Window", &show_another_window);   // Pass a pointer to our bool variable (the window will have a closing button that will clear the bool when clicked)
-            ImGui::Text("Hello from another window!");
-            if (ImGui::Button("Close Me"))
-                show_another_window = false;
-            ImGui::End();
-        }
-
-        CHtmlSysFrame* frame = CHtmlSysFrame::get_frame_obj();
-        CHtmlSys_mainwin* win = static_cast<CHtmlSys_mainwin*>(frame);
-        win->do_render();
+        ImGui::ShowDemoWindow(&show_demo_window);
 
         // Rendering
         ImGui::Render();

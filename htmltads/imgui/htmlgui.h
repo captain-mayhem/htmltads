@@ -2649,6 +2649,8 @@ public:
     virtual void init_menu_popup(HMENU menuhdl, unsigned int pos,
                                  int sysmenu);
 
+    int do_render() override;
+
     /* -------------------------------------------------------------------- */
     /*
      *   CHtmlSysFrame implementation 
