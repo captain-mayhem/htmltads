@@ -1712,6 +1712,8 @@ protected:
     std::vector<CTadsWin*> m_children;
 
     std::string m_title;
+    ImVec2 m_pos;
+    ImVec2 m_size;
 };
 
 /* ------------------------------------------------------------------------ */

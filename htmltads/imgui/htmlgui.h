@@ -2651,6 +2651,8 @@ public:
 
     int do_render() override;
 
+    void do_render_content_begin() override;
+
     /* -------------------------------------------------------------------- */
     /*
      *   CHtmlSysFrame implementation 

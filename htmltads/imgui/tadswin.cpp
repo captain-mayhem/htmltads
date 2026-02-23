@@ -414,6 +414,8 @@ int CTadsWin::create_system_window(CTadsWin *parent, HWND parent_hwnd,
     }
 
     m_title = title;
+    m_pos = ImVec2(pos->left, pos->top);
+    m_size = ImVec2(pos->right - pos->left, pos->bottom - pos->top);
 
     /* remember the system interface object */
     sysifc_ = sysifc;
@@ -1600,6 +1602,8 @@ void CTadsWin::do_render_content_begin()
 {
     float border_thickness = 0;
     //ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, border_thickness);
+    ImGui::SetNextWindowPos(m_pos);
+    ImGui::SetNextWindowSize(m_size);
     if (parent_) {
         ImGui::BeginChild(m_title.c_str(), ImVec2(0, 0), ImGuiChildFlags_AutoResizeX | ImGuiChildFlags_AutoResizeY);
     }
@@ -1624,9 +1628,9 @@ void CTadsWin::do_render_content_end()
 /*
  *   resize the window 
  */
-void CTadsWin::do_resize(int /*mode*/, int /*x*/, int /*y*/)
+void CTadsWin::do_resize(int /*mode*/, int x, int y)
 {
-    /* nothing to do by default */
+    m_size = ImVec2(x, y);
 }
 
 /*
@@ -1651,9 +1655,9 @@ void CTadsWin::synth_resize()
 /*
  *   move the window 
  */
-void CTadsWin::do_move(int /*x*/, int /*y*/)
+void CTadsWin::do_move(int x, int y)
 {
-    /* nothing to do by default */
+    m_pos = ImVec2(x, y);
 }
 
 /*

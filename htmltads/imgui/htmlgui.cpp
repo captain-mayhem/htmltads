@@ -5651,7 +5651,16 @@ CHtmlPoint CHtmlSysWin_win32::measure_text(CHtmlSysFont *font,
     /* get the height from the text metrics */
     GetTextMetrics(dc, &tm);
     txtsiz.cy = tm.tmHeight;
-    ImVec2 size = ImGui::CalcTextSize(txt, txt + len);
+
+    int bufsize = MultiByteToWideChar(font->get_charset().codepage, MB_PRECOMPOSED, txt, len, NULL, 0);
+    std::vector<wchar_t> strdata;
+    strdata.resize(bufsize);
+    MultiByteToWideChar(font->get_charset().codepage, MB_PRECOMPOSED, txt, len, strdata.data(), bufsize);
+    int utf8size = WideCharToMultiByte(CP_UTF8, 0, strdata.data(), bufsize, NULL, 0, NULL, NULL);
+    std::vector<char> utf8data;
+    utf8data.resize(utf8size);
+    WideCharToMultiByte(CP_UTF8, 0, strdata.data(), bufsize, utf8data.data(), utf8size, NULL, NULL);
+    ImVec2 size = ImGui::CalcTextSize(utf8data.data(), utf8data.data() + len);
 
     /* return the ascender height if the caller wants it */
     if (ascent != 0)
@@ -11326,6 +11335,11 @@ int CHtmlSys_mainwin::do_render() {
     ImGui::SetNextWindowPos(viewport->WorkPos);
     ImGui::SetNextWindowSize(viewport->WorkSize);
     return CTadsWin::do_render();
+}
+
+void CHtmlSys_mainwin::do_render_content_begin() {
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0.0f, 0.0f));
+    ImGui::Begin(m_title.c_str(), nullptr, ImGuiWindowFlags_NoBringToFrontOnFocus | ImGuiWindowFlags_NoDecoration);
 }
 
 /*
