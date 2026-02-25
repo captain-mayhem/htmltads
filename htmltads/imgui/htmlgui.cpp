@@ -880,7 +880,7 @@ int CHtmlSysWin_win32::get_param_font(CTadsLOGFONT *tlf, int *base_point_size,
                                 ? FW_BOLD : FW_NORMAL);
 
             /* use the input font color */
-            tlf->color = input_color_;
+            tlf->color = HTML_color_to_COLORREF(ImVec4_to_HTML_color(input_color_));
             tlf->color_is_input = TRUE;
 
             /* 
@@ -5888,11 +5888,15 @@ void CHtmlSysWin_win32::draw_text_clip(int hilite, long x, long y,
          */
         if (font->use_font_color())
         {
-            if (font->get_font_color() == HTML_COLOR_INPUT)
-                oldtxtcolor = SetTextColor(hdc_, input_color_);
-            else
+            if (font->get_font_color() == HTML_COLOR_INPUT) {
+                oldtxtcolor = SetTextColor(hdc_, HTML_color_to_COLORREF(ImVec4_to_HTML_color(input_color_)));
+                textColor = input_color_;
+            }
+            else {
                 oldtxtcolor = SetTextColor(
                     hdc_, HTML_color_to_COLORREF(font->get_font_color()));
+                textColor = HTML_color_to_ImVec4(font->get_font_color());
+            }
         }
         else {
             oldtxtcolor = SetTextColor(hdc_, HTML_color_to_COLORREF(ImVec4_to_HTML_color(text_color_)));
@@ -5921,9 +5925,18 @@ void CHtmlSysWin_win32::draw_text_clip(int hilite, long x, long y,
         std::vector<char> utf8data;
         utf8data.resize(utf8size);
         WideCharToMultiByte(CP_UTF8, 0, strdata.data(), bufsize, utf8data.data(), utf8size, NULL, NULL);
+        
         ImGui::SetCursorPos(ImVec2(x, y));
         ImGui::PushStyleColor(ImGuiCol_Text, textColor);
         ImGui::TextUnformatted(utf8data.data(), utf8data.data() + utf8size);
+        if (font->get_font_desc_ref()->underline) {
+            const ImVec2 text_size = ImGui::CalcTextSize(utf8data.data(), utf8data.data() + utf8size);
+            CHtmlFontMetrics metrics;
+            font->get_font_metrics(&metrics);
+            float line_y = ImGui::GetCursorScreenPos().y - metrics.descender_height + 1;
+            ImDrawList* draw = ImGui::GetWindowDrawList();
+            draw->AddLine(ImVec2(x, line_y), ImVec2(x + text_size.x, line_y), ImGui::GetColorU32(textColor));
+        }
         ImGui::PopStyleColor();
     }
     ImGui::PopFont();
@@ -7326,12 +7339,13 @@ void CHtmlSysWin_win32::set_html_input_color(HTML_color_t color,
  */
 void CHtmlSysWin_win32::internal_set_input_color(COLORREF new_color)
 {
+    ImVec4 newcol = HTML_color_to_ImVec4(COLORREF_to_HTML_color(new_color));
     /* if we're not changing the color, there's nothing to do */
-    if (new_color == input_color_)
+    if (newcol.x == input_color_.x && newcol.y == input_color_.y && newcol.z == input_color_.z && newcol.w == input_color_.w)
         return;
 
     /* set the new color */
-    input_color_ = new_color;
+    input_color_ = newcol;
 
     /* invalidate the whole window so we draw in the new color */
     if (handle_ != 0)

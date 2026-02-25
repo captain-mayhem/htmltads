@@ -1370,7 +1370,7 @@ protected:
     ImVec4 text_color_;
 
     /* input text color */
-    COLORREF input_color_;
+    ImVec4 input_color_;
 
     /* selected text color */
     COLORREF sel_fg_, sel_bg_;
