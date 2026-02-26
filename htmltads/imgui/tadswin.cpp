@@ -1628,9 +1628,13 @@ void CTadsWin::do_render_content_end()
 /*
  *   resize the window 
  */
-void CTadsWin::do_resize(int /*mode*/, int x, int y)
+void CTadsWin::do_resize(int mode, int x, int y)
 {
     m_size = ImVec2(x, y);
+
+    //for (auto childwin : m_children) {
+    //    childwin->do_resize(mode, x, y);
+    //}
 }
 
 /*

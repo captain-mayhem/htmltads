@@ -4049,11 +4049,17 @@ void CHtmlSysWin_win32::calc_banner_layout(RECT *parent_rc,
      *   convergence problems as we keep shifting windows around
      *   unnecessarily.  
      */
-    if (memcmp(&new_rc, &old_rc, sizeof(new_rc)) != 0)
+    if (memcmp(&new_rc, &old_rc, sizeof(new_rc)) != 0) {
+        m_pos.x = new_rc.left;
+        m_pos.y = new_rc.top;
+        m_size.x = new_rc.right - new_rc.left;
+        m_size.y = new_rc.bottom - new_rc.top;
+        do_resize(0, new_rc.right - new_rc.left, new_rc.bottom - new_rc.top);
         MoveWindow(handle_,
-                   new_rc.left, new_rc.top,
-                   new_rc.right - new_rc.left,
-                   new_rc.bottom - new_rc.top, TRUE);
+            new_rc.left, new_rc.top,
+            new_rc.right - new_rc.left,
+            new_rc.bottom - new_rc.top, TRUE);
+    }
 
     /* if we have a visible border, move it to its new position */
     if (has_border_)
@@ -11346,6 +11352,9 @@ void CHtmlSys_mainwin::create_toolbar()
 
 int CHtmlSys_mainwin::do_render() {
     const ImGuiViewport* viewport = ImGui::GetMainViewport();
+    if (viewport->WorkSize.x != m_size.x || viewport->WorkSize.y != m_size.y) {
+        do_resize(0, viewport->WorkSize.x, viewport->WorkSize.y);
+    }
     ImGui::SetNextWindowPos(viewport->WorkPos);
     ImGui::SetNextWindowSize(viewport->WorkSize);
     return CTadsWin::do_render();
@@ -12296,6 +12305,8 @@ void CHtmlSys_mainwin::do_resize(int mode, int x, int y)
     case SIZE_MAXIMIZED:
     case SIZE_RESTORED:
     default:
+        m_size = ImVec2(x, y);
+
         /* notify the status line of the resize */
         statusline_->notify_parent_resize();
 
@@ -12367,6 +12378,11 @@ void CHtmlSys_mainwin::recalc_banner_layout()
      */
     GetClientRect(statusline_->get_handle(), &statrc);
     GetClientRect(handle_, &rc);
+    //rc.left = 0;
+    rc.right = m_size.x;
+    rc.bottom = m_size.y;
+    //rc.top = m_pos.y;
+    //rc.bottom = m_pos.y + m_size.y;
     SetRect(&rc, 1, y_offset + 1,
             rc.right - 2, rc.bottom - statrc.bottom - 3);
 
