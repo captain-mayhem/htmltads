@@ -5841,6 +5841,8 @@ void CHtmlSysWin_win32::draw_text_clip(int hilite, long x, long y,
     /* presume we won't have to change the background color */
     reset_bkcolor = FALSE;
     ImVec4 textColor(0.0f, 0.0f, 0.0f, 1.0f);
+    ImVec4 bgColor(1.0f, 1.0f, 1.0f, 1.0f);
+    bool drawBackground = false;
 
     /* 
      *   If highlighting, turn on text highlight colors.  If drawing with an
@@ -5855,9 +5857,12 @@ void CHtmlSysWin_win32::draw_text_clip(int hilite, long x, long y,
             default_sel_fg_ ? GetSysColor(COLOR_HIGHLIGHTTEXT) : sel_fg_);
         oldbkcolor = SetBkColor(
             hdc_, default_sel_bg_ ? GetSysColor(COLOR_HIGHLIGHT) : sel_bg_);
+        textColor = HTML_color_to_ImVec4(COLORREF_to_HTML_color(GetSysColor(COLOR_HIGHLIGHTTEXT)));
+        bgColor = HTML_color_to_ImVec4(COLORREF_to_HTML_color(GetSysColor(COLOR_HIGHLIGHT)));
 
         /* set opaque mode, so that we draw the text background color */
         oldbkmode = SetBkMode(hdc_, OPAQUE);
+        drawBackground = true;
 
         /* note that we changed the background color */
         reset_bkcolor = TRUE;
@@ -5875,6 +5880,8 @@ void CHtmlSysWin_win32::draw_text_clip(int hilite, long x, long y,
             oldbkmode = SetBkMode(hdc_, OPAQUE);
             oldbkcolor = SetBkColor(
                 hdc_, HTML_color_to_COLORREF(font->get_font_bgcolor()));
+            drawBackground = true;
+            bgColor = HTML_color_to_ImVec4(font->get_font_bgcolor());
 
             /* note that we changed the background color */
             reset_bkcolor = TRUE;
@@ -5934,15 +5941,24 @@ void CHtmlSysWin_win32::draw_text_clip(int hilite, long x, long y,
         
         ImGui::SetCursorPos(ImVec2(x, y));
         ImGui::PushStyleColor(ImGuiCol_Text, textColor);
-        ImGui::TextUnformatted(utf8data.data(), utf8data.data() + utf8size);
-        if (font->get_font_desc_ref()->underline) {
+        if (font->get_font_desc_ref()->underline || drawBackground) {
             const ImVec2 text_size = ImGui::CalcTextSize(utf8data.data(), utf8data.data() + utf8size);
             CHtmlFontMetrics metrics;
             font->get_font_metrics(&metrics);
+            //register text without drawing it, so that we get the right cursor position
+            ImGui::ItemSize(text_size, 0.0f);
             float line_y = ImGui::GetCursorScreenPos().y - metrics.descender_height + 1;
+            float up_y = line_y - metrics.ascender_height;
             ImDrawList* draw = ImGui::GetWindowDrawList();
-            draw->AddLine(ImVec2(x, line_y), ImVec2(x + text_size.x, line_y), ImGui::GetColorU32(textColor));
+            if (drawBackground) {
+                draw->AddRectFilled(ImVec2(x, up_y - 1), ImVec2(x + text_size.x, line_y + 1), ImGui::GetColorU32(bgColor));
+            }
+            if (font->get_font_desc_ref()->underline) {
+                draw->AddLine(ImVec2(x, line_y), ImVec2(x + text_size.x, line_y), ImGui::GetColorU32(textColor));
+            }
         }
+        ImGui::SetCursorPos(ImVec2(x, y));
+        ImGui::TextUnformatted(utf8data.data(), utf8data.data() + utf8size);
         ImGui::PopStyleColor();
     }
     ImGui::PopFont();
