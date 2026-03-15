@@ -1605,11 +1605,11 @@ void CTadsWin::do_render_content_begin()
     ImGui::SetNextWindowPos(m_pos);
     ImGui::SetNextWindowSize(m_size);
     if (parent_) {
-        ImGui::BeginChild(m_title.c_str(), ImVec2(0, 0), ImGuiChildFlags_AutoResizeX | ImGuiChildFlags_AutoResizeY);
+        ImGui::BeginChild(m_title.c_str(), ImVec2(0, 0), ImGuiChildFlags_AutoResizeX | ImGuiChildFlags_AutoResizeY, ImGuiWindowFlags_NoInputs);
     }
     else {
         ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0.0f, 0.0f));
-        ImGui::Begin(m_title.c_str());
+        ImGui::Begin(m_title.c_str(), nullptr, ImGuiWindowFlags_NoInputs);
         //ImGui::SetCursorPos(ImVec2());
     }
 }
@@ -2104,8 +2104,14 @@ int CTadsWin::do_timer(int timer_id)
 /*
  *   Handle mouse movement 
  */
-int CTadsWin::do_mousemove(int /*keys*/, int /*x*/, int /*y*/)
+int CTadsWin::do_mousemove(int keys, int x, int y)
 {
+    for (auto& child : m_children) {
+        int handled = child->do_mousemove(keys, x, y);
+        if (handled)
+            return TRUE;
+    }
+
     /* continue any drag operation */
     drag_check();
     

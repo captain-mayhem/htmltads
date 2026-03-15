@@ -1150,9 +1150,15 @@ protected:
      *   event was handled.  By default, these all simply return FALSE to
      *   indicate that the default Windows handling should apply.  
      */
-    virtual int do_leftbtn_down(int /*keys*/, int /*x*/, int /*y*/,
-                                int /*clicks*/)
-        { return FALSE; }
+    virtual int do_leftbtn_down(int keys, int x, int y,
+        int clicks) {
+        for (auto& child : m_children) {
+            int handled = child->do_leftbtn_down(keys, x, y, clicks);
+            if (handled)
+                return TRUE;
+        }
+        return FALSE;
+    }
     virtual int do_leftbtn_up(int keys, int x, int y);
     virtual int do_rightbtn_down(int /*keys*/, int /*x*/, int /*y*/,
                                  int /*clicks*/)

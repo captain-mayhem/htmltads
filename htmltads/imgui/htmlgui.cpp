@@ -11378,7 +11378,7 @@ int CHtmlSys_mainwin::do_render() {
 
 void CHtmlSys_mainwin::do_render_content_begin() {
     ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0.0f, 0.0f));
-    ImGui::Begin(m_title.c_str(), nullptr, ImGuiWindowFlags_NoBringToFrontOnFocus | ImGuiWindowFlags_NoDecoration);
+    ImGui::Begin(m_title.c_str(), nullptr, ImGuiWindowFlags_NoBringToFrontOnFocus | ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoInputs);
 }
 
 /*
@@ -14392,6 +14392,18 @@ int CHtmlSys_mainwin::event_loop(int* flag) {
         }
         if (ImGui::IsKeyPressed(ImGuiKey_Enter)) {
             do_char('\r', 0);
+        }
+
+        if (!io.WantCaptureMouse) {
+            if (ImGui::IsMouseClicked(ImGuiMouseButton_Left)) {
+                do_leftbtn_down(1, io.MousePos.x, io.MousePos.y, ImGui::GetMouseClickedCount(ImGuiMouseButton_Left));
+            }
+            if (ImGui::IsMouseReleased(ImGuiMouseButton_Left)) {
+                do_leftbtn_up(1, io.MousePos.x, io.MousePos.y);
+            }
+            if (ImGui::IsMousePosValid()) {
+                do_mousemove(1, io.MousePos.x, io.MousePos.y);
+            }
         }
 
         main_win_->do_render();
