@@ -1567,6 +1567,18 @@ int CTadsWin::do_render()
     return TRUE;
 }
 
+int CTadsWin::do_leftbtn_down(int keys, int x, int y,
+    int clicks) {
+    for (auto& child : m_children) {
+        int handled = FALSE;
+        if (IsWindowVisible(child->get_handle()))
+            handled = child->do_leftbtn_down(keys, x, y, clicks);
+        if (handled)
+            return TRUE;
+    }
+    return FALSE;
+}
+
 /*
  *   paint the window minimized 
  */
@@ -2107,7 +2119,9 @@ int CTadsWin::do_timer(int timer_id)
 int CTadsWin::do_mousemove(int keys, int x, int y)
 {
     for (auto& child : m_children) {
-        int handled = child->do_mousemove(keys, x, y);
+        int handled = FALSE;
+        if (IsWindowVisible(child->get_handle()))
+            handled = child->do_mousemove(keys, x, y);
         if (handled)
             return TRUE;
     }
@@ -2122,8 +2136,16 @@ int CTadsWin::do_mousemove(int keys, int x, int y)
 /*
  *   Mouse up 
  */
-int CTadsWin::do_leftbtn_up(int /*keys*/, int /*x*/, int /*y*/)
+int CTadsWin::do_leftbtn_up(int keys, int x, int y)
 {
+    for (auto& child : m_children) {
+        int handled = FALSE;
+        if (IsWindowVisible(child->get_handle()))
+            handled = child->do_leftbtn_up(keys, x, y);
+        if (handled)
+            return TRUE;
+    }
+
     /* end any drag that we've started */
     drag_end(FALSE);
 

@@ -1787,9 +1787,12 @@ int CHtmlSysWin_win32::do_leftbtn_down(int keys, int x, int y, int clicks)
     unsigned long startofs, endofs;
     unsigned long startofs2, endofs2;
     CHtmlDispLink *link;
+    x = x - m_pos.x;
+    y = y - m_pos.y;
 
-    /* if I don't already have the focus, set focus here */
-    take_focus();
+    //if (!ImGui::GetCurrentContext()->CurrentWindow)
+        /* if I don't already have the focus, set focus here */
+        take_focus();
 
     /*
      *   When the tooltip control sees a mouse click, it turns itself off
@@ -2001,8 +2004,9 @@ int CHtmlSysWin_win32::do_leftbtn_down(int keys, int x, int y, int clicks)
     /* hide the caret during tracking */
     modal_hide_caret();
 
-    /* capture the mouse while dragging */
-    SetCapture(handle_);
+    //if (!ImGui::GetCurrentContext()->CurrentWindow)
+        /* capture the mouse while dragging */
+        SetCapture(handle_);
 
     /* prepare for drag scrolling */
     start_drag_scroll();
@@ -2017,6 +2021,8 @@ int CHtmlSysWin_win32::do_leftbtn_down(int keys, int x, int y, int clicks)
  */
 int CHtmlSysWin_win32::do_mousemove(int /*keys*/, int x, int y)
 {
+    x = x - m_pos.x;
+    y = y - m_pos.y;
     /* 
      *   If the tooltip just disappeared, reset it - we need to do this
      *   because we have only one big tool area covering our whole window,
