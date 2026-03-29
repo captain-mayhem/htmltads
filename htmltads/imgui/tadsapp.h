@@ -432,6 +432,9 @@ public:
     void send_drawitem_to_menu_handlers(
         HWND hwnd, WPARAM wparam, LPARAM lparam);
 
+    void setMouseCapture(CTadsWin* win);
+	CTadsWin* getMouseCapture() const { return m_mouse_capture_win; }
+
 private:
     CTadsApp();
     CTadsApp(int argc, char** argv);
@@ -537,6 +540,8 @@ private:
 
     /* the thread local storage (TLS) index of our thread context structure */
     static DWORD tls_index_;
+
+	CTadsWin* m_mouse_capture_win;
 };
 
 

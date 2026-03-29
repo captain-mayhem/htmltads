@@ -510,6 +510,7 @@ struct check_cmd_info
 class CTadsWin: public IDropSource, public IDropTarget
 {
     friend class CTadsApp;
+    friend class CHtmlSys_mainwin;
 public:
     /* static class initialization/termination */
     static void class_init(class CTadsApp *app);

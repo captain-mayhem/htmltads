@@ -52,6 +52,8 @@ Modified
 #endif
 #include "htmlgui.h"
 #include "htmlprs.h"
+#include "imgui/imgui.h"
+#include "imgui/imgui_internal.h"
 
 
 /* ------------------------------------------------------------------------ */
@@ -159,6 +161,9 @@ CTadsApp::CTadsApp(int argc, char** argv)
 
     /* we don't have a message filter installed yet */
     msg_filter_ = 0;
+
+    /* no window currently has mouse capture */
+    m_mouse_capture_win = 0;
 
     /* allocate some space for modeless dialogs */
     modeless_dlg_cnt_ = 0;
@@ -913,6 +918,16 @@ int CTadsApp::get_my_docs_path(char *fname, size_t fname_len)
 
     /* indicate success */
     return TRUE;
+}
+
+void CTadsApp::setMouseCapture(CTadsWin* win) {
+    m_mouse_capture_win = win;
+    if (ImGui::GetCurrentContext()->CurrentWindow != NULL)
+        return;
+    if (win)
+        SetCapture(win->get_handle());
+    else
+        ReleaseCapture();
 }
 
 /* ------------------------------------------------------------------------ */

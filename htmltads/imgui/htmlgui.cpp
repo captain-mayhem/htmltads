@@ -1790,7 +1790,7 @@ int CHtmlSysWin_win32::do_leftbtn_down(int keys, int x, int y, int clicks)
     x = x - m_pos.x;
     y = y - m_pos.y;
 
-    //if (!ImGui::GetCurrentContext()->CurrentWindow)
+    if (!ImGui::GetCurrentContext()->CurrentWindow)
         /* if I don't already have the focus, set focus here */
         take_focus();
 
@@ -2004,9 +2004,8 @@ int CHtmlSysWin_win32::do_leftbtn_down(int keys, int x, int y, int clicks)
     /* hide the caret during tracking */
     modal_hide_caret();
 
-    //if (!ImGui::GetCurrentContext()->CurrentWindow)
-        /* capture the mouse while dragging */
-        SetCapture(handle_);
+    /* capture the mouse while dragging */
+	CTadsApp::get_app()->setMouseCapture(this);
 
     /* prepare for drag scrolling */
     start_drag_scroll();
@@ -2225,7 +2224,7 @@ int CHtmlSysWin_win32::end_mouse_tracking(html_track_mode_t mode)
 
         /* release mouse capture if capture wasn't canceled for us */
         if (mode != HTML_TRACK_CANCEL)
-            ReleaseCapture();
+            CTadsApp::get_app()->setMouseCapture(nullptr);
 
         /* terminate drag/drop tracking if necessary */
         drag_end(TRUE);
@@ -5841,8 +5840,10 @@ void CHtmlSysWin_win32::draw_text_clip(int hilite, long x, long y,
                 doc_to_screen_y(doc_cliprect->bottom));
 
     /* if we don't have focus, never draw selected text with highlighting */
-    if (GetFocus() != handle_ || !is_in_foreground())
-        hilite = FALSE;
+    if (!ImGui::GetCurrentContext()->CurrentWindow) {
+        if (GetFocus() != handle_ || !is_in_foreground())
+            hilite = FALSE;
+    }
 
     /* presume we won't have to change the background color */
     reset_bkcolor = FALSE;
@@ -14405,10 +14406,23 @@ int CHtmlSys_mainwin::event_loop(int* flag) {
                 do_leftbtn_down(1, io.MousePos.x, io.MousePos.y, ImGui::GetMouseClickedCount(ImGuiMouseButton_Left));
             }
             if (ImGui::IsMouseReleased(ImGuiMouseButton_Left)) {
-                do_leftbtn_up(1, io.MousePos.x, io.MousePos.y);
+                CTadsWin* capture_win = CTadsApp::get_app()->getMouseCapture();
+                if (capture_win) {
+                    capture_win->do_leftbtn_up(1, io.MousePos.x, io.MousePos.y);
+                }
+                else {
+                    do_leftbtn_up(1, io.MousePos.x, io.MousePos.y);
+                }
             }
             if (ImGui::IsMousePosValid()) {
-                do_mousemove(1, io.MousePos.x, io.MousePos.y);
+                CTadsWin* capture_win = CTadsApp::get_app()->getMouseCapture();
+                static float lastX = 0;
+                static float lastY = 0;
+                if (capture_win && (lastX != io.MousePos.x || lastY != io.MousePos.y)) {
+                    capture_win->do_mousemove(1, io.MousePos.x, io.MousePos.y);
+                }
+                lastX = io.MousePos.x;
+                lastY = io.MousePos.y;
             }
         }
 
@@ -17588,7 +17602,7 @@ int CHtmlSysWin_win32_Popup::track_as_popup_menu(os_event_info_t *evt)
     evtp_ = evt;
 
     /* capture the mouse while we're working */
-    SetCapture(handle_);
+    CTadsApp::get_app()->setMouseCapture(this);
 
     /* install our message filter while we're working */
     old_filter_ = app->set_msg_filter(this);
@@ -17640,7 +17654,7 @@ int CHtmlSysWin_win32_Popup::do_keydown(int vkey, long /*keydata*/)
          *   capture will set things into motion for us 
          */
         if (GetCapture() == handle_)
-            ReleaseCapture();
+            CTadsApp::get_app()->setMouseCapture(nullptr);
         break;
     }
 
@@ -17700,7 +17714,7 @@ int CHtmlSysWin_win32_Popup::do_leftbtn_down(
 
         /* release mouse capture - this will dismiss the menu */
         if (GetCapture() == handle_)
-            ReleaseCapture();
+            CTadsApp::get_app()->setMouseCapture(nullptr);
     }
 
     /* handled */
@@ -17872,7 +17886,7 @@ int CHtmlSysWin_win32_Popup::dismiss_on_click(int x, int y, DWORD flags)
          *   Release mouse capture, which will initiate the dismissal. 
          */
         if (GetCapture() == handle_)
-            ReleaseCapture();
+            CTadsApp::get_app()->setMouseCapture(nullptr);
 
         /* re-send the click now that we've released capture */
         mouse_event(flags, 0, 0, 0, 0);

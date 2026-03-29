@@ -44,6 +44,7 @@ Modified
 #ifndef TADSMIDI_H
 #include "tadsmidi.h"
 #endif
+#include "imgui/imgui_internal.h"
 
 #ifndef WM_MOUSEWHEEL
 #define WM_MOUSEWHEEL   0x020A                            /* from WinUser.h */
@@ -2174,7 +2175,7 @@ void CTadsWin::drag_prepare(int already_have_capture)
     if (!already_have_capture)
     {
         /* capture the mouse */
-        SetCapture(handle_);
+        CTadsApp::get_app()->setMouseCapture(this);
 
         /* note that we set the capture */
         drag_capture_ = TRUE;
@@ -2211,7 +2212,7 @@ int CTadsWin::drag_check()
         IDataObject *dataobj;
         
         /* release the capture */
-        ReleaseCapture();
+        CTadsApp::get_app()->setMouseCapture(nullptr);
         drag_capture_ = FALSE;
         
         /* we're no longer waiting for a drag (since we really have one) */
@@ -2229,8 +2230,10 @@ int CTadsWin::drag_check()
         /* notify myself that dragging is about to begin */
         drag_pre();
 
-        /* start the drag operation */
-        DoDragDrop(dataobj, this, get_drag_effects(), &effect);
+		if (ImGui::GetCurrentContext()->CurrentWindow != nullptr) {
+            /* start the drag operation */
+            DoDragDrop(dataobj, this, get_drag_effects(), &effect);
+        }
 
         /* notify myself that dragging has ended */
         drag_post();
@@ -2259,7 +2262,7 @@ void CTadsWin::drag_end(int already_lost_capture)
     if (!already_lost_capture && drag_capture_)
     {
         /* release the capture */
-        ReleaseCapture();
+        CTadsApp::get_app()->setMouseCapture(nullptr);
 
         /* note that we no longer have capture */
         drag_capture_ = FALSE;
@@ -3253,10 +3256,12 @@ int CTadsWinScroll::do_timer(int timer_id)
         ScreenToClient(handle_, &pt);
         get_scroll_area(&vrc, TRUE);
         get_scroll_area(&hrc, FALSE);
-        if (!PtInRect(&hrc, pt) || !PtInRect(&vrc, pt))
-        {
-            /* generate a mouse-moved event */
-            do_mousemove(get_key_mk_state(), pt.x, pt.y);
+        if (ImGui::GetCurrentContext()->CurrentWindow != nullptr) {
+            if (!PtInRect(&hrc, pt) || !PtInRect(&vrc, pt))
+            {
+                /* generate a mouse-moved event */
+                do_mousemove(get_key_mk_state(), pt.x, pt.y);
+            }
         }
 
         /* handled */
