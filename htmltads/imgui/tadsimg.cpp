@@ -34,6 +34,7 @@ Modified
 #ifndef TADSAPP_H
 #include "tadsapp.h"
 #endif
+#include <imgui/imgui_internal.h>
 
 /* some versions of the win sdk don't have this defined yet */
 #ifndef AC_SRC_ALPHA
@@ -71,6 +72,8 @@ CTadsImage::CTadsImage()
 
     /* presume we won't have alpha information */
     has_alpha_ = FALSE;
+
+    m_texture = 0;
 }
 
 /*
@@ -100,6 +103,11 @@ void CTadsImage::delete_image()
     pix_ = 0;
     width_ = 0;
     height_ = 0;
+
+    if (m_texture != 0) {
+        glDeleteTextures(1, &m_texture);
+        m_texture = 0;
+    }
 }
 
 /*
@@ -116,6 +124,48 @@ void CTadsImage::draw(CTadsWin *win, CHtmlRect *pos,
     BLENDFUNCTION bf;
     BOOL (WINAPI *alphaproc)
         (HDC, int, int, int, int, HDC, int, int, int, int, BLENDFUNCTION);
+
+    if (ImGui::GetCurrentContext()->CurrentWindow != nullptr) {
+        ImVec2 uv0(0, 0), uv1(1, 1);
+
+        switch (mode) {
+            switch (mode)
+            {
+            case HTMLIMG_DRAW_CLIP:
+                /*
+                 *   draw at exact size, aligning at upper left of destination
+                 *   area, and clipping if it's too big
+                 */
+                wid = width_ > (unsigned long)(pos->right - pos->left)
+                    ? pos->right - pos->left : width_;
+                ht = height_ > (unsigned long)(pos->bottom - pos->top)
+                    ? pos->bottom - pos->top : height_;
+
+				uv1.x = (float)wid / width_;
+				uv1.y = (float)ht / height_;
+                break;
+
+            case HTMLIMG_DRAW_STRETCH:
+                break;
+
+            case HTMLIMG_DRAW_TILE:
+                /*
+                 *   draw at the exact size as many times as necessary to tile the
+                 *   area
+                 */
+                wid = width_ < (unsigned long)(pos->right - pos->left)
+                    ? pos->right - pos->left : width_;
+                ht = height_ < (unsigned long)(pos->bottom - pos->top)
+                    ? pos->bottom - pos->top : height_;
+
+                uv1.x = (float)wid / width_;
+                uv1.y = (float)ht / height_;
+                break;
+            }
+        }
+        ImGui::SetCursorPos(ImVec2(pos->left, pos->top));
+        ImGui::Image((ImTextureID)(intptr_t)m_texture, ImVec2(pos->right - pos->left, pos->bottom - pos->top), ImVec2(0,0), uv1);
+    }
 
     /* don't do anything if not drawing */
     if ((hdc = win->gethdc()) == 0)

@@ -141,6 +141,8 @@ protected:
 
     /* flag: we've attempted to link to AlphaBlend() */
     static int linked_alphablend_proc_;
+
+    uint32_t m_texture;
 };
 
 #endif /* TADSIMG_H */
