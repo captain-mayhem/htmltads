@@ -903,6 +903,7 @@ protected:
 
     /* handle setcursor event */
     int do_setcursor(HWND hwnd, int hittest, int mousemsg);
+    int do_setcursor(int x, int y) override;
 
     /* set the mouse cursor based on the given display item */
     virtual void set_disp_item_cursor(class CHtmlDisp *disp,

@@ -1220,6 +1220,12 @@ protected:
         { return FALSE; }
 
     /*
+     *   Process a set-cursor event.  Returns true if the message was
+     *   handled.
+     */
+    virtual int do_setcursor(int x, int y);
+
+    /*
      *   Handle WM_WINDOWPOSCHANGING and WM_WINDOWPOSCHANGED messages.
      *   Returns true if the message is handled, false if not.  
      */

@@ -1670,6 +1670,7 @@ int CHtmlSysWin_win32::do_setcursor(HWND hwnd, int /*hittest*/,
     if (!prefs_->get_alt_more_style() && more_mode_ && PtInRect(&rc, pt))
     {
         SetCursor(hand_csr_);
+        ImGui::SetMouseCursor(ImGuiMouseCursor_Hand);
         return TRUE;
     }
 
@@ -1711,6 +1712,87 @@ int CHtmlSysWin_win32::do_setcursor(HWND hwnd, int /*hittest*/,
 }
 
 /*
+ *   Handle a setcursor message
+ */
+int CHtmlSysWin_win32::do_setcursor(int x,
+    int y)
+{
+    POINT pt;
+    CHtmlPoint docpt;
+    RECT rc;
+    CHtmlDisp* disp;
+    unsigned long txtofs;
+    unsigned long sel_start, sel_end;
+
+    x = x - m_pos.x;
+    y = y - m_pos.y;
+
+    /*
+     *   tell other subwindows to forget about any current hovering, since
+     *   we're obviously no longer in any other subwindow
+     */
+    owner_->clear_other_hover_info(this);
+
+    /* get the mouse position */
+    pt.x = x;
+    pt.y = y;
+
+    /*
+     *   if I'm over the vertical scrollbar, ignore it; this can happen
+     *   when the vertical scrollbar is disabled, since it won't show up
+     *   for setcursor messages
+     */
+    get_scroll_area(&rc, TRUE);
+    //if (pt.x >= rc.right)
+    //    return FALSE;
+
+    /* if I'm over the "MORE" prompt, show the hand cursor */
+    get_moreprompt_rect(&rc);
+    if (!prefs_->get_alt_more_style() && more_mode_ && PtInRect(&rc, pt))
+    {
+        SetCursor(hand_csr_);
+        ImGui::SetMouseCursor(ImGuiMouseCursor_Hand);
+        return TRUE;
+    }
+
+    /* see if we can find an item containing the given position */
+    docpt = screen_to_doc(CHtmlPoint(pt.x, pt.y));
+    txtofs = formatter_->find_textofs_by_pos(docpt);
+    disp = formatter_->find_by_pos(docpt, TRUE);
+    if (disp == 0)
+    {
+        /* if we have a status line link display, remove it */
+        set_hover_link(0);
+
+        /* we're not over a display list item - use the background cursor */
+        return do_setcursor_bkg();
+    }
+
+    /*
+     *   If we're over the current selection range, use an arrow, since we
+     *   could try to drag the selection; otherwise, use the current display
+     *   item's cursor.
+     */
+    formatter_->get_sel_range(&sel_start, &sel_end);
+    if (txtofs >= sel_start && txtofs < sel_end)
+    {
+        /* it's over the selection - use an arrow */
+        SetCursor(arrow_cursor_);
+    }
+    else
+    {
+        /* set the cursor based on the display item type */
+        set_disp_item_cursor(disp, docpt.x, docpt.y);
+    }
+
+    /* set the current hovering link */
+    set_hover_link(find_link_for_disp(disp, &docpt));
+
+    /* handled */
+    return TRUE;
+}
+
+/*
  *   Set the cursor based on the display item the mouse is positioned upon.  
  */
 void CHtmlSysWin_win32::set_disp_item_cursor(CHtmlDisp *disp,
@@ -1728,6 +1810,7 @@ void CHtmlSysWin_win32::set_disp_item_cursor(CHtmlDisp *disp,
     case HTML_CSRTYPE_HAND:
         /* set the hand cursor */
         SetCursor(hand_csr_);
+        ImGui::SetMouseCursor(ImGuiMouseCursor_Hand);
         break;
 
     case HTML_CSRTYPE_ARROW:
@@ -2911,6 +2994,8 @@ int CHtmlSysWin_win32::execute_find(
 
     /* show the busy cursor while working */
     oldcsr = SetCursor(wait_cursor_);
+    ImGuiMouseCursor oldcursor = ImGui::GetMouseCursor();
+    ImGui::SetMouseCursor(ImGuiMouseCursor_Wait);
 
     /* 
      *   if we're searching forward, start at the end of the current
@@ -2944,6 +3029,7 @@ int CHtmlSysWin_win32::execute_find(
         {
             /* done working; restore the normal cursor */
             SetCursor(oldcsr);
+            ImGui::SetMouseCursor(oldcursor);
 
             /* we're done */
             break;
@@ -2980,6 +3066,7 @@ int CHtmlSysWin_win32::execute_find(
             
             /* done working; restore the normal cursor */
             SetCursor(oldcsr);
+            ImGui::SetMouseCursor(oldcursor);
 
             /* 
              *   make me the active window, so that my selection becomes
@@ -6959,6 +7046,8 @@ int CHtmlSysWin_win32::do_formatting(int show_status, int update_win,
                 && GetTickCount() > start_ticks + 200)
             {
                 old_cursor = SetCursor(wait_cursor_);
+                ImGuiMouseCursor oldcursor = ImGui::GetMouseCursor();
+                ImGui::SetMouseCursor(ImGuiMouseCursor_Wait);
                 formatting_msg_ = TRUE;
                 if (statusline_ != 0)
                     statusline_->main_part()->source_to_front(this);
@@ -14423,6 +14512,9 @@ int CHtmlSys_mainwin::event_loop(int* flag) {
                 }
                 lastX = io.MousePos.x;
                 lastY = io.MousePos.y;
+                if (!capture_win) {
+                    do_setcursor(io.MousePos.x, io.MousePos.y);
+                }
             }
         }
 
@@ -17807,6 +17899,7 @@ void CHtmlSysWin_win32_Popup::set_disp_item_cursor(
     case HTML_CSRTYPE_HAND:
         /* set the hand cursor */
         SetCursor(hand_csr_);
+        ImGui::SetMouseCursor(ImGuiMouseCursor_Hand);
         break;
 
     default:

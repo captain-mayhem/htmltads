@@ -1698,6 +1698,17 @@ int CTadsWin::do_close()
     return TRUE;
 }
 
+int CTadsWin::do_setcursor(int x, int y) {
+    for (auto& child : m_children) {
+        int handled = FALSE;
+        if (IsWindowVisible(child->get_handle()))
+            handled = child->do_setcursor(x, y);
+        if (handled)
+            return TRUE;
+    }
+    return FALSE;
+}
+
 /*
  *   Process a destroy window message 
  */
