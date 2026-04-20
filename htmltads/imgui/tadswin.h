@@ -954,6 +954,8 @@ public:
     }
 
     void setWindowTitle(const textchar_t* title);
+    void setVisible(bool visible = true);
+	bool isVisible() const;
 
     /* render the window */
     virtual int do_render();
@@ -1720,6 +1722,7 @@ protected:
     std::string m_title;
     ImVec2 m_pos;
     ImVec2 m_size;
+    bool m_visible = false;
 };
 
 /* ------------------------------------------------------------------------ */

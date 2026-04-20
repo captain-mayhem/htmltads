@@ -445,7 +445,7 @@ int CTadsWin::create_system_window(CTadsWin *parent, HWND parent_hwnd,
 
     /* show the window if desired */
     if (show)
-        ShowWindow(handle_, SW_SHOW);
+		setVisible(true);
 
     /* success */
     return 0;
@@ -1554,7 +1554,7 @@ int CTadsWin::do_paint()
  */
 int CTadsWin::do_render()
 {
-    if (!IsWindowVisible(handle_))
+    if (!isVisible())
         return TRUE;
 
     do_render_content_begin();
@@ -1572,7 +1572,7 @@ int CTadsWin::do_leftbtn_down(int keys, int x, int y,
     int clicks) {
     for (auto& child : m_children) {
         int handled = FALSE;
-        if (IsWindowVisible(child->get_handle()))
+        if (child->isVisible())
             handled = child->do_leftbtn_down(keys, x, y, clicks);
         if (handled)
             return TRUE;
@@ -1701,7 +1701,7 @@ int CTadsWin::do_close()
 int CTadsWin::do_setcursor(int x, int y) {
     for (auto& child : m_children) {
         int handled = FALSE;
-        if (IsWindowVisible(child->get_handle()))
+        if (child->isVisible())
             handled = child->do_setcursor(x, y);
         if (handled)
             return TRUE;
@@ -2132,7 +2132,7 @@ int CTadsWin::do_mousemove(int keys, int x, int y)
 {
     for (auto& child : m_children) {
         int handled = FALSE;
-        if (IsWindowVisible(child->get_handle()))
+        if (child->isVisible())
             handled = child->do_mousemove(keys, x, y);
         if (handled)
             return TRUE;
@@ -2152,7 +2152,7 @@ int CTadsWin::do_leftbtn_up(int keys, int x, int y)
 {
     for (auto& child : m_children) {
         int handled = FALSE;
-        if (IsWindowVisible(child->get_handle()))
+        if (child->isVisible())
             handled = child->do_leftbtn_up(keys, x, y);
         if (handled)
             return TRUE;
@@ -2426,6 +2426,20 @@ void CTadsWin::setWindowTitle(const textchar_t* title) {
     else {
         m_title = title + m_title.substr(pos);
     }
+}
+
+void CTadsWin::setVisible(bool visible) {
+    m_visible = visible;
+    if (visible) {
+		ShowWindow(handle_, SW_SHOW);
+    }
+    else {
+		ShowWindow(handle_, SW_HIDE);
+    }
+}
+
+bool CTadsWin::isVisible() const {
+	return m_visible;
 }
 
 /* ------------------------------------------------------------------------ */

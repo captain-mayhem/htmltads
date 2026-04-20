@@ -3852,7 +3852,7 @@ void CHtmlSysWin_win32::on_close_parent_banner(int deleting_parent)
         banner_parent_ = 0;
 
     /* hide our system window, including our border window */
-    ShowWindow(handle_, SW_HIDE);
+    setVisible(false);
     ShowWindow(border_handle_, SW_HIDE);
 
     /* 
@@ -11901,7 +11901,7 @@ int CHtmlSys_mainwin::do_close()
         if (in_debugger_ && game_paused_)
         {
             /* hide it */
-            ShowWindow(handle_, SW_HIDE);
+            setVisible(false);
 
             /* we're done - don't actually close the window */
             return FALSE;
@@ -11979,7 +11979,7 @@ int CHtmlSys_mainwin::do_close()
             if (in_debugger_)
             {
                 /* hide the window, to simulate closing it */
-                ShowWindow(handle_, SW_HIDE);
+                setVisible(false);
                 
                 /* we're done - don't actually close the game window */
                 return FALSE;
@@ -12507,11 +12507,11 @@ void CHtmlSys_mainwin::recalc_banner_layout()
                     ? 0 : main_panel_->get_first_banner_child());
 
     /* size the main panel; it'll size its banner children */
-    if (main_panel_ != 0 && IsWindowVisible(main_panel_->get_handle()))
+    if (main_panel_ != 0 && main_panel_->isVisible())
         main_panel_->calc_banner_layout(&rc, first_banner);
 
     /* size the history panel to the same size */
-    if (hist_panel_ != 0 && IsWindowVisible(hist_panel_->get_handle()))
+    if (hist_panel_ != 0 && hist_panel_->isVisible())
         hist_panel_->calc_banner_layout(&rc, first_banner);
 }
 
@@ -12712,7 +12712,7 @@ int CHtmlSys_mainwin::do_command(int notify_code,
         if (dbgwin_ != 0)
         {
             /* show it */
-            ShowWindow(dbgwin_->get_handle(), SW_SHOW);
+            dbgwin_->setVisible(true);
 
             /* bring it to the top */
             SetWindowPos(dbgwin_->get_handle(), HWND_TOP, 0, 0, 0, 0,
@@ -13772,10 +13772,10 @@ void CHtmlSys_mainwin::go_to_page(CHtmlSys_mainwin_state_link *new_page)
     if (cur_page_state_->next_ == 0)
     {
         /* we're leaving the active page - hide the main panel */
-        ShowWindow(main_panel_->get_handle(), SW_HIDE);
+        main_panel_->setVisible(false);
 
         /* show the history panel, as we're going to a history page */
-        ShowWindow(hist_panel_->get_handle(), SW_SHOW);
+        hist_panel_->setVisible(true);
 
         /* recalculate the banner layout for change */
         recalc_banner_layout();
@@ -13797,10 +13797,10 @@ void CHtmlSys_mainwin::go_to_page(CHtmlSys_mainwin_state_link *new_page)
     if (cur_page_state_->next_ == 0)
     {
         /* we're going back to the active page - show it */
-        ShowWindow(main_panel_->get_handle(), SW_SHOW);
+        main_panel_->setVisible(true);
 
         /* hide the history window */
-        ShowWindow(hist_panel_->get_handle(), SW_HIDE);
+        hist_panel_->setVisible(false);
 
         /* 
          *   set focus on our window, then on the main panel - this ensures
@@ -14152,8 +14152,8 @@ void CHtmlSys_mainwin::show_normal()
         ShowWindow(handle_, SW_RESTORE);
 
     /* if it's hidden, show it */
-    if (!IsWindowVisible(handle_))
-        ShowWindow(handle_, SW_SHOW);
+    if (!isVisible())
+        setVisible(true);
 }
 
 /*
@@ -14507,8 +14507,13 @@ int CHtmlSys_mainwin::event_loop(int* flag) {
                 CTadsWin* capture_win = CTadsApp::get_app()->getMouseCapture();
                 static float lastX = 0;
                 static float lastY = 0;
-                if (capture_win && (lastX != io.MousePos.x || lastY != io.MousePos.y)) {
-                    capture_win->do_mousemove(1, io.MousePos.x, io.MousePos.y);
+                if (lastX != io.MousePos.x || lastY != io.MousePos.y) {
+                    if (capture_win) {
+                        capture_win->do_mousemove(1, io.MousePos.x, io.MousePos.y);
+                    }
+                    //else {
+					//	do_setcursor(io.MousePos.x, io.MousePos.y);
+                    //}
                 }
                 lastX = io.MousePos.x;
                 lastY = io.MousePos.y;
@@ -16097,7 +16102,7 @@ void CHtmlSys_dbglogwin::load_menu()
 int CHtmlSys_dbglogwin::do_close()
 {
     /* hide the window */
-    ShowWindow(handle_, SW_HIDE);
+    setVisible(false);
 
     /* tell the caller not to really close the window */
     return FALSE;
@@ -16210,8 +16215,8 @@ int CHtmlSys_dbglogwin::do_user_message(int msg, WPARAM wpar, LPARAM lpar)
         disp_text((const textchar_t *)lpar);
 
         /* if the window isn't currently showing, make it visible */
-        if (!IsWindowVisible(get_handle()))
-            ShowWindow(get_handle(), SW_SHOW);
+        if (!isVisible())
+            setVisible(true);
 
         /* bring the window to the foreground if desired */
         if (wpar != 0)
@@ -16234,8 +16239,8 @@ int CHtmlSys_dbglogwin::do_user_message(int msg, WPARAM wpar, LPARAM lpar)
             disp_text(info->font_, info->msg_);
 
             /* if the window isn't currently showing, make it visible */
-            if (!IsWindowVisible(get_handle()))
-                ShowWindow(get_handle(), SW_SHOW);
+            if (!isVisible())
+                setVisible(true);
 
             /* bring the window to the foreground if desired */
             if (info->foreground_)
@@ -16393,7 +16398,7 @@ int CHtmlSys_dbglogwin::do_command(int notify_code,
     {
     case ID_FILE_HIDE:
         /* hide the window */
-        ShowWindow(get_handle(), SW_HIDE);
+        setVisible(false);
         return TRUE;
 
     default:
@@ -16868,7 +16873,7 @@ void CHtmlSys_aboutgamewin::run_aboutbox(CTadsWin *owner)
      *   show the window and enable it - it will have been disabled by the
      *   modal_dlg_pre setup above, so we need to re-enable it now 
      */
-    ShowWindow(handle_, SW_SHOW);
+    setVisible(true);
     EnableWindow(handle_, TRUE);
 
     /* enter a recursive event loop until the window is closed */
@@ -16886,7 +16891,7 @@ void CHtmlSys_aboutgamewin::run_aboutbox(CTadsWin *owner)
     CTadsDialog::modal_dlg_post(ctx);
 
     /* hide myself again */
-    ShowWindow(handle_, SW_HIDE);
+    setVisible(false);
 
     /* release our self-reference */
     Release();
