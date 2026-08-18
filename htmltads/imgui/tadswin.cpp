@@ -2430,7 +2430,21 @@ void CTadsWin::setWindowTitle(const textchar_t* title) {
 
 void CTadsWin::setVisible(bool visible) {
     m_visible = visible;
-    if (visible) {
+    if (m_window) {
+        /*
+         *   Top-level window: the GLFW/ImGui window is the one the user
+         *   actually sees.  The Win32 HWND (handle_) still exists in
+         *   parallel because not-yet-ported native children (banners,
+         *   scrollbars, dialogs) need a real HWND to parent themselves to,
+         *   but it must never be shown on screen, or we'd end up with two
+         *   visible top-level windows.
+         */
+        if (visible)
+            glfwShowWindow(m_window);
+        else
+            glfwHideWindow(m_window);
+    }
+    else if (visible) {
 		ShowWindow(handle_, SW_SHOW);
     }
     else {
@@ -3373,6 +3387,15 @@ GLFWwindow* CTadsSyswin::syswin_create_system_window(
 #endif
 
     // Create window with graphics context
+    /*
+     *   Start hidden: GLFW shows a window by default as soon as it's
+     *   created, but our caller (CTadsWin::create_system_window) decides
+     *   whether the window should actually be shown, and does so
+     *   separately via setVisible().  Without this hint the window would
+     *   flash on screen immediately, regardless of the caller's "show"
+     *   argument.
+     */
+    glfwWindowHint(GLFW_VISIBLE, GLFW_FALSE);
     float main_scale = ImGui_ImplGlfw_GetContentScaleForMonitor(glfwGetPrimaryMonitor()); // Valid on GLFW 3.3+ only
     GLFWwindow* window = glfwCreateWindow((int)(wid * main_scale), (int)(ht * main_scale), wintitle, nullptr, nullptr);
     if (window == nullptr) {

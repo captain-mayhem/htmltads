@@ -11218,8 +11218,7 @@ int CHtmlSys_mainwin::do_timer(int timer_id)
                 }
 
                 /* set the text in panel 1 */
-                SendMessage(statusline_->get_handle(), SB_SETTEXT,
-                            1, (LPARAM)buf);
+                statusline_->set_part_text(1, buf);
             }
         }
 
@@ -11469,7 +11468,18 @@ int CHtmlSys_mainwin::do_render() {
     }
     ImGui::SetNextWindowPos(viewport->WorkPos);
     ImGui::SetNextWindowSize(viewport->WorkSize);
-    return CTadsWin::do_render();
+    int ret = CTadsWin::do_render();
+
+    /* draw the status line, anchored to the bottom of the work area */
+    if (statusline_ != 0)
+    {
+        float stat_ht = statusline_->get_height();
+        statusline_->render(viewport->WorkPos.x,
+                             viewport->WorkPos.y + viewport->WorkSize.y - stat_ht,
+                             viewport->WorkSize.x);
+    }
+
+    return ret;
 }
 
 void CHtmlSys_mainwin::do_render_content_begin() {
@@ -12420,7 +12430,7 @@ void CHtmlSys_mainwin::do_resize(int mode, int x, int y)
         m_size = ImVec2(x, y);
 
         /* notify the status line of the resize */
-        statusline_->notify_parent_resize();
+        statusline_->notify_parent_resize((float)x);
 
         /* recalculate the banner layout */
         recalc_banner_layout();
@@ -12448,7 +12458,6 @@ void CHtmlSys_mainwin::do_exitsizemove()
  */
 void CHtmlSys_mainwin::recalc_banner_layout()
 {
-    RECT statrc;
     RECT rc;
     int y_offset;
     CHtmlSysWin_win32 *first_banner;
@@ -12486,9 +12495,9 @@ void CHtmlSys_mainwin::recalc_banner_layout()
      *   highlight, so start at (1,1 + toolbar_height).  We need two pixels
      *   at the right edge and three at the bottom edge for additional
      *   highlighting, and we also need to remove the area taken up by the
-     *   status line.  
+     *   status line.
      */
-    GetClientRect(statusline_->get_handle(), &statrc);
+    int statusline_ht = (statusline_ != 0 ? (int)statusline_->get_height() : 0);
     GetClientRect(handle_, &rc);
     //rc.left = 0;
     rc.right = m_size.x;
@@ -12496,7 +12505,7 @@ void CHtmlSys_mainwin::recalc_banner_layout()
     //rc.top = m_pos.y;
     //rc.bottom = m_pos.y + m_size.y;
     SetRect(&rc, 1, y_offset + 1,
-            rc.right - 2, rc.bottom - statrc.bottom - 3);
+            rc.right - 2, rc.bottom - statusline_ht - 3);
 
     /* 
      *   Get the first banner window - this is always the head of the main
@@ -12570,8 +12579,7 @@ void CHtmlSys_mainwin::adjust_statusbar_layout()
         }
 
         /* reset the panel layout */
-        SendMessage(statusline_->get_handle(), SB_SETPARTS,
-                    parts, (LPARAM)widths);
+        statusline_->set_parts(parts, widths);
     }
 }
 
@@ -14431,7 +14439,6 @@ void CHtmlSys_mainwin::release_all_moremode()
 }
 
 // Our state
-bool show_demo_window = true;
 ImVec4 clear_color = ImVec4(0.45f, 0.55f, 0.60f, 1.00f);
 
 int CHtmlSys_mainwin::event_loop(int* flag) {
@@ -14528,9 +14535,6 @@ int CHtmlSys_mainwin::event_loop(int* flag) {
         if (dbgwin_) {
             dbgwin_->do_render();
         }
-
-        // 1. Show the big demo window (Most of the sample code is in ImGui::ShowDemoWindow()! You can browse its code to learn more about Dear ImGui!).
-        ImGui::ShowDemoWindow(&show_demo_window);
 
         // Rendering
         ImGui::Render();

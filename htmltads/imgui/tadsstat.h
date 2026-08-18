@@ -66,29 +66,39 @@ Modified
 #define TADSSTAT_H
 
 #include <windows.h>
+#include <vector>
+#include <string>
 
 #ifndef TADSHTML_H
 #include "tadshtml.h"
 #endif
+#include "tadswin.h"
 
 class CTadsStatusline
 {
 public:
-    /* 
-     *   Create the status line within a given parent window.  If sizebox
-     *   is true, we'll create the status line with a sizing box at the
-     *   right corner.  id specifies the control ID for the status line
-     *   control within the parent window. 
+    /*
+     *   Create the status line for a given parent window.  sizebox and id
+     *   are retained for source compatibility with the old Win32 control
+     *   API, but are no longer used: the status line is now drawn directly
+     *   with ImGui rather than owning a native control, so it needs
+     *   neither a size grip style bit nor a control ID.
      */
     CTadsStatusline(class CTadsWin *parent, int sizebox, int id);
 
     /* delete the status line */
     ~CTadsStatusline();
 
-    /* get the handle of the status line's control window */
-    HWND get_handle() { return handle_; }
+    /*
+     *   Get the handle of the status line's (former) control window.  The
+     *   status line no longer owns a real window, so this always returns
+     *   null; it's kept only so that not-yet-ported callers that still
+     *   expect an HWND (e.g. layout code that calls GetClientRect on it)
+     *   continue to compile.
+     */
+    HWND get_handle() { return 0; }
 
-    /* 
+    /*
      *   Add a part.  We always create one initial part representing the main
      *   status message area.
      */
@@ -98,23 +108,8 @@ public:
     class CTadsStatusPart *main_part() const { return main_part_; }
 
     /*
-     *   Handle a WM_DRAWITEM (owner draw event).  If the status line
-     *   includes any owner-drawn items, the owner window must call this when
-     *   it receives a WM_DRAWITEM message.  We'll dispatch the drawing to
-     *   the item that triggered the owner-draw event.  Returns true if
-     *   handled, false if not.
-     *   
-     *   The window event handler can simply call this routine as its first
-     *   step, without even inspecting the event parameters; we'll determine
-     *   if it the event really was intended for us, and handle it and return
-     *   TRUE if so.  If the event isn't for us, we'll simply return FALSE so
-     *   that the caller can look at other possibilities.
-     */
-    int owner_draw(int ctl_id, DRAWITEMSTRUCT *di);
-
-    /* 
      *   handle a WM_MENUSELECT message - the application object calls this
-     *   in each registered statusline whenever a WM_MENUSELECT is processed 
+     *   in each registered statusline whenever a WM_MENUSELECT is processed
      */
     void menu_select_msg(HWND hwnd, WPARAM wparam, LPARAM lparam);
 
@@ -124,14 +119,14 @@ public:
      *   Update operations.  When a source has a new status message to
      *   display, it should call one of these routines.  When one of these
      *   routines is called, we'll go through the list of status sources
-     *   to get a message, and display the first message we find.  
+     *   to get a message, and display the first message we find.
      */
 
-    /* 
+    /*
      *   Update the status line, using existing source list ordering.  A
      *   source should call this when the state of an existing operation
      *   changes (for example, the operation is finished, or a new stage
-     *   of the operation begins). 
+     *   of the operation begins).
      */
     void update();
 
@@ -139,28 +134,63 @@ public:
     /* ----------------------------------------------------------------- */
     /*
      *   Notifications - the parent window must call these routines to
-     *   notify the status line object of certain events. 
+     *   notify the status line object of certain events.
      */
 
-    /* notify status line that the parent window was resized */
-    void notify_parent_resize();
+    /*
+     *   Notify the status line that the parent window was resized.  width
+     *   is the new width to lay the parts out within; if omitted (or
+     *   negative), the width from the last render() or explicit resize
+     *   notification is reused.
+     */
+    void notify_parent_resize(float width = -1.0f);
+
+
+    /* ----------------------------------------------------------------- */
+    /*
+     *   Direct part layout/text access, mirroring the old Win32 status
+     *   control's SB_SETPARTS/SB_SETTEXT messages, for callers that
+     *   address parts by index rather than through the CTadsStatusSource
+     *   protocol (e.g. the elapsed-time display).  right_edges follows the
+     *   same convention as SB_SETPARTS: each entry is the right edge (in
+     *   pixels, relative to the status line's own left edge) of the
+     *   corresponding part, except the last entry, which may be -1 to mean
+     *   "extend to the right edge of the status line".
+     */
+    void set_parts(int count, const int *right_edges);
+    void set_part_text(int index, const textchar_t *text);
+
+    /*
+     *   Draw the status line for the current ImGui frame, anchored at
+     *   (x,y) with the given width.  Must be called once per frame, after
+     *   ImGui::NewFrame().
+     */
+    void render(float x, float y, float width);
+
+    /* current status line height in pixels, valid after the first render() */
+    float get_height() const { return height_; }
 
 private:
-    /* 
+    /*
      *   Remove a source from the list, returning a pointer to the list
      *   item container for the source item.  This doesn't delete
-     *   anything; it just unlinks it from the list.  
+     *   anything; it just unlinks it from the list.
      */
     class CTadsStatusSourceListitem *unlink(class CTadsStatusSource *source);
 
-    /* statusline control window handle */
-    HWND handle_;
-
-    /* part list */
+    /* part list (drives the CTadsStatusSource protocol via update()) */
     class CTadsStatusPart *parts_;
 
     /* main (default) part */
     class CTadsStatusPart *main_part_;
+
+    /* current part layout (right edges) and displayed text, by index */
+    std::vector<int> part_edges_;
+    std::vector<std::string> part_texts_;
+
+    /* current on-screen height, and the width last laid out for */
+    float height_;
+    float last_width_;
 };
 
 /* ------------------------------------------------------------------------ */
