@@ -318,3 +318,67 @@ Windows-locked.
 10. Build the Emscripten web target as its own effort (per §4, it's a distinct event-driven platform
     layer, not a merge into the GLFW/ImGui code path), reusing engine-layer code from `guit3` and/or
     `htmltads/emscripten/` where practical.
+
+## 6. Working notes for a fresh session
+
+Practical things learned while doing steps 1-2 of the roadmap above that weren't obvious going in and
+aren't specific to any one subsystem, so they're collected here instead of buried in §2/§3.2.
+
+**Repo layout**: `guit3`'s source (this `imgui/` folder) lives in a *separate* git repository, checked
+out at `C:\Projects\htmltads`, independent of the `tads-runner` repo (`C:\Projects\tads-runner`) that
+owns the top-level CMake build (`tads-runner/CMakeLists.txt` does `add_subdirectory(htmltads)`, which
+pulls this repo in). Edit files under `C:\Projects\htmltads\htmltads\imgui\`; build and run from
+`C:\Projects\tads-runner`. Don't `cd` between them expecting one `git status` to cover both — they're
+independent histories.
+
+**Building just `guit3`**: there's already a configured Ninja build at `tads-runner/build/default`.
+From that directory:
+```
+cmake --build . --target guit3
+```
+This is fast (a handful of `.cpp`s, a few seconds to a couple minutes) — no need to rebuild the whole
+`tads-runner` superproject (tads2/tads3/curl/etc.) to iterate on `guit3` changes. The resulting binary
+is `tads-runner/build/default/htmltads/htmltads/imgui/guit3.exe`.
+
+**Running/verifying it visually**: `guit3` is a GUI app with no headless/automated test coverage today,
+so the only way to actually confirm a UI change works is to run it and look. What worked well in this
+session, from PowerShell:
+1. `Start-Process` the exe with a test game as an argument, e.g.
+   `tads-runner\tests\ditch3.t3`, with working directory set to `tads-runner\tests` (that's also where
+   `imgui.ini`/save files land, matching the untracked files already seen there in `git status`).
+2. Wait ~5 seconds (GLFW/ImGui/font/game load isn't instant) before assuming the window exists — 3
+   seconds was sometimes too early and produced false "window not found" results.
+3. Enumerate the process's windows with `EnumWindows`/`GetWindowThreadProcessId`/`GetClassName` to find
+   the real GLFW window (class `GLFW30`) — don't assume `FindWindow` by class+null-title will reliably
+   grab it.
+4. Screenshot just that window's rect with `GetWindowRect` + `Graphics.CopyFromScreen`, then
+   `Stop-Process -Force` when done. For inspecting something as small as the status bar, crop+upscale
+   the bottom strip of the screenshot (`System.Drawing.Bitmap`/`Graphics.DrawImage` with a source
+   rectangle) rather than eyeballing the full 1400×800 screenshot — small text/thin bars are easy to
+   misjudge at full scale. Sampling individual pixels with `Bitmap.GetPixel()` is the reliable way to
+   confirm an exact color made it to screen (visual inspection alone was misleading once — see below).
+5. The Windows taskbar can bleed into the bottom few pixels of a `GetWindowRect`-based capture (DWM
+   extends the rect slightly); don't mistake that sliver for something the app drew.
+
+**The `ImGui::ShowDemoWindow()` leftover in `event_loop()` (§3.8) is gone now** — it used to sit
+directly on top of the status bar (and would have obscured the menu bar next), making visual
+verification of new chrome unreliable. If a fresh session finds it's crept back in (e.g. via a merge),
+remove it before trying to eyeball anything new at the bottom or top of the window.
+
+**ImGui gotcha — `PushStyleColor(ImGuiCol_WindowBg, ...)` inside an ordinary `ImGui::Begin()` window is
+not reliable in this codebase for fixed chrome elements.** It was tried first for the status bar
+background: compiled fine, ran without error, but pixel-sampling the running app showed the background
+stayed at the theme's default dark color regardless — something else in this large, only-partially-ported
+window tree (many windows, inconsistent Push/Pop discipline across files that were mechanically copied
+from Win32 code) ends up drawing over it most frames. Switching to `ImGui::GetForegroundDrawList()` and
+drawing the background/text/borders directly with `AddRectFilled`/`AddLine`/`AddText` (no `Begin()`/`End()`
+at all) fixed it immediately and is now the pattern used for the status bar (`CTadsStatusline::render()`
+in [tadsstat.cpp](tadsstat.cpp)). **Reach for this pattern first for any other always-on-top fixed chrome
+(the menu bar in §3.1 next, later dialogs) if a normal window's styling doesn't visibly apply** — don't
+spend time re-diagnosing the same symptom from scratch.
+
+**Line-number references throughout this document will drift.** `htmlgui.cpp` in particular is ~18,000
+lines and every edit shifts everything below it — several line numbers cited in §3.2 were already off by
+a handful of lines by the time the section was finished being written, because an earlier edit in the
+same file shifted things. Treat line numbers here as "was roughly here as of this writing," and re-`grep`
+for the function/symbol name before trusting a specific line.
