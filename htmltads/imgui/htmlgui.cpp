@@ -1724,8 +1724,9 @@ int CHtmlSysWin_win32::do_setcursor(int x,
     unsigned long txtofs;
     unsigned long sel_start, sel_end;
 
-    x = x - m_pos.x;
-    y = y - m_pos.y;
+    ImVec2 screen_pos = get_screen_pos();
+    x = x - screen_pos.x;
+    y = y - screen_pos.y;
 
     /*
      *   tell other subwindows to forget about any current hovering, since
@@ -1870,8 +1871,9 @@ int CHtmlSysWin_win32::do_leftbtn_down(int keys, int x, int y, int clicks)
     unsigned long startofs, endofs;
     unsigned long startofs2, endofs2;
     CHtmlDispLink *link;
-    x = x - m_pos.x;
-    y = y - m_pos.y;
+    ImVec2 screen_pos = get_screen_pos();
+    x = x - screen_pos.x;
+    y = y - screen_pos.y;
 
     if (!ImGui::GetCurrentContext()->CurrentWindow)
         /* if I don't already have the focus, set focus here */
@@ -2103,8 +2105,9 @@ int CHtmlSysWin_win32::do_leftbtn_down(int keys, int x, int y, int clicks)
  */
 int CHtmlSysWin_win32::do_mousemove(int /*keys*/, int x, int y)
 {
-    x = x - m_pos.x;
-    y = y - m_pos.y;
+    ImVec2 screen_pos = get_screen_pos();
+    x = x - screen_pos.x;
+    y = y - screen_pos.y;
     /* 
      *   If the tooltip just disappeared, reset it - we need to do this
      *   because we have only one big tool area covering our whole window,
@@ -10361,6 +10364,10 @@ CHtmlSys_mainwin::CHtmlSys_mainwin(CHtmlFormatterInput *formatter,
     /* no idle timer yet */
     idle_timer_id_ = 0;
 
+    /* toolbar icon texture not loaded yet */
+    toolbar_tex_ = 0;
+    toolbar_tex_w_ = toolbar_tex_h_ = 0;
+
     /* create the "find" dialog */
     find_dlg_ = new CTadsDialogFind();
 
@@ -10432,6 +10439,10 @@ CHtmlSys_mainwin::~CHtmlSys_mainwin()
     
     /* save preference settings */
     prefs_->save();
+
+    /* free the toolbar icon texture, if we ever loaded it */
+    if (toolbar_tex_ != 0)
+        glDeleteTextures(1, &toolbar_tex_);
 
     /* delete all orphaned banners */
     delete_orphaned_banners();
@@ -11462,7 +11473,35 @@ void CHtmlSys_mainwin::create_toolbar()
 }
 
 int CHtmlSys_mainwin::do_render() {
+    /*
+     *   draw the menu bar first, so its height is up to date before we
+     *   compute the layout for everything below it (recalc_banner_layout(),
+     *   triggered via do_resize() below, reserves space for it)
+     */
+    render_menu_bar();
+
+    /*
+     *   draw the toolbar next, stacking it under the menu bar - like
+     *   render_menu_bar(), this uses ImGui::BeginViewportSideBar() (called
+     *   internally by both BeginMainMenuBar() and here directly), which
+     *   auto-reserves its own space in the viewport work area, so no manual
+     *   layout bookkeeping is needed for it either (see recalc_banner_layout())
+     */
+    render_toolbar();
+
     const ImGuiViewport* viewport = ImGui::GetMainViewport();
+
+    /*
+     *   Keep m_pos in sync with our actual on-screen position every frame,
+     *   not just m_size on resize - get_screen_pos() (used to translate
+     *   absolute mouse coordinates to window-local ones in
+     *   do_leftbtn_down()/do_mousemove()/do_setcursor()) walks the parent_
+     *   chain summing each ancestor's m_pos, so this window's own m_pos
+     *   needs to reflect where BeginMainMenuBar()/render_toolbar() actually
+     *   pushed us to, not a stale creation-time value.
+     */
+    m_pos = viewport->WorkPos;
+
     if (viewport->WorkSize.x != m_size.x || viewport->WorkSize.y != m_size.y) {
         do_resize(0, viewport->WorkSize.x, viewport->WorkSize.y);
     }
@@ -11488,7 +11527,477 @@ void CHtmlSys_mainwin::do_render_content_begin() {
 }
 
 /*
- *   Update the recent game menu in the File menu 
+ *   Render the main menu bar as an ImGui main menu bar.  The structure below
+ *   mirrors win32/htmlcmn.rc's IDR_MAIN_MENU (the native menu that's still
+ *   loaded in do_create(), but never shown - see migration.md section 2 for
+ *   why).  Static items dispatch through check_command()/do_command(), the
+ *   same virtuals the native WM_INITMENUPOPUP/WM_COMMAND handlers used to
+ *   call; the dynamic bits (recent games, Themes/profile list) are rebuilt
+ *   from their underlying data every frame instead of mutating a cached
+ *   HMENU the way the native code did.
+ */
+/*
+ *   Strip Windows '&' mnemonic markers ('&&' -> '&', lone '&' dropped) from a
+ *   resource string loaded with LoadString().  This ImGui build doesn't
+ *   parse '&' mnemonics, so left alone they'd render literally; shared by
+ *   render_menu_bar() and render_themes_menu_items(), both of which display
+ *   strings pulled from the .rc string table.
+ */
+static void strip_mnemonic(char *s)
+{
+    char *dst = s;
+    for (char *src = s ; *src != '\0' ; ++src)
+    {
+        if (*src == '&' && *(src + 1) != '\0')
+        {
+            if (*(src + 1) == '&')
+            {
+                *dst++ = '&';
+                ++src;
+            }
+        }
+        else
+            *dst++ = *src;
+    }
+    *dst = '\0';
+}
+
+void CHtmlSys_mainwin::render_menu_bar()
+{
+    /*
+     *   render one command menu item, using check_command() for its
+     *   enabled/checked state and do_command() to dispatch a click
+     */
+    auto item = [this](int id, const char *label, const char *shortcut = 0)
+    {
+        check_cmd_info ci(id);
+        TadsCmdStat_t stat = check_command(&ci);
+        bool enabled = (stat != TADSCMD_DISABLED
+                        && stat != TADSCMD_DISABLED_CHECKED
+                        && stat != TADSCMD_DISABLED_INDETERMINATE
+                        && stat != TADSCMD_UNKNOWN);
+        bool checked = (stat == TADSCMD_CHECKED
+                        || stat == TADSCMD_DISABLED_CHECKED);
+        if (ImGui::MenuItem(label, shortcut, checked, enabled))
+            do_command(0, id, 0);
+    };
+
+    if (!ImGui::BeginMainMenuBar())
+        return;
+
+    if (ImGui::BeginMenu("File"))
+    {
+        item(ID_FILE_LOADGAME, "Open New Game...", "Ctrl+O");
+        ImGui::Separator();
+        item(ID_FILE_SAVEGAME, "Save Position...", "Ctrl+S");
+        item(ID_FILE_RESTOREGAME, "Restore Position...", "Ctrl+R");
+        item(ID_FILE_QUIT, "Quit Game", "Ctrl+Q");
+        ImGui::Separator();
+
+        /* recent games list, rebuilt live from the preferences each frame */
+        if (!standalone_exe_)
+        {
+            const textchar_t *order = prefs_->get_recent_game_order();
+            const textchar_t *first_fname = prefs_->get_recent_game(order[0]);
+            if (first_fname[0] == '\0')
+            {
+                item(ID_FILE_RECENT_NONE, "No Recent Games");
+            }
+            else
+            {
+                const textchar_t *working_dir =
+                    CTadsApp::get_app()->get_openfile_dir();
+                if (working_dir == 0 || working_dir[0] == '\0')
+                    working_dir = prefs_->get_init_open_folder();
+
+                for (int i = 0 ; i < 4 && i < (int)get_strlen(order) ; ++i)
+                {
+                    const textchar_t *fname = prefs_->get_recent_game(order[i]);
+                    if (fname[0] == '\0')
+                        break;
+
+                    char buf[OSFNMAX + 10];
+                    const textchar_t *title;
+                    int len = sprintf(buf, "%d ", i + 1);
+                    if ((title = look_up_fav_title_by_filename(fname)) != 0)
+                        sprintf(buf + len, "%.*s", (int)OSFNMAX, title);
+                    else if (working_dir != 0)
+                        os_get_rel_path(buf + len, sizeof(buf) - len,
+                                       working_dir, fname);
+                    else
+                    {
+                        strncpy(buf + len, fname, sizeof(buf) - len);
+                        buf[sizeof(buf) - 1] = '\0';
+                    }
+
+                    if (ImGui::MenuItem(buf))
+                        do_command(0, ID_FILE_RECENT_1 + i, 0);
+                }
+            }
+            ImGui::Separator();
+        }
+
+        item(ID_FILE_EXIT, "Exit");
+        ImGui::EndMenu();
+    }
+
+    if (ImGui::BeginMenu("Edit"))
+    {
+        item(ID_EDIT_UNDO, "Undo Typing", "Ctrl+Z");
+        ImGui::Separator();
+        item(ID_EDIT_CUT, "Cut", "Ctrl+X");
+        item(ID_EDIT_COPY, "Copy", "Ctrl+C");
+        item(ID_EDIT_PASTE, "Paste", "Ctrl+V");
+        item(ID_EDIT_DELETE, "Delete");
+        ImGui::Separator();
+        item(ID_EDIT_SELECTLINE, "Select Command Line");
+        item(ID_EDIT_SELECTALL, "Select All", "Ctrl+A");
+        ImGui::Separator();
+        item(ID_EDIT_FIND, "Find Text on Current Page...", "Ctrl+F");
+        item(ID_EDIT_FINDNEXT, "Find Next", "F3");
+        ImGui::Separator();
+        item(ID_VIEW_OPTIONS, "Options...");
+        ImGui::EndMenu();
+    }
+
+    if (ImGui::BeginMenu("View"))
+    {
+        item(ID_VIEW_TOOLBAR, "Show Toolbar");
+
+        if (ImGui::BeginMenu("Timer"))
+        {
+            item(ID_TIMER_PAUSE, "Pause Timer");
+            item(ID_TIMER_RESET, "Reset Timer");
+            ImGui::Separator();
+            item(ID_VIEW_TIMER, "Show Timer");
+
+            if (ImGui::BeginMenu("Timer Format"))
+            {
+                item(ID_VIEW_TIMER_HHMMSS, "Hours:Minutes:Seconds");
+                item(ID_VIEW_TIMER_HHMM, "Hours:Minutes");
+                ImGui::EndMenu();
+            }
+            ImGui::EndMenu();
+        }
+
+        ImGui::Separator();
+
+        if (ImGui::BeginMenu("Text Size"))
+        {
+            item(ID_VIEW_FONTS_SMALLEST, "Smallest");
+            item(ID_VIEW_FONTS_SMALLER, "Smaller");
+            item(ID_VIEW_FONTS_MEDIUM, "Medium");
+            item(ID_VIEW_FONTS_LARGER, "Larger");
+            item(ID_VIEW_FONTS_LARGEST, "Largest");
+            ImGui::EndMenu();
+        }
+
+        item(ID_MUTE_SOUND, "Mute Sound");
+        ImGui::EndMenu();
+    }
+
+    if (ImGui::BeginMenu("Themes"))
+    {
+        render_themes_menu_items();
+        ImGui::EndMenu();
+    }
+
+    if (ImGui::BeginMenu("Go"))
+    {
+        item(ID_GO_PREVIOUS, "Previous Page", "Alt+<");
+        item(ID_GO_NEXT, "Next Page", "Alt+>");
+        if (is_game_chest_present())
+        {
+            ImGui::Separator();
+            item(ID_GO_TO_GAME_CHEST, "Game Chest");
+        }
+        ImGui::EndMenu();
+    }
+
+    if (ImGui::BeginMenu("Help"))
+    {
+        item(ID_HELP_CONTENTS, "HTML TADS Help");
+        item(ID_HELP_WWWTADSORG, "TADS Web Site");
+        ImGui::Separator();
+        item(ID_HELP_ABOUT, "About HTML TADS...");
+        item(ID_HELP_ABOUT_GAME, "About This Game...");
+        ImGui::EndMenu();
+    }
+
+    ImGui::EndMainMenuBar();
+}
+
+/*
+ *   Render the Themes submenu's contents: the profile list (built live from
+ *   the registry, exactly as load_menu_with_profiles() did for the
+ *   never-shown native menu/toolbar-dropdown) plus the management items
+ *   below it.  Shared by render_menu_bar()'s Themes menu and
+ *   render_toolbar()'s ID_THEMES_DROPDOWN popup - the native code showed
+ *   identical content in both places (the toolbar's TBN_DROPDOWN handler
+ *   called the very same load_menu_with_profiles()).
+ */
+void CHtmlSys_mainwin::render_themes_menu_items()
+{
+    const textchar_t *active = prefs_->get_active_profile_name();
+    const textchar_t *dflt = prefs_->get_default_profile();
+
+    char base_key[256];
+    sprintf(base_key, "%s\\Profiles", w32_pref_key_name);
+    DWORD disposition;
+    HKEY key = CTadsRegistry::open_key(HKEY_CURRENT_USER, base_key,
+                                       &disposition, TRUE);
+    for (int key_idx = 0 ; ; ++key_idx)
+    {
+        char subkey[128];
+        DWORD len = sizeof(subkey);
+        FILETIME ft;
+        if (RegEnumKeyEx(key, key_idx, subkey, &len, 0, 0, 0, &ft)
+            != ERROR_SUCCESS)
+            break;
+
+        bool checked = (stricmp(subkey, active) == 0);
+        char label[192];
+        if (stricmp(subkey, dflt) == 0)
+            sprintf(label, "%s (Default for new games)", subkey);
+        else
+            strcpy(label, subkey);
+
+        if (ImGui::MenuItem(label, 0, checked))
+        {
+            prefs_->save();
+            set_game_specific_profile(subkey);
+        }
+    }
+    CTadsRegistry::close_key(key);
+
+    ImGui::Separator();
+
+    char title[256], buf[256];
+    LoadString(CTadsApp::get_app()->get_instance(), IDS_MANAGE_PROFILES,
+               title, sizeof(title));
+    strip_mnemonic(title);
+    if (ImGui::MenuItem(title))
+        do_command(0, ID_MANAGE_PROFILES, 0);
+
+    LoadString(CTadsApp::get_app()->get_instance(), IDS_SET_DEF_PROFILE,
+               buf, sizeof(buf));
+    sprintf(title, buf, active);
+    strip_mnemonic(title);
+    if (ImGui::MenuItem(title))
+        do_command(0, ID_SET_DEF_PROFILE, 0);
+
+    LoadString(CTadsApp::get_app()->get_instance(), IDS_CUSTOMIZE_THEME,
+               buf, sizeof(buf));
+    sprintf(title, buf, active);
+    strip_mnemonic(title);
+    if (ImGui::MenuItem(title))
+        do_command(0, ID_APPEARANCE_OPTIONS, 0);
+}
+
+/*
+ *   Load the toolbar's icon strip (IDB_TERP_TOOLBAR, win32/runtbar.bmp - a
+ *   304x15, 4bpp indexed .bmp of nineteen 16x15 icon frames, the same
+ *   resource create_toolbar()'s native CreateToolbarEx() call used) into a
+ *   single GL texture atlas.  The bitmap has no alpha channel; like the
+ *   native ImageList (see IconMenuHandler::add_bitmap(),
+ *   ImageList_AddMasked() in iconmenu.cpp), its top-left pixel is the
+ *   color-key transparency mask, which we convert into a real alpha channel
+ *   here since GL has no equivalent of ImageList's masking.
+ */
+void CHtmlSys_mainwin::load_toolbar_texture()
+{
+    /* only need to do this once */
+    if (toolbar_tex_ != 0)
+        return;
+
+    HBITMAP hbmp = (HBITMAP)LoadImage(
+        CTadsApp::get_app()->get_instance(), MAKEINTRESOURCE(IDB_TERP_TOOLBAR),
+        IMAGE_BITMAP, 0, 0, LR_CREATEDIBSECTION);
+    if (hbmp == 0)
+        return;
+
+    BITMAP bm;
+    GetObject(hbmp, sizeof(bm), &bm);
+
+    BITMAPINFO bi;
+    memset(&bi, 0, sizeof(bi));
+    bi.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
+    bi.bmiHeader.biWidth = bm.bmWidth;
+    bi.bmiHeader.biHeight = -bm.bmHeight;      /* top-down */
+    bi.bmiHeader.biPlanes = 1;
+    bi.bmiHeader.biBitCount = 32;
+    bi.bmiHeader.biCompression = BI_RGB;
+
+    HDC hdc = GetDC(0);
+    unsigned char *pixels = new unsigned char[bm.bmWidth * bm.bmHeight * 4];
+    GetDIBits(hdc, hbmp, 0, bm.bmHeight, pixels, &bi, DIB_RGB_COLORS);
+    ReleaseDC(0, hdc);
+    DeleteObject(hbmp);
+
+    /* the top-left pixel (BGRA order, alpha byte unused) is the mask color */
+    unsigned char mask_b = pixels[0], mask_g = pixels[1], mask_r = pixels[2];
+
+    /* convert BGRA -> RGBA in place, turning the color key into real alpha */
+    int npix = bm.bmWidth * bm.bmHeight;
+    for (int i = 0 ; i < npix ; ++i)
+    {
+        unsigned char *p = pixels + i*4;
+        unsigned char b = p[0], g = p[1], r = p[2];
+        bool is_mask = (b == mask_b && g == mask_g && r == mask_r);
+        p[0] = r;
+        p[1] = g;
+        p[2] = b;
+        p[3] = is_mask ? 0 : 255;
+    }
+
+    glGenTextures(1, &toolbar_tex_);
+    glBindTexture(GL_TEXTURE_2D, toolbar_tex_);
+
+    /*
+     *   nearest filtering, not linear: the icons are packed edge-to-edge in
+     *   the atlas with no padding between frames, and linear filtering would
+     *   bleed each icon's edge pixels into its neighbor's
+     */
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP);
+    glPixelStorei(GL_UNPACK_ROW_LENGTH, 0);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, bm.bmWidth, bm.bmHeight, 0,
+                GL_RGBA, GL_UNSIGNED_BYTE, pixels);
+
+    toolbar_tex_w_ = bm.bmWidth;
+    toolbar_tex_h_ = bm.bmHeight;
+
+    delete[] pixels;
+}
+
+/*
+ *   Render the toolbar.  Data-driven from the same button list
+ *   create_toolbar() built by hand into a TBBUTTON array - see
+ *   migration.md section 3.1 for the button/icon/tooltip table this
+ *   mirrors.  Like render_menu_bar(), clicks and enabled state go through
+ *   check_command()/do_command(), the same virtuals the native toolbar's
+ *   WM_COMMAND handler and idle-time enable/disable updating
+ *   (add_toolbar_proc()) used.
+ */
+void CHtmlSys_mainwin::render_toolbar()
+{
+    /* respect the same preference the (still-present but invisible) native
+     * toolbar's ShowWindow() call used */
+    if (!prefs_->get_toolbar_vis())
+        return;
+
+    load_toolbar_texture();
+    if (toolbar_tex_ == 0)
+        return;
+
+    struct ToolbarBtn
+    {
+        int cmd;
+        int icon;               /* -1 = computed dynamically below */
+        const char *tooltip;    /* 0 = computed dynamically below */
+        bool sep_before;
+    };
+    static const ToolbarBtn buttons[] =
+    {
+        { ID_FILE_LOADGAME,           0,  "Open a New Game",           false },
+        { ID_FILE_SAVEGAME,           1,  "Save Current Position",     false },
+        { ID_FILE_RESTOREGAME,        2,  "Restore a Saved Position",  false },
+        { ID_EDIT_CUT,                3,  "Cut",                       true  },
+        { ID_EDIT_COPY,               4,  "Copy",                      false },
+        { ID_EDIT_PASTE,              5,  "Paste",                     false },
+        { ID_CMD_UNDO,                6,  "Undo Last Command",         true  },
+        { ID_VIEW_FONTS_NEXT_SMALLER, 7,  "Reduce the Font Size",      true  },
+        { ID_VIEW_FONTS_NEXT_LARGER,  8,  "Increase the Font Size",    false },
+        { ID_THEMES_DROPDOWN,         13, 0,                           false },
+        { ID_VIEW_OPTIONS,            9,  "Options",                   false },
+        { ID_GO_PREVIOUS,             10, "Go to the Previous Page",   true  },
+        { ID_GO_NEXT,                 11, "Go to the Next Page",       false },
+        { ID_EDIT_FIND,               12, "Find Text on Current Page", false },
+        { ID_MUTE_SOUND,              -1, "Sound On/Mute",             true  },
+    };
+
+    ImGuiStyle &style = ImGui::GetStyle();
+    float height = TOOLBAR_ICON_HEIGHT + style.FramePadding.y * 2 + 6;
+
+    ImGuiWindowFlags flags = ImGuiWindowFlags_NoScrollbar
+                             | ImGuiWindowFlags_NoSavedSettings;
+    bool open = ImGui::BeginViewportSideBar("##Toolbar", ImGui::GetMainViewport(),
+                                            ImGuiDir_Up, height, flags);
+    if (open)
+    {
+        for (size_t bi = 0 ; bi < (sizeof(buttons) / sizeof(buttons[0])) ; ++bi)
+        {
+            const ToolbarBtn &b = buttons[bi];
+
+            if (bi != 0)
+                ImGui::SameLine(0, b.sep_before ? 12.0f : 4.0f);
+            if (b.sep_before)
+            {
+                /* draw a thin vertical divider in the gap SameLine() just left */
+                ImVec2 p = ImGui::GetCursorScreenPos();
+                ImGui::GetWindowDrawList()->AddLine(
+                    ImVec2(p.x - 7, p.y + 2), ImVec2(p.x - 7, p.y + height - 10),
+                    ImGui::GetColorU32(ImGuiCol_Separator));
+            }
+
+            int icon = (b.cmd == ID_MUTE_SOUND
+                       ? (prefs_->get_mute_sound() ? 15 : 14) : b.icon);
+
+            check_cmd_info ci(b.cmd);
+            TadsCmdStat_t stat = check_command(&ci);
+            bool enabled = (stat != TADSCMD_DISABLED
+                           && stat != TADSCMD_DISABLED_CHECKED
+                           && stat != TADSCMD_DISABLED_INDETERMINATE
+                           && stat != TADSCMD_UNKNOWN);
+
+            float u0 = icon * (float)TOOLBAR_ICON_WIDTH / toolbar_tex_w_;
+            float u1 = (icon + 1) * (float)TOOLBAR_ICON_WIDTH / toolbar_tex_w_;
+
+            char id_buf[32];
+            sprintf(id_buf, "##tb%d", b.cmd);
+
+            ImGui::BeginDisabled(!enabled);
+            bool clicked = ImGui::ImageButton(
+                id_buf, (ImTextureID)(intptr_t)toolbar_tex_,
+                ImVec2((float)TOOLBAR_ICON_WIDTH, (float)TOOLBAR_ICON_HEIGHT),
+                ImVec2(u0, 0), ImVec2(u1, 1));
+            ImGui::EndDisabled();
+
+            if (b.cmd == ID_THEMES_DROPDOWN)
+            {
+                /* same profile-list popup as the Themes menu (§ render_themes_menu_items) -
+                 * this mirrors the native TBN_DROPDOWN handler, which showed
+                 * the very same load_menu_with_profiles() content as a popup */
+                if (clicked)
+                    ImGui::OpenPopup("##ToolbarThemesDropdown");
+                if (ImGui::BeginPopup("##ToolbarThemesDropdown"))
+                {
+                    render_themes_menu_items();
+                    ImGui::EndPopup();
+                }
+
+                char fmt[128], tip[256];
+                LoadString(CTadsApp::get_app()->get_instance(),
+                          IDS_THEMES_DROPDOWN, fmt, sizeof(fmt));
+                sprintf(tip, fmt, prefs_->get_active_profile_name());
+                ImGui::SetItemTooltip("%s", tip);
+            }
+            else
+            {
+                if (clicked)
+                    do_command(0, b.cmd, 0);
+                if (b.tooltip != 0)
+                    ImGui::SetItemTooltip("%s", b.tooltip);
+            }
+        }
+    }
+    ImGui::End();
+}
+
+/*
+ *   Update the recent game menu in the File menu
  */
 void CHtmlSys_mainwin::set_recent_game_menu()
 {
@@ -12472,23 +12981,32 @@ void CHtmlSys_mainwin::recalc_banner_layout()
     /* get the nominal starting y offset */
     y_offset = main_panel_yoffset_;
 
-    /* adjust for the toolbar, if visible */
-    if (toolbar_ && IsWindowVisible(toolbar_))
-    {
-        RECT tbrc;
-        POINT pt;
+    /*
+     *   NOTE: no manual adjustment for the ImGui main menu bar here.
+     *   ImGui::BeginMainMenuBar() (called from do_render(), before this
+     *   function runs) automatically shrinks GetMainViewport()->WorkPos/
+     *   WorkSize by the bar's height, and do_render() feeds that already-
+     *   shrunk work area into m_size (via do_resize()) and into the outer
+     *   content window's screen position (via SetNextWindowPos), so the
+     *   menu bar's space is already reserved by the time we get here.
+     *   Adding its height again here would double-reserve it - see
+     *   migration.md section 3.1 for how this was found (visually, as an
+     *   empty gap under the bar).
+     */
 
-        /* get the toolbar's area relative to our client area */
-        GetWindowRect(toolbar_, &tbrc);
-        pt.x = pt.y = 0;
-        ClientToScreen(handle_, &pt);
-        OffsetRect(&tbrc, -pt.x, -pt.y);
+    /*
+     *   NOTE: likewise no manual adjustment for the toolbar here - it's now
+     *   rendered by render_toolbar() via ImGui::BeginViewportSideBar()
+     *   directly (the same call BeginMainMenuBar() makes internally for the
+     *   menu bar above), which stacks its own reservation on top of the menu
+     *   bar's in the same automatic viewport work-area system.  (The old
+     *   IsWindowVisible(toolbar_)/GetWindowRect(toolbar_,...) check here
+     *   used to read the native, never-shown toolbar HWND's geometry - see
+     *   migration.md section 3.1 for why that read real, correctly-tracked
+     *   values despite never painting anything visible.)
+     */
 
-        /* adjust our offset by the toolbar's height */
-        y_offset += tbrc.bottom;
-    }
-
-    /* 
+    /*
      *   Figure out the total area available to the subwindows.  The first
      *   pixel on the left and the first pixel on the top of our client area
      *   (less the toolbar area) are taken up by a single-pixel-width
@@ -12507,10 +13025,10 @@ void CHtmlSys_mainwin::recalc_banner_layout()
     SetRect(&rc, 1, y_offset + 1,
             rc.right - 2, rc.bottom - statusline_ht - 3);
 
-    /* 
+    /*
      *   Get the first banner window - this is always the head of the main
      *   panel's banner list, even when showing history, because history
-     *   shows only the previous main panel contents, not the old banners.  
+     *   shows only the previous main panel contents, not the old banners.
      */
     first_banner = (main_panel_ == 0
                     ? 0 : main_panel_->get_first_banner_child());

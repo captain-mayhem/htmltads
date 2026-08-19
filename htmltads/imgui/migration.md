@@ -27,11 +27,12 @@
   though GLFW/OpenGL3/FreeType are all cross-platform. Removing this gate (incrementally, per-subsystem)
   is the end goal.
 
-Progress so far (25 commits): GLFW/ImGui window creation, keyboard input, FreeType-based font loading
+Progress so far (25+ commits): GLFW/ImGui window creation, keyboard input, FreeType-based font loading
 and metrics, text display, child-window handling, coloring, resizing, link coloring, positioning,
 character-encoding fixes, image rendering via GL textures, text selection, mouse hover, and text
-highlighting. This is genuinely useful progress, but it's all in the *game text window* rendering path;
-the application chrome (menu, status bar, dialogs, window creation itself) is still 100% Win32.
+highlighting. This is genuinely useful progress, and now the application chrome has its first
+ImGui-native pieces too: the menu bar, toolbar, and status bar (§3.1, §3.2) are all done. Dialogs,
+window creation itself, and the remaining chrome (banners/scrollbars) are still 100% Win32.
 
 ## 2. Root cause: "both windows open"
 
@@ -164,20 +165,140 @@ tadstab/tadscom) has only 1-3 stray references, mostly just `#include <windows.h
 low `HWND` density but not necessarily low effort (audio APIs in particular are all Win32 multimedia
 calls, see §4).
 
-### 3.1 Menu bar
-No ImGui menu code exists at all (`grep` for `ImGui::BeginMenuBar`/`BeginMainMenuBar`/`MenuItem` in
-`imgui/*.cpp` returns nothing). The menu is entirely native: `LoadMenu`/`SetMenu`
-([htmlgui.cpp:755](htmlgui.cpp#L755), [:10806](htmlgui.cpp#L10806), [:16094](htmlgui.cpp#L16094)),
-built from a Win32 `.rc` resource (`htmlt3.rc`, loaded via `htmlres.h` resource IDs), plus
-`CTadsSyswin::syswin_set_win_menu()` ([tadswin.cpp:3404](tadswin.cpp#L3404)) which just calls
-`SetMenu(win_->get_handle(), menu)` on the (soon to be removed) HWND. Owner-drawn menu items and
-`iconmenu.cpp` (icon-annotated menu items via `SetMenuItemInfo`/`SetMenuInfo`) will also need an
-ImGui-native equivalent (custom `MenuItem` rendering with an icon texture).
+### 3.1 Menu bar and toolbar — done
+`CHtmlSys_mainwin::render_menu_bar()` ([htmlgui.cpp:11510](htmlgui.cpp#L11510), declared in
+[htmlgui.h](htmlgui.h) next to `do_render()`) replaces the native menu with an ImGui one, called from
+`do_render()` ([htmlgui.cpp:11464](htmlgui.cpp#L11464)) before `CTadsWin::do_render()` runs. It's
+data-driven, hardcoded from `win32/htmlcmn.rc`'s `IDR_MAIN_MENU` resource and `htmlres.h`'s command
+IDs — File/Edit/View (with Timer/Timer Format/Text Size submenus)/Themes/Go/Help, matching the
+original structure. The old `LoadMenu`/`SetMenu` call in `do_create()`
+([htmlgui.cpp:10806](htmlgui.cpp#L10806)) and the native `HMENU` it builds were left in place rather
+than removed — they're harmless dead code (see below) and touching them risked breaking
+`popup_container_`/`statusline_popup_`, which are separate context menus loaded from the same call
+site and not part of this pass.
 
-**Plan**: define the menu structure data-driven (command ID → label/shortcut/icon/submenu), keep it
-independent of the `.rc` file, and render it with `ImGui::BeginMainMenuBar()` /
-`ImGui::BeginMenu()`/`ImGui::MenuItem()` inside the existing `event_loop()`. Route `MenuItem` clicks
-through the same command-dispatch path currently triggered by `WM_COMMAND`.
+**Dispatch**: click handlers call `do_command(0, id, 0)` and per-frame enabled/checked state comes
+from `check_command(&check_cmd_info(id))` — the exact same virtuals the native
+`WM_COMMAND`/`WM_INITMENUPOPUP` handlers called, so no application logic was duplicated or rewritten,
+just re-entered from a new call site. This was safe to do unconditionally because — confirmed by
+grepping the whole `imgui/` tree — **there is no `GetMessage`/`DispatchMessage` pump anywhere in
+`guit3`** (see §2), so `WM_COMMAND` never fired for the hidden top-level HWND and the native menu was
+already 100% inert at runtime; `render_menu_bar()` is the *first* time these command IDs actually
+become reachable from the UI in the ImGui build.
+
+**Dynamic bits**, rebuilt from source data every frame instead of mutating a cached `HMENU`:
+- **Recent games** (File menu): re-derives the same list `CHtmlSys_mainwin::set_recent_game_menu()`
+  ([htmlgui.cpp:11594](htmlgui.cpp#L11594), still present but now effectively dead code, same
+  reasoning as the `LoadMenu` call above) builds, reading `prefs_->get_recent_game_order()`/
+  `get_recent_game()` directly; clicking an entry calls `do_command(0, ID_FILE_RECENT_1 + i, 0)`.
+- **Themes submenu**: re-derives the profile list `CHtmlSys_mainwin::load_menu_with_profiles()`
+  ([htmlgui.cpp:10893](htmlgui.cpp#L10893)) builds, by enumerating the same registry key
+  (`CTadsRegistry::open_key`/`RegEnumKeyEx` on `<prefs>\Profiles`) directly; clicking a profile calls
+  `prefs_->save()` + `set_game_specific_profile(name)` inline (bypassing the dead `profile_menu_`/
+  `GetMenuItemInfo` round-trip `do_command()`'s native-menu code path used, since there's no `HMENU`
+  backing the ImGui items to read the name back from).
+- **Game Chest** (Go menu) is gated on the runtime check `CHtmlSys_mainwin::is_game_chest_present()`
+  rather than the `.rc`'s compile-time `#ifdef HTMLTADS_GAME_CHEST`, matching how `htmlpref.cpp`
+  already gates the same feature elsewhere.
+
+**Gotcha — don't hand-reserve space for `ImGui::BeginMainMenuBar()`/`BeginViewportSideBar()`.** The
+first implementation added a `menu_bar_height_` member and manually added it into
+`CHtmlSys_mainwin::recalc_banner_layout()`'s `y_offset` (mirroring how the toolbar's height used to be
+added there, back when the toolbar was still a native `HWND`). This produced a large empty gap under
+the menu bar when tested. Root cause: `ImGui::BeginMainMenuBar()` internally calls
+`BeginViewportSideBar()`, which adds the bar's height into `viewport->BuildWorkInsetMin.y`
+([imgui_widgets.cpp:9109](imgui/imgui_widgets.cpp#L9109)) — this **automatically** shrinks
+`GetMainViewport()->WorkPos`/`WorkSize` (on the next frame; `do_render()` already re-reads them every
+frame, so in steady state this is transparent). `do_render()` feeds that already-shrunk work area
+straight into `m_size` (via `do_resize()`) and into the outer content window's on-screen position (via
+`SetNextWindowPos(viewport->WorkPos)`), so the menu bar's space is reserved automatically, once, at the
+outer-window level — adding it again in `recalc_banner_layout()` double-reserves it. The fix was to
+remove the manual addition entirely and leave a comment explaining why
+([htmlgui.cpp:12469](htmlgui.cpp#L12469)-ish, drifts). Once this was understood, `render_toolbar()`
+(also §3.1, done in a later session) deliberately called `ImGui::BeginViewportSideBar()` directly for
+the same reason, stacking on top of the menu bar's reservation with zero manual layout code needed for
+it either. The status bar (§3.2) is the one exception, and remains one on purpose: it draws via
+`GetForegroundDrawList()` rather than any `Begin()`-family call, so it never participates in the
+viewport work-inset system and still needs its manual height subtracted in `recalc_banner_layout()`.
+**The rule going forward: anything built from `BeginViewportSideBar()`-based ImGui APIs
+(`BeginMainMenuBar()`, `BeginViewportSideBar()` directly, and if ever used,
+`DockSpaceOverViewport()`'s side panels) already reserves its own space; anything drawn via the
+foreground draw list or a native `HWND` still needs manual reservation.**
+
+**Gotcha — this ImGui build does not parse `&` mnemonics.** `win32/htmlcmn.rc` uses Windows'
+`&Letter` convention throughout (`&File`, `&Open New Game...`, etc.); grepping `imgui/imgui/*.cpp` for
+"Mnemonic" turns up nothing, so an unstripped `&` renders as a literal ampersand in the menu (visually
+confirmed: `&Add/Delete Themes...` showed up with the `&` on screen). Static hardcoded labels in
+`render_menu_bar()` were written without `&` in the first place; the three dynamic Themes-menu labels
+that come from `LoadString()` resource strings (`IDS_MANAGE_PROFILES`, `IDS_SET_DEF_PROFILE`,
+`IDS_CUSTOMIZE_THEME`, which still have `&` baked in since the resource strings are shared with the
+native build) go through a small `strip_mnemonic()` lambda inside `render_menu_bar()` first
+(`&&` → `&`, lone `&` dropped). Watch for this again if any future ImGui text pulls from a
+`LoadString()`/`.rc` string table.
+
+**Keyboard shortcuts are display-only for now.** `ImGui::MenuItem()`'s shortcut-text parameter
+(`"Ctrl+O"` etc., hardcoded to match the `.rc`) is cosmetic — it doesn't bind an actual key handler.
+The native accelerator-table dispatch (`CTadsAccelerator`, `tadsapp.cpp`) is equally dead code today
+(only reachable from the same unreached `CTadsApp::process_message()` pump), so wiring up real
+keyboard shortcuts is a related but separate follow-up: it needs a new dispatcher hooked into
+`event_loop()`'s existing `ImGui::IsKeyPressed()`-based input handling that calls `do_command()`
+directly, independent of this menu-bar rendering change.
+
+**Not ported in this pass, left for later**: `iconmenu.cpp`'s owner-drawn menu icons (also dead code
+today for the same "no `WM_MEASUREITEM`/`WM_DRAWITEM`" reason — the toolbar's GL-texture icon loading,
+below, is the pattern to follow if menu icons are wanted later, rather than reviving this Win32
+owner-draw path); the debug-log window's separate `IDR_DEBUGWIN_MENU`
+([htmlgui.cpp:16092](htmlgui.cpp#L16092)); and the right-click context/edit popup menus
+(`load_context_popup()`, [htmlgui.cpp:748](htmlgui.cpp#L748)), which are a different, smaller
+`ImGui::BeginPopupContextItem()`-shaped problem, not a main-menu-bar one.
+
+**Toolbar**: `CHtmlSys_mainwin::render_toolbar()` (`htmlgui.cpp`, defined right after
+`load_toolbar_texture()`, called from `do_render()` right after `render_menu_bar()`) replaces the
+native `CreateToolbarEx()` control built (but, same as the pre-port menu, never actually shown - see
+`create_toolbar()`, `htmlgui.cpp:11238`) with an ImGui icon-button row. It's data-driven from the same
+15-button/5-separator list `create_toolbar()` built by hand into a `TBBUTTON[]` array, and dispatches
+through `check_command()`/`do_command()` exactly like the menu bar - so, again, no application logic
+was duplicated, just re-entered from a new call site.
+
+- **Icons**: the toolbar's icon strip is a real asset, `win32/runtbar.bmp` (compiled in as the
+  `IDB_TERP_TOOLBAR` bitmap resource, 304x15px, 4bpp indexed, nineteen 16x15 icon frames), loaded once
+  by `load_toolbar_texture()` into a single GL texture atlas: `LoadImage(..., LR_CREATEDIBSECTION)` +
+  `GetDIBits()` to expand the indexed bitmap to 32bpp, then a manual BGRA→RGBA conversion that also
+  turns the bitmap's top-left-pixel color-key (the same transparency convention the native `ImageList`
+  used via `ImageList_AddMasked()` in `iconmenu.cpp`) into a real alpha channel, since GL textures have
+  no color-key-mask equivalent. `glTexImage2D` uploads it once; each button then samples a `1/19`-wide
+  UV slice of the atlas via `ImGui::ImageButton()`. This is the **first GL-texture-loading code in the
+  port that isn't part of the JPEG/PNG banner-image pipeline** (`tadsjpeg.cpp`'s
+  `glGenTextures`/`glTexImage2D` call was the only precedent, and it assumes a decoded photo, not an
+  indexed bitmap resource with color-key transparency) - worth reusing/generalizing if another Win32
+  bitmap resource ever needs the same treatment (e.g. reviving menu icons, per above).
+- **Filtering**: `GL_NEAREST`, not `GL_LINEAR` - the icons are packed edge-to-edge in the atlas with no
+  padding, and linear filtering visibly bled each icon's edge pixels into its neighbor's when tried
+  first. Worth remembering for any future small, densely-packed icon atlas in this codebase.
+- **Layout**: like the menu bar, the toolbar calls `ImGui::BeginViewportSideBar()` directly (the same
+  internal function `BeginMainMenuBar()` calls) rather than a plain `ImGui::Begin()`, so it stacks its
+  own space reservation on top of the menu bar's in the same automatic viewport work-area system - no
+  manual `y_offset` bookkeeping needed. This *replaced* manual bookkeeping that used to be live and
+  correct: `recalc_banner_layout()`'s old `IsWindowVisible(toolbar_)`/`GetWindowRect(toolbar_, ...)`
+  block read the native (never-painted, but still real and correctly laid out) toolbar `HWND`'s
+  geometry - removed now that an ImGui toolbar exists to reserve the space itself.
+- **The `ID_THEMES_DROPDOWN` split button** (a themes/profile picker, distinct from the ordinary
+  buttons) doesn't call `do_command()` on click at all, matching the native `TBN_DROPDOWN` handler
+  (`htmlgui.cpp:12437`-ish, drifts) it replaces: it opens an `ImGui::BeginPopup()` showing the profile
+  list. That content is shared with the menu bar's Themes submenu via a new
+  `CHtmlSys_mainwin::render_themes_menu_items()` helper (extracted out of `render_menu_bar()`, which
+  now just wraps it in `BeginMenu("Themes")`/`EndMenu()`) - the native code showed literally identical
+  content in both places, since both were built from the same `load_menu_with_profiles()` call.
+- **Tooltips**: `ImGui::SetItemTooltip()` per button, text hardcoded from the `IDS_*` string-table
+  values the native `TTN_NEEDTEXT` handler (`htmlgui.cpp:12337`-ish, drifts) used to look up (also dead
+  code today, same no-message-pump reason as everything else `WM_*`-based) - shown regardless of the
+  button's enabled state, matching that handler, which never checked enabled state either.
+- **Not carried over**: `IsWindowVisible(toolbar_)` is gone from the toolbar's own visibility check too
+  - `render_toolbar()` reads `prefs_->get_toolbar_vis()` directly instead, which is what actually
+  mattered (see the menu bar's already-existing `View > Show Toolbar` checkbox, and
+  `do_command()`'s `ID_VIEW_TOOLBAR` case, both unchanged and still the source of truth for this flag).
+  The native `toolbar_` `HWND` and `create_toolbar()` were left in place, same reasoning as the
+  never-removed native menu.
 
 ### 3.2 Status bar — done
 `CTadsStatusline` ([tadsstat.h](tadsstat.h)/[tadsstat.cpp](tadsstat.cpp)) no longer owns a native
@@ -332,8 +453,9 @@ Windows-locked.
    the GLFW window as the one true visible window, and stop GLFW from showing itself before
    `setVisible(true)` is called). The real fix (eliminating the Win32 frame entirely) still depends on
    §3.4.
-2. **Menu bar** (§3.1) and **status bar** (§3.2 — status bar done) — both are self-contained, don't
-   block on the dialog framework, and remove two of the four still-native chrome pieces.
+2. **Menu bar, toolbar** (§3.1) **and status bar** (§3.2) — **all done**. All were self-contained,
+   didn't block on the dialog framework, and remove three of the four still-native chrome pieces
+   (dialogs remain).
 3. **Child windows** (§3.4): scrollbars/banners/size-grip — needed so the top-level HWND can actually
    be deleted, not just hidden. Skip MDI-frame/MDI-client child-window paths entirely (§4) — the client
    doesn't need them.
@@ -358,6 +480,69 @@ Windows-locked.
 
 Practical things learned while doing steps 1-2 of the roadmap above that weren't obvious going in and
 aren't specific to any one subsystem, so they're collected here instead of buried in §2/§3.2.
+
+**Bug fixed — child windows ignored their parent's screen position (rendering *and* mouse input).**
+`CTadsWin::do_render_content_begin()` ([tadswin.cpp:1720](tadswin.cpp#L1720)) is the base method every
+`CTadsWin` uses to open its ImGui window/child each frame. For a child window (`parent_ != 0`, e.g.
+`main_panel_`), it used to call `ImGui::SetNextWindowPos(m_pos)` directly. `m_pos` is computed by
+`calc_banner_layout()` ([htmlgui.cpp:4144](htmlgui.cpp#L4144)) as a position **relative to the parent**
+- the same convention the native code used, since `MoveWindow()` for a real child `HWND` always takes
+parent-relative coordinates. But `ImGui::SetNextWindowPos()` always takes an **absolute screen
+position**, with no parent-relative mode - so every child window was actually rendering pinned near the
+screen's absolute top-left corner, `m_pos` pixels down from `(0,0)`, regardless of where its parent
+actually was on screen.
+
+This was **invisible for the entire port up to this point**, because the outermost window
+(`CHtmlSys_mainwin`) always sat at screen `(0,0)` - there was no menu bar or toolbar pushing it down
+yet, so "absolute `(1,1)`" and "1px relative to a parent at `(0,0)`" were the same point by coincidence.
+It only became visible once the menu bar (§3.1) and especially the toolbar (§3.1) started pushing the
+outer window down the screen via the automatic viewport work-inset system (see the gotcha above): the
+main content panel (`main_panel_`) kept rendering at absolute `(1,1)` - just under the OS title bar -
+while the *space reserved for it* correctly started below the toolbar, leaving a growing black gap
+between the (too-short, pinned-too-high) visible content and the status bar, sized almost exactly to
+the menu+toolbar height. Symptom as reported: "content sits too high, almost touching the toolbar,
+with a black gap above the status bar." **Diagnosing this took logging actual vs. requested
+positions/sizes at three layers** (`recalc_banner_layout()`'s `rc`, `main_panel_`'s resulting
+`m_pos`/`m_size`, and `ImGui::GetWindowPos()`/`GetWindowSize()` right after `BeginChild()`) - the
+computed layout numbers were *correct* at every step, which is what pointed at a coordinate-space bug
+in how the position was actually applied, rather than an arithmetic error in the layout math itself.
+
+**Fix**: in the `parent_` branch, capture `ImGui::GetWindowPos()` *before* calling `SetNextWindowPos()`
+- at that point in the call stack the parent's own `Begin()`/`BeginChild()` is still open (`do_render()`
+calls `do_render_content_begin()` on each child from inside the parent's own content block, closing it
+only after all children have rendered), so `GetWindowPos()` correctly returns the parent's absolute
+screen position - then add `m_pos` to it before passing to `SetNextWindowPos()`. The top-level
+(non-child) branch is untouched; a top-level window's own `m_pos` is already meant to be absolute.
+**This generalizes to any nesting depth** (a banner nested inside `main_panel_` gets `main_panel_`'s
+absolute position added at its own level, recursively) and is worth remembering for any future chrome
+that pushes the outer window further from `(0,0)` (e.g. a future persistent side panel) - child
+positioning was always relative-by-convention, it just happened to work by coincidence until now.
+
+**Same bug, second half: mouse input was still shifted after the rendering fix above.** Reported
+separately ("clicks, text selection" landing in the wrong place) after the rendering fix shipped,
+because rendering and hit-testing had **two independent** copies of the same "treat `m_pos` as
+absolute" mistake, and only the rendering one had been found and fixed so far.
+`CHtmlSysWin_win32::do_leftbtn_down()`/`do_mousemove()`/`do_setcursor()` (`htmlgui.cpp`) each convert
+the incoming mouse position - which arrives as an **absolute** screen coordinate, since `event_loop()`
+passes `io.MousePos` straight through (`htmlgui.cpp:15020`-ish, drifts) - to window-local coordinates
+via `x -= m_pos.x; y -= m_pos.y`. Same bug as the rendering one: `m_pos` is parent-relative, not
+absolute, so this only ever gave the right answer when the window's absolute and parent-relative
+positions coincided (parent at `(0,0)`) - true before the menu bar/toolbar existed, false after.
+Rendering and hit-testing had silently drifted apart: content rendered in the corrected (absolute)
+position, but clicks were still being tested against the old (parent-relative-only) position, offset by
+the same menu+toolbar height.
+
+**Fix**: added `CTadsWin::get_screen_pos()` ([tadswin.h](tadswin.h), next to `get_parent()`) - walks the
+`parent_` chain summing each ancestor's `m_pos` to compute an absolute position, the general-purpose
+version of the single-level `parent_pos + m_pos` calculation `do_render_content_begin()` already did
+inline. The three mouse handlers above now subtract `get_screen_pos()` instead of `m_pos`. For this to
+agree with rendering, the top-level window's own `m_pos` also has to track its true screen position
+every frame, not just at creation - added `m_pos = viewport->WorkPos;` to
+`CHtmlSys_mainwin::do_render()` (`htmlgui.cpp`), right next to where `m_size` is already kept in sync
+via `do_resize()`. **Lesson for next time a window-position bug shows up in this codebase: check for
+*both* a rendering-side and an input-side copy of the same coordinate math** - this port's raw,
+Win32-message-shaped input handlers (`do_leftbtn_down` etc.) were written independently of the ImGui
+rendering code they now have to agree with, so a fix to one doesn't automatically fix the other.
 
 **Repo layout**: `guit3`'s source (this `imgui/` folder) lives in a *separate* git repository, checked
 out at `C:\Projects\htmltads`, independent of the `tads-runner` repo (`C:\Projects\tads-runner`) that
@@ -424,9 +609,14 @@ window tree (many windows, inconsistent Push/Pop discipline across files that we
 from Win32 code) ends up drawing over it most frames. Switching to `ImGui::GetForegroundDrawList()` and
 drawing the background/text/borders directly with `AddRectFilled`/`AddLine`/`AddText` (no `Begin()`/`End()`
 at all) fixed it immediately and is now the pattern used for the status bar (`CTadsStatusline::render()`
-in [tadsstat.cpp](tadsstat.cpp)). **Reach for this pattern first for any other always-on-top fixed chrome
-(the menu bar in §3.1 next, later dialogs) if a normal window's styling doesn't visibly apply** — don't
-spend time re-diagnosing the same symptom from scratch.
+in [tadsstat.cpp](tadsstat.cpp)). **Reach for this pattern first for any other always-on-top fixed
+chrome (later dialogs) if a normal window's styling doesn't visibly apply** — don't spend time
+re-diagnosing the same symptom from scratch. **Turned out not to be needed for the menu bar** (§3.1,
+done): `ImGui::BeginMainMenuBar()` renders its background correctly out of the box, unlike the ordinary
+`Begin()`-window-with-`PushStyleColor` approach that failed for the status bar — it's a different
+enough code path (`BeginViewportSideBar()`, not a plain `Begin()`) that it apparently doesn't hit
+whatever stray Push/Pop imbalance causes the other symptom. Worth trying the plain ImGui API first for
+anything new before assuming you need the foreground-draw-list workaround.
 
 **Line-number references throughout this document will drift.** `htmlgui.cpp` in particular is ~18,000
 lines and every edit shifts everything below it — several line numbers cited in §3.2 were already off by

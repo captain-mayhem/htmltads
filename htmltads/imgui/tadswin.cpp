@@ -1721,12 +1721,30 @@ void CTadsWin::do_render_content_begin()
 {
     float border_thickness = 0;
     //ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, border_thickness);
-    ImGui::SetNextWindowPos(m_pos);
-    ImGui::SetNextWindowSize(m_size);
     if (parent_) {
+        /*
+         *   m_pos is computed by calc_banner_layout() as a position relative
+         *   to our parent (mirroring the parent-relative coordinates
+         *   MoveWindow() used for the native child HWND this window used to
+         *   be), but ImGui::SetNextWindowPos() always takes an absolute
+         *   screen position.  Convert by adding the parent's absolute screen
+         *   position - available via GetWindowPos() here because the parent's
+         *   Begin()/BeginChild() is still open around this call (do_render()
+         *   calls do_render_content_begin() on each child from inside the
+         *   parent's own content block).  Without this, every child window
+         *   renders pinned near the screen's absolute top-left instead of
+         *   following its parent - invisible while the parent always sat at
+         *   screen (0,0), but visible as soon as chrome above the parent
+         *   (menu bar, toolbar) pushes it down the screen.
+         */
+        ImVec2 parent_pos = ImGui::GetWindowPos();
+        ImGui::SetNextWindowPos(ImVec2(parent_pos.x + m_pos.x, parent_pos.y + m_pos.y));
+        ImGui::SetNextWindowSize(m_size);
         ImGui::BeginChild(m_title.c_str(), ImVec2(0, 0), ImGuiChildFlags_AutoResizeX | ImGuiChildFlags_AutoResizeY, ImGuiWindowFlags_NoInputs);
     }
     else {
+        ImGui::SetNextWindowPos(m_pos);
+        ImGui::SetNextWindowSize(m_size);
         ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0.0f, 0.0f));
         ImGui::Begin(m_title.c_str(), nullptr, ImGuiWindowFlags_NoInputs);
         //ImGui::SetCursorPos(ImVec2());

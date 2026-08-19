@@ -2506,6 +2506,41 @@ public:
     /* recalculate the banner layout */
     void recalc_banner_layout();
 
+    /*
+     *   Render the main menu bar as an ImGui main menu bar.  This is the
+     *   ImGui-native replacement for the native HMENU loaded (but never
+     *   shown - see migration.md) in do_create(); it's data-driven from the
+     *   same command IDs as the old win32/htmlcmn.rc IDR_MAIN_MENU resource,
+     *   and dispatches through the same do_command()/check_command()
+     *   virtuals the native WM_COMMAND/WM_INITMENUPOPUP handlers used.
+     */
+    void render_menu_bar();
+
+    /*
+     *   Render the Themes submenu's contents (the profile list plus the
+     *   management items below it) - shared by render_menu_bar()'s Themes
+     *   menu and render_toolbar()'s ID_THEMES_DROPDOWN popup, since both
+     *   show exactly the same content the native code built from
+     *   load_menu_with_profiles() (the menu case) and the TBN_DROPDOWN
+     *   handler's CreatePopupMenu()+load_menu_with_profiles() (the toolbar
+     *   case).  Assumes the caller has already opened a menu/popup.
+     */
+    void render_themes_menu_items();
+
+    /*
+     *   Render the toolbar as an ImGui-native icon button row, replacing the
+     *   native CreateToolbarEx() control built (but never shown - same
+     *   dead-native-chrome reasoning as the menu bar, see migration.md) in
+     *   create_toolbar().  Data-driven from the same button/command list.
+     */
+    void render_toolbar();
+
+    /*
+     *   Lazily load the toolbar's icon strip (IDB_TERP_TOOLBAR) into a GL
+     *   texture atlas the first time render_toolbar() needs it.
+     */
+    void load_toolbar_texture();
+
     /* process creation event */
     void do_create();
 
@@ -3152,6 +3187,13 @@ private:
 
     /* our toolbar control handle */
     HWND toolbar_;
+
+    /*
+     *   GL texture atlas for the ImGui toolbar's icons (loaded lazily from
+     *   IDB_TERP_TOOLBAR by load_toolbar_texture()), and its pixel size
+     */
+    GLuint toolbar_tex_;
+    int toolbar_tex_w_, toolbar_tex_h_;
 
     /* idle timer ID */
     int idle_timer_id_;

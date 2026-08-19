@@ -546,7 +546,28 @@ public:
     /* get my parent window */
     CTadsWin *get_parent() const { return parent_; }
 
-    /* 
+    /*
+     *   Get my absolute screen position.  m_pos is relative to my immediate
+     *   parent (the position calc_banner_layout() computes, and the position
+     *   do_render_content_begin() renders me at, both parent-relative), so
+     *   this walks up the parent_ chain summing each ancestor's m_pos to get
+     *   an absolute position - the same convention ImGui::GetWindowPos()
+     *   returns.  Needed anywhere absolute (e.g. ImGui mouse cursor) screen
+     *   coordinates must be converted to this window's local space, such as
+     *   do_leftbtn_down()/do_mousemove()/do_setcursor().
+     */
+    ImVec2 get_screen_pos() const
+    {
+        ImVec2 pos = m_pos;
+        for (CTadsWin *p = parent_ ; p != 0 ; p = p->parent_)
+        {
+            pos.x += p->m_pos.x;
+            pos.y += p->m_pos.y;
+        }
+        return pos;
+    }
+
+    /*
      *   set my parent window - this only sets our internal parent, not
      *   the Windows parent handle; a caller that reparents this window
      *   must take care of reparenting the Windows handle separately 
