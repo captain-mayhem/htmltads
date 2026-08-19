@@ -150,3 +150,11 @@ target_link_libraries(guit3 PRIVATE
 if (WIN32)
 	target_link_libraries(guit3 PRIVATE Opengl32.lib)
 endif()
+
+# copy the charmap library next to the built exe, same as t3run's CMakeLists.txt does -
+# without this, guit3 can't find a mapping file for the local character set and shows
+# a startup warning about it on every run.
+add_custom_command(
+		TARGET guit3 POST_BUILD
+		COMMAND ${CMAKE_COMMAND} -E make_directory $<TARGET_FILE_DIR:guit3>/charmap
+		COMMAND ${CMAKE_COMMAND} -E copy_if_different ${CMAKE_SOURCE_DIR}/tads3/charmap/cmaplib.t3r $<TARGET_FILE_DIR:guit3>/charmap/)

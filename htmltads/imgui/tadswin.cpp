@@ -105,7 +105,113 @@ void ht_GetTextExtentPoint32(HDC dc, const textchar_t *txt, size_t len,
 
 /* ------------------------------------------------------------------------ */
 /*
- *   Button click record 
+ *   ImGui-native replacement for MessageBox().  See tadswin.h for details.
+ */
+int tadswin_message_box(GLFWwindow *window, const textchar_t *msg,
+                        const textchar_t *caption, UINT type)
+{
+    /* with no GLFW window yet, there's nothing to render into */
+    if (window == 0)
+        return MessageBox(0, msg, caption, type);
+
+    /* work out the button set and what each button reports back */
+    struct { const char *label; int result; } btns[2];
+    int nbtns;
+    switch (type & 0x0000000F /* MB_TYPEMASK */)
+    {
+    case MB_OKCANCEL:
+        btns[0].label = "OK";     btns[0].result = IDOK;
+        btns[1].label = "Cancel"; btns[1].result = IDCANCEL;
+        nbtns = 2;
+        break;
+
+    case MB_YESNO:
+        btns[0].label = "Yes"; btns[0].result = IDYES;
+        btns[1].label = "No";  btns[1].result = IDNO;
+        nbtns = 2;
+        break;
+
+    case MB_OK:
+    default:
+        btns[0].label = "OK"; btns[0].result = IDOK;
+        nbtns = 1;
+        break;
+    }
+
+    int result = 0;
+    bool popup_opened = false;
+    while (result == 0 && !glfwWindowShouldClose(window))
+    {
+        glfwPollEvents();
+
+        ImGui_ImplOpenGL3_NewFrame();
+        ImGui_ImplGlfw_NewFrame();
+        ImGui::NewFrame();
+
+        /* open the popup on the first frame only; BeginPopupModal keeps it up */
+        if (!popup_opened)
+        {
+            ImGui::OpenPopup(caption);
+            popup_opened = true;
+        }
+
+        ImGuiViewport *vp = ImGui::GetMainViewport();
+        ImGui::SetNextWindowPos(
+            ImVec2(vp->Pos.x + vp->Size.x * 0.5f, vp->Pos.y + vp->Size.y * 0.5f),
+            ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
+        ImGui::SetNextWindowSize(ImVec2(420, 0), ImGuiCond_Appearing);
+
+        if (ImGui::BeginPopupModal(caption, 0,
+            ImGuiWindowFlags_NoResize | ImGuiWindowFlags_AlwaysAutoResize))
+        {
+            ImGui::PushTextWrapPos(400);
+            ImGui::TextUnformatted(msg);
+            ImGui::PopTextWrapPos();
+
+            ImGui::Spacing();
+            ImGui::Separator();
+            ImGui::Spacing();
+
+            const float btn_w = 90.0f;
+            float total_w = btn_w * nbtns
+                            + ImGui::GetStyle().ItemSpacing.x * (nbtns - 1);
+            ImGui::SetCursorPosX(
+                ImGui::GetCursorPosX()
+                + (ImGui::GetContentRegionAvail().x - total_w) * 0.5f);
+
+            for (int i = 0; i < nbtns; ++i)
+            {
+                if (i > 0)
+                    ImGui::SameLine();
+                if (ImGui::Button(btns[i].label, ImVec2(btn_w, 0))
+                    || (i == 0 && ImGui::IsKeyPressed(ImGuiKey_Enter)))
+                {
+                    result = btns[i].result;
+                    ImGui::CloseCurrentPopup();
+                }
+            }
+
+            ImGui::EndPopup();
+        }
+
+        ImGui::Render();
+        int display_w, display_h;
+        glfwGetFramebufferSize(window, &display_w, &display_h);
+        glViewport(0, 0, display_w, display_h);
+        glClearColor(0.45f, 0.55f, 0.60f, 1.00f);
+        glClear(GL_COLOR_BUFFER_BIT);
+        ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
+
+        glfwSwapBuffers(window);
+    }
+
+    /* if the user closed the window itself, treat it like Cancel/No */
+    return result != 0 ? result : IDCANCEL;
+}
+
+/* ------------------------------------------------------------------------ */
+/*
+ *   Button click record
  */
 
 /*

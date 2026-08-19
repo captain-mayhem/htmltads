@@ -196,8 +196,10 @@ void w32_msgbox(const char *msg, const char *url)
                 msg);
 
         /* show the check-for-updates box */
-        int btn = MessageBox(0, buf, "TADS",
-                             MB_YESNO | MB_ICONEXCLAMATION | MB_TASKMODAL);
+        GLFWwindow *win = CHtmlSys_mainwin::get_main_win() != 0
+            ? CHtmlSys_mainwin::get_main_win()->get_glfw_window() : 0;
+        int btn = tadswin_message_box(win, buf, "TADS",
+                                      MB_YESNO | MB_ICONEXCLAMATION);
 
         /* if they selected Yes, go to the update URL */
         if (btn == IDYES)
@@ -209,6 +211,8 @@ void w32_msgbox(const char *msg, const char *url)
     else
     {
         /* use the standard box (just the message and an "OK" button) */
-        MessageBox(0, msg, "TADS", MB_OK | MB_ICONEXCLAMATION | MB_TASKMODAL);
+        GLFWwindow *win = CHtmlSys_mainwin::get_main_win() != 0
+            ? CHtmlSys_mainwin::get_main_win()->get_glfw_window() : 0;
+        tadswin_message_box(win, msg, "TADS", MB_OK | MB_ICONEXCLAMATION);
     }
 }

@@ -55,6 +55,21 @@ void ht_GetTextExtentPoint32(HDC dc, const textchar_t *txt, size_t len,
 
 /* ------------------------------------------------------------------------ */
 /*
+ *   ImGui-native replacement for the Win32 MessageBox() API.  Runs its own
+ *   local GLFW/ImGui frame loop on the given window (blocking the caller,
+ *   just like a real MessageBox() call) until the user dismisses it, and
+ *   returns the same IDOK/IDCANCEL/IDYES/IDNO result codes.  'type' accepts
+ *   the same MB_OK/MB_OKCANCEL/MB_YESNO button-set flags MessageBox() does
+ *   (icon flags are accepted but ignored, since we draw a plain modal).  If
+ *   'window' is null (no GLFW window exists yet), falls back to a real
+ *   MessageBox() so early startup errors still get shown.
+ */
+int tadswin_message_box(GLFWwindow *window, const textchar_t *msg,
+                        const textchar_t *caption, UINT type);
+
+
+/* ------------------------------------------------------------------------ */
+/*
  *   Command status codes
  *   
  *   TADSCMD_DO_NOT_CHANGE indicates that the status of a menu item or
@@ -635,6 +650,9 @@ public:
 
     /* get the window handle */
     HWND get_handle() { return handle_; }
+
+    /* get the top-level GLFW window, if this window owns one */
+    GLFWwindow *get_glfw_window() { return m_window; }
 
     /* determine if I'm maximized */
     int is_win_maximized() const;

@@ -95,17 +95,52 @@ actually the more visible half of the original "two windows" symptom. Verified b
 `guit3.exe` and enumerating its windows: the `TADS_Window`-class HWND is now `Visible=False` and only
 the `GLFW30`-class window is visible.
 
-Two related, smaller gaps noticed while testing (not fixed here, left for later):
+One related, smaller gap noticed while testing (not fixed here, left for later):
 - `CHtmlSys_mainwin::show_normal()`/`bring_owner_to_front()` ([htmlgui.cpp:14136](htmlgui.cpp#L14136))
   still call `ShowWindow`/`BringWindowToTop`/`IsIconic` directly on `handle_`, which is now permanently
   hidden — minimize/restore/bring-to-front driven through those paths won't affect the real (GLFW)
   window until they're switched to the `glfw*` equivalents too.
-- A native `MessageBox(..., "TADS", ...)` was observed popping up as a real, separate Win32 dialog
-  (`#32770` window class) during a test run. This is unrelated to the GLFW/HWND duplication (it's a
-  genuine modal dialog, not a duplicate main window) and pre-dates this change — likely one of the
-  `comctl32` version check, missing-resource, or preferences warnings scattered across
-  `htmlgui.cpp`/`htmlpref.cpp`/`w32main.cpp`/`w32tr.cpp`. Worth tracking down separately if it shows up
-  unexpectedly in normal use.
+
+**Startup `MessageBox` — fixed.** A native `MessageBox(..., "TADS", ...)` was observed popping up as a
+real, separate Win32 dialog (`#32770` window class) on every startup. Traced it to
+`MyClientIfc::display_error()` in [t3main.cpp:68](t3main.cpp#L68) — the VM's error-display callback,
+which the T3 engine invokes synchronously (not from within `event_loop()`) whenever it wants to show the
+player a message, most commonly the "no mapping file is available for the local character set" warning
+raised at startup by `tads3/vmerrmsg.cpp` when no charmap file is found for the OS codepage. It routes
+through `w32_msgbox()` in [w32tr.cpp:181](w32tr.cpp#L181), which called `MessageBox()` directly.
+
+Replaced with `tadswin_message_box()`, a new function in
+[tadswin.cpp](tadswin.cpp)/[tadswin.h](tadswin.h) that mimics `MessageBox()`'s signature and blocking
+call contract (same `MB_OK`/`MB_OKCANCEL`/`MB_YESNO` input, same `IDOK`/`IDCANCEL`/`IDYES`/`IDNO` return
+values) but renders an ImGui `BeginPopupModal` instead: it runs its own local
+`glfwPollEvents`/`ImGui::NewFrame`/`ImGui::Render`/`glfwSwapBuffers` loop on the caller's `GLFWwindow*`,
+blocking until a button is clicked, exactly mirroring how the native call blocked. `w32_msgbox()` now
+looks up `CHtmlSys_mainwin::get_main_win()->get_glfw_window()` (a new public getter for `CTadsWin`'s
+`m_window`, previously protected with no accessor) and passes it in; if there's no window yet (an error
+before the main window exists), it falls back to a real `MessageBox()` so early failures still surface.
+Verified by launching `guit3.exe`: the `#32770` dialog is gone, the warning now renders as a centered
+dark ImGui popup titled "TADS" with the same message text and an OK button, and clicking OK dismisses it
+and lets the game proceed normally (confirmed via screenshot before/after a simulated click).
+
+**The warning itself is now also fixed at the source, so it no longer fires at all.** Its real trigger
+(see the corrected note under "Running/verifying it visually" below) was that `guit3`'s
+[CMakeLists.txt](CMakeLists.txt) never copied a `charmap` folder next to the built `guit3.exe`, unlike
+`t3run`'s. Added the same `POST_BUILD` custom command `t3run` uses
+([tads3/CMakeLists.txt:778](../../../tads-runner/tads3/CMakeLists.txt#L778)) to `guit3`'s
+CMakeLists.txt, copying `tads3/charmap/cmaplib.t3r` into `$<TARGET_FILE_DIR:guit3>/charmap/` after every
+build. Verified by rebuilding and launching from `tests\` (which always triggered the warning before):
+the game now goes straight to its title screen with no popup at all.
+
+**Scope note for next time:** this only converts `w32_msgbox()` (the VM's generic message-box hook,
+`w32tr.cpp:181`). The many other `MessageBox()` call sites — `htmlgui.cpp` (quit/save-overwrite
+confirmations, `foldsel2.cpp`, `htmlpref.cpp`, `w32fndlg.cpp` — see the `grep -i MessageBox` results —
+are still native and were deliberately left alone. Most of those fire *from inside* `event_loop()`'s
+per-frame handling (e.g. a menu command handler), where calling `tadswin_message_box()` would nest a
+second `ImGui::NewFrame()`/`ImGui::Render()` inside the one already in progress and hit an ImGui assert;
+porting those needs the caller's frame to finish first (return a "show this modal next frame" flag to
+`event_loop()`) rather than a synchronous nested pump like `w32_msgbox()` uses. That's really the same
+problem as the dialog framework in §3.3 — treat it as part of that effort, not a quick follow-up to this
+fix.
 
 ## 3. Subsystem inventory — what's ported vs. what's still Win32
 
@@ -346,6 +381,22 @@ session, from PowerShell:
 1. `Start-Process` the exe with a test game as an argument, e.g.
    `tads-runner\tests\ditch3.t3`, with working directory set to `tads-runner\tests` (that's also where
    `imgui.ini`/save files land, matching the untracked files already seen there in `git status`).
+   **Note**: earlier sessions saw a "no mapping file is available for the local character set" startup
+   warning here (see the `w32_msgbox`/`tadswin_message_box` entry above) on every run. Its trigger is
+   **not** the process's working directory (an earlier version of this note incorrectly claimed a
+   `charmap` folder in cwd suppressed it — that was a test artifact: it checked for the native `#32770`
+   window class as a proxy for "warning shown," but that check was written *after* `w32_msgbox` had
+   already been converted to the ImGui popup below, so a `#32770` window could never appear again for any
+   reason and the check was silently testing nothing; once a native dialog is replaced with an in-app one,
+   check rendered content/screenshots, not the old window class). The real trigger: the VM's charmap
+   loader (`CResLoader`, constructed in `t3main.cpp:389` with `root_dir_` set to the directory containing
+   `guit3.exe` itself, from `GetModuleFileName`) looks for `charmap/cp1252.tcm` / `charmap/cmaplib.t3r`
+   **next to the .exe on disk**, never relative to cwd. **Fixed**: `guit3`'s [CMakeLists.txt](CMakeLists.txt)
+   now has the same `POST_BUILD` custom command `t3run`'s CMakeLists.txt uses
+   ([tads3/CMakeLists.txt:778](../../../tads-runner/tads3/CMakeLists.txt#L778)) to copy
+   `tads3/charmap/cmaplib.t3r` into `$<TARGET_FILE_DIR:guit3>/charmap/` after every build, so the warning
+   no longer fires at all as of this writing — if it reappears, it means that copy step was removed or the
+   build directory is stale.
 2. Wait ~5 seconds (GLFW/ImGui/font/game load isn't instant) before assuming the window exists — 3
    seconds was sometimes too early and produced false "window not found" results.
 3. Enumerate the process's windows with `EnumWindows`/`GetWindowThreadProcessId`/`GetClassName` to find
