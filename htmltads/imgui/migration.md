@@ -102,6 +102,61 @@ One related, smaller gap noticed while testing (not fixed here, left for later):
   hidden — minimize/restore/bring-to-front driven through those paths won't affect the real (GLFW)
   window until they're switched to the `glfw*` equivalents too.
 
+**`-debugwin` opened an unmovable, unclickable window — fixed.** `guit3 -debugwin` (wired up in
+[w32main.cpp:486-563](w32main.cpp#L486-L563)) creates a `CHtmlSys_dbglogwin`, a second top-level
+`CTadsWin` (`parent == nullptr`) alongside the main window. Correction to an earlier note here: this
+does *not* hit the "real Win32 HWND with no message pump" problem described above — the top-level
+(`parent == nullptr`) branch of `CTadsWin::do_render_content_begin()`
+([tadswin.cpp:1746](tadswin.cpp#L1746)) already renders *any* parentless `CTadsWin` as an ImGui
+`Begin()`/`End()` window drawn inside the one real OS window, and `CHtmlSys_mainwin::event_loop()`
+already calls `dbgwin_->do_render()` right after `main_win_->do_render()`
+([htmlgui.cpp:15131-15135](htmlgui.cpp#L15131-L15135)) — so the debug log genuinely was an ImGui window
+layered on top of the main one, exactly the shape wanted (confirmed by launching `guit3.exe -debugwin
+tests/ditch3.t3` and screenshotting it: an "HTML Debug Log" panel with its own title bar/scrollbar
+appeared correctly positioned over the game window). It just didn't work right, for two independent
+reasons, both now fixed:
+
+1. That same top-level branch passed `ImGuiWindowFlags_NoInputs` and called
+   `ImGui::SetNextWindowPos()`/`SetNextWindowSize()` with no `ImGuiCond` (i.e. `ImGuiCond_Always`) every
+   frame. `NoInputs` disables ImGui's own title-bar-drag/resize/focus/collapse handling for that window,
+   and forcing the position every single frame would have fought a drag back to its fixed spot even
+   without that flag — together these made the window fully inert (verified: simulating a title-bar drag
+   via `SendInput`-style mouse events produced zero movement, pixel-for-pixel identical before/after).
+   That flag combo turns out to be tailored for the *main* window specifically — `CHtmlSys_mainwin` has
+   its own `do_render_content_begin()` override two clicks away
+   ([htmlgui.cpp:11596](htmlgui.cpp#L11596)) that also uses `NoInputs`, deliberately, because the main
+   window relies entirely on `event_loop()`'s hand-rolled `do_leftbtn_down()`/`do_mousemove()` mouse
+   routing rather than ImGui's own widget input, and needs ImGui to never intercept clicks meant for that
+   routing. The base-class top-level branch is the *only* thing a secondary floating window like the
+   debug log goes through, since it doesn't get its own override — so it was inheriting main-window-only
+   behavior it never wanted. Fixed by dropping `NoInputs` there and switching both `SetNextWindowPos()`
+   and `SetNextWindowSize()` to `ImGuiCond_FirstUseEver`, then reading `ImGui::GetWindowPos()`/
+   `GetWindowSize()` back into `m_pos`/`m_size` after `Begin()` so `get_screen_pos()` (used for the
+   window's own mouse-coordinate math) stays correct once the user has dragged it. Left resizing off
+   (`ImGuiWindowFlags_NoResize`) for now since `CTadsWin::do_resize()`'s child cascade is a no-op
+   (commented out) — wiring live resize through to the debug window's HTML panel is a separate, later
+   task.
+2. Even with dragging fixed, the window's *content* still couldn't react to clicks: `event_loop()`'s
+   mouse routing ([htmlgui.cpp:15098-15129](htmlgui.cpp#L15098-L15129)) unconditionally called
+   `do_leftbtn_down()`/`do_leftbtn_up()`/`do_setcursor()` on `this` (the main window) whenever
+   `!io.WantCaptureMouse`, and skipped that whole block otherwise. Once the debug window stopped using
+   `NoInputs`, hovering it correctly makes ImGui set `io.WantCaptureMouse = true` (so it correctly stops
+   routing clicks into the main window's content underneath), but nothing was forwarding those events
+   into the debug window's own tree either — its content was just as inert as before, only for a
+   different reason. Fixed by computing a `mouse_over_dbgwin` rect test against `dbgwin_->m_pos`/
+   `m_size` (accessible directly since `CTadsWin` already declares `CHtmlSys_mainwin` a friend) and
+   routing the uncaptured click/hover calls to `dbgwin_` instead of `this` when the mouse is inside it;
+   the existing `getMouseCapture()`-based routing for in-progress drags (e.g. the debug window's own
+   scrollbar, rendered as a real ImGui widget so it worked already) was untouched since it's already
+   window-agnostic.
+
+Verified end-to-end by launching `guit3.exe -debugwin tests/ditch3.t3`, simulating a title-bar drag
+(window moved and its children/scrollbar/status-bar followed correctly), clicking its collapse triangle
+(collapsed to just the title bar, then re-expanded at the same position on a second click), and typing a
+game command into the main window while the debug window was open (main window input/output unaffected).
+Not yet covered: keyboard-focus routing between the two windows (the debug log is presumably read-only
+so this may not matter) and live resizing (deliberately left off, see above).
+
 **Startup `MessageBox` — fixed.** A native `MessageBox(..., "TADS", ...)` was observed popping up as a
 real, separate Win32 dialog (`#32770` window class) on every startup. Traced it to
 `MyClientIfc::display_error()` in [t3main.cpp:68](t3main.cpp#L68) — the VM's error-display callback,
@@ -694,6 +749,58 @@ before this was caught). Also confirmed no hit-testing regression on link clicks
 fix, rebuilding, and reproducing the *same* click test against the unmodified baseline - it behaved
 identically, proving an initial concern (that link clicks might be broken) was pre-existing/unrelated to
 this change, not something introduced by it.
+
+**Correction from a later session: that "no regression" conclusion was wrong - link clicks (and any
+other click on plain content, anywhere over scrollable text) really were broken by this change, just not
+caught at the time.** The `git stash` comparison above used `SetForegroundWindow()` from an external
+PowerShell process to focus `guit3.exe` before clicking, which §5 below found to be unreliable (Windows'
+foreground-lock-timeout heuristic) - both the "before" and "after" comparison runs silently failed to
+land any click at all, so they looked identical for the wrong reason. Re-tested with the correct method
+(`AppActivate`, see §5) after this was flagged by a user report ("clicking on links like COPYRIGHT does
+not work anymore") and confirmed the click really did nothing, on both the current build and this
+commit's own baseline.
+
+**Root cause**: `CTadsWinScroll::get_content_window_flags()` ([tadswin.h](tadswin.h)) drops
+`ImGuiWindowFlags_NoInputs` from the *entire* content `BeginChild()` for any scrollable window (main
+text panel, history panel, banners, etc.) so the scrollbar thumb below can receive real ImGui mouse
+input. But `NoInputs` includes `NoMouseInputs`, which is what makes ImGui skip a window entirely during
+hover testing (`imgui.cpp`'s hover scan literally does `if (window->Flags & NoMouseInputs) continue;`
+per window) - drop it for the whole content area and ImGui now considers *any* hover inside that area,
+not just over the scrollbar, and sets `io.WantCaptureMouse = true` accordingly. `event_loop()`'s manual
+click routing (`htmlgui.cpp`) gates on `!io.WantCaptureMouse`, so as soon as any window had enough text
+to need a scrollbar, hovering *anywhere* in its content - including directly over a link - silently
+blocked `do_leftbtn_down()` from ever being called there. The scrollbar's own `InvisibleButton` still
+worked fine (real ImGui item, driven independently via `IsItemActive()`), which is exactly why this was
+easy to miss: the thing the commit was explicitly testing (scrollbar drag) kept working throughout.
+
+**Fix**: `get_content_window_flags()` now always returns the base class's `NoInputs` regardless of
+`has_vscroll_`/`has_hscroll_` - the content area itself no longer accepts ImGui input at all, restoring
+the original click-passthrough behavior. `CTadsWinScroll::render_vscrollbar_imgui()` (tadswin.cpp)
+changed in two ways to keep scrolling working without that: (1) mouse-wheel hover detection no longer
+calls `ImGui::IsWindowHovered()` (which would now always read false on a `NoMouseInputs` window) but
+instead does a plain geometric test of `io.MousePos` against the window's own `get_screen_pos()`/`m_size`
+rect, independent of ImGui's capture flags - consistent with how the rest of this codebase's manual
+input routing already works; (2) the track/thumb `InvisibleButton` is now opened in its own tiny nested
+`BeginChild()`, sized and positioned to exactly the scrollbar track rect, with ordinary (non-`NoInputs`)
+flags - ImGui's hover scan tests each window independently of its parent's flags, so this nested child is
+still clickable/draggable even though the content window around it is not, without reopening the whole
+content area to input.
+
+**Verification**: rebuilt and launched `guit3.exe ditch3.t3`, focused via `AppActivate` (not
+`SetForegroundWindow` - see §5), and confirmed: clicking the `COPYRIGHT` link on the title screen now
+prints the copyright text (it silently did nothing before this fix, on both the fixed-up-to-that-point
+build and this commit's own unmodified baseline); mouse-wheel scrolling over the main text panel still
+scrolls the content (tested by generating enough output to overflow the panel, then wheeling to the top
+and confirming the title text scrolled back into view); dragging a text selection over game output still
+works. Also re-verified together with the `-debugwin` fix (§ "`-debugwin` opened an unmovable,
+unclickable window", above): with the debug window open and focused via `AppActivate`, the `COPYRIGHT`
+link in the main window underneath still works. **Not independently re-confirmed**: dragging the
+scrollbar *thumb* itself (as opposed to the wheel) after this change - wheel-scroll and the underlying
+`do_scroll()`/`get_scroll_info()` machinery it shares with thumb-drag were confirmed working, and the
+thumb's `InvisibleButton` sits in its own always-input-accepting nested window per the fix above, but
+several attempts to blindly hit the real 10px-wide track via synthetic screen-coordinate clicks (without
+live visual feedback to correct aim) landed just outside it and hit a text selection instead. If a
+scrollbar-drag regression is ever reported, treat it as untested rather than ruled out by this note.
 
 ## 5. Blinking text-entry caret
 

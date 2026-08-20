@@ -1870,17 +1870,28 @@ public:
     }
     ImGuiWindowFlags get_content_window_flags() const override
     {
-        if (!has_vscroll_ && !has_hscroll_)
-            return CTadsWin::get_content_window_flags();
-
-        /* accept mouse input (wheel, scrollbar drag) but don't let this
-           content area steal keyboard focus/nav from the real input line;
-           we draw our own scrollbar rather than ImGui's native one, since
-           our content is pre-clipped to our visible area before ImGui
-           ever sees it (ImGui's own overflow-based scrollbar would never
-           have anything to show) */
-        return ImGuiWindowFlags_NoNavInputs | ImGuiWindowFlags_NoNavFocus
-            | ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse;
+        /*
+         *   Keep the base class's ImGuiWindowFlags_NoInputs here even
+         *   though we do accept mouse input for scrolling - NoMouseInputs
+         *   (part of NoInputs) makes ImGui skip this whole window during
+         *   hover testing, which is exactly what we want for plain text
+         *   content: link clicks etc. are handled by our own manual
+         *   do_leftbtn_down() routing (event_loop(), htmlgui.cpp), not
+         *   ImGui's widget system, and that routing gates on
+         *   io.WantCaptureMouse, which ImGui sets true for *any* hovered
+         *   non-NoInputs window whether or not a specific widget is under
+         *   the mouse. An earlier version of this override dropped
+         *   NoInputs for the whole content area to let the scrollbar
+         *   thumb be dragged, which silently broke every link/hyperlink
+         *   click anywhere over scrollable content (io.WantCaptureMouse
+         *   went true just from hovering plain text). render_vscrollbar_imgui()
+         *   (tadswin.cpp) now gets its own small, separately-flagged
+         *   window scoped to just the scrollbar track instead, and does
+         *   its own geometric hover test (independent of ImGui's window
+         *   capture) for wheel-scroll, so this content window itself no
+         *   longer needs to accept input at all.
+         */
+        return CTadsWin::get_content_window_flags();
     }
 
     /*

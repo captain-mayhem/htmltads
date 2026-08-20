@@ -1744,11 +1744,26 @@ void CTadsWin::do_render_content_begin()
             get_content_child_flags(), get_content_window_flags());
     }
     else {
-        ImGui::SetNextWindowPos(m_pos);
-        ImGui::SetNextWindowSize(m_size);
+        /*
+         *   A parentless CTadsWin that isn't the main frame (e.g. the debug
+         *   log window) is a genuine floating overlay window, not the
+         *   full-bleed manually-routed canvas CHtmlSys_mainwin's own override
+         *   (do_render_content_begin() in htmlgui.cpp) renders - it should be
+         *   draggable/collapsible like any normal ImGui window.  So, unlike
+         *   that override, we don't pass ImGuiWindowFlags_NoInputs here, and
+         *   we only seed the position/size once (ImGuiCond_FirstUseEver)
+         *   rather than forcing it every frame, so a drag actually sticks.
+         *   Afterwards we read the live position/size back into m_pos/m_size
+         *   so get_screen_pos() (used to translate absolute mouse coordinates
+         *   for our children's hit-testing) stays correct after the window
+         *   has been moved.
+         */
+        ImGui::SetNextWindowPos(m_pos, ImGuiCond_FirstUseEver);
+        ImGui::SetNextWindowSize(m_size, ImGuiCond_FirstUseEver);
         ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0.0f, 0.0f));
-        ImGui::Begin(m_title.c_str(), nullptr, ImGuiWindowFlags_NoInputs);
-        //ImGui::SetCursorPos(ImVec2());
+        ImGui::Begin(m_title.c_str(), nullptr, ImGuiWindowFlags_NoResize);
+        m_pos = ImGui::GetWindowPos();
+        m_size = ImGui::GetWindowSize();
     }
 }
 
@@ -2861,10 +2876,18 @@ void CTadsWinScroll::render_vscrollbar_imgui()
     if (!has_vscroll_ || vscroll_ == 0)
         return;
 
-    /* mouse wheel over our content scrolls us, same as the old WM_MOUSEWHEEL
-       handler would have */
-    bool hovered = ImGui::IsWindowHovered();
     ImGuiIO &io = ImGui::GetIO();
+
+    /*
+     *   Our own content window is flagged NoInputs (get_content_window_flags()),
+     *   so ImGui::IsWindowHovered() would always read false here - do our
+     *   own geometric hover test instead, independent of ImGui's window
+     *   capture flags, so wheel-scroll still works anywhere over our
+     *   content, not just over the scrollbar track below.
+     */
+    ImVec2 win_pos = ImGui::GetWindowPos();
+    bool hovered = io.MousePos.x >= win_pos.x && io.MousePos.x < win_pos.x + m_size.x
+        && io.MousePos.y >= win_pos.y && io.MousePos.y < win_pos.y + m_size.y;
     if (hovered && io.MouseWheel != 0.0f)
         do_mousewheel(0, (int)(io.MouseWheel * WHEEL_DELTA), 0, 0);
 
@@ -2879,7 +2902,6 @@ void CTadsWinScroll::render_vscrollbar_imgui()
 
     RECT rc;
     get_scroll_area(&rc, TRUE);
-    ImVec2 win_pos = ImGui::GetWindowPos();
     const float track_w = 10.0f;
     ImVec2 track_min(win_pos.x + rc.right - track_w, win_pos.y + rc.top);
     ImVec2 track_max(win_pos.x + rc.right, win_pos.y + rc.bottom);
@@ -2894,7 +2916,25 @@ void CTadsWinScroll::render_vscrollbar_imgui()
     float avail = track_h - thumb_h;
     float frac = (float)(info.nPos - info.nMin) / (float)range;
 
+    /*
+     *   The track/thumb itself needs real ImGui mouse handling (drag via
+     *   IsItemActive()) - but our content window is NoMouseInputs, and
+     *   ImGui skips a NoMouseInputs window (and everything drawn loosely
+     *   inside it, including an InvisibleButton) during hover testing, so
+     *   a widget placed directly here would never be interactive. Give the
+     *   track its own tiny nested window instead: ImGui tests each window
+     *   for hover independently of its parent's flags, so a normal-flags
+     *   child here is clickable even though the content window around it
+     *   is not, without reopening the whole content area to input.
+     */
     ImGui::PushID("vscrollbar_imgui");
+    ImGui::SetNextWindowPos(track_min);
+    ImGui::SetNextWindowSize(ImVec2(track_w, track_h));
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0.0f, 0.0f));
+    ImGui::BeginChild("##track_win", ImVec2(track_w, track_h), 0,
+        ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse
+        | ImGuiWindowFlags_NoNavInputs | ImGuiWindowFlags_NoNavFocus
+        | ImGuiWindowFlags_NoBackground);
     ImGui::SetCursorScreenPos(track_min);
     ImGui::InvisibleButton("##track", ImVec2(track_w, track_h));
     bool active = ImGui::IsItemActive();
@@ -2917,6 +2957,8 @@ void CTadsWinScroll::render_vscrollbar_imgui()
     draw->AddRectFilled(track_min, track_max, track_col);
     draw->AddRectFilled(ImVec2(track_min.x + 1, thumb_y),
         ImVec2(track_max.x - 1, thumb_y + thumb_h), thumb_col, 3.0f);
+    ImGui::EndChild();
+    ImGui::PopStyleVar();
     ImGui::PopID();
 }
 

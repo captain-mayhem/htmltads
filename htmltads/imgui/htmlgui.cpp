@@ -15095,9 +15095,31 @@ int CHtmlSys_mainwin::event_loop(int* flag) {
             do_char('\r', 0);
         }
 
-        if (!io.WantCaptureMouse) {
+        /*
+         *   Decide which top-level window a fresh (uncaptured) click/hover
+         *   should go to.  Normally that's us (the main window), routed
+         *   below the manual way since our own do_render_content_begin()
+         *   override renders us as an ImGuiWindowFlags_NoInputs canvas that
+         *   never sets io.WantCaptureMouse itself.  But the debug log window
+         *   (dbgwin_, if open) is a real, decorated, ImGui-native floating
+         *   window layered on top of us - hovering it does set
+         *   io.WantCaptureMouse (so we correctly skip routing into our own
+         *   content underneath it), but nothing was forwarding events into
+         *   its content either, leaving it unable to react to clicks at all.
+         *   Detect that case with a plain rect test against its current
+         *   (possibly user-dragged) position/size and route to it instead.
+         */
+        bool mouse_over_dbgwin = dbgwin_ != 0 && dbgwin_->isVisible()
+            && io.MousePos.x >= dbgwin_->m_pos.x
+            && io.MousePos.x < dbgwin_->m_pos.x + dbgwin_->m_size.x
+            && io.MousePos.y >= dbgwin_->m_pos.y
+            && io.MousePos.y < dbgwin_->m_pos.y + dbgwin_->m_size.y;
+        CTadsWin *uncaptured_target = mouse_over_dbgwin
+            ? static_cast<CTadsWin *>(dbgwin_) : static_cast<CTadsWin *>(this);
+
+        if (!io.WantCaptureMouse || mouse_over_dbgwin) {
             if (ImGui::IsMouseClicked(ImGuiMouseButton_Left)) {
-                do_leftbtn_down(1, io.MousePos.x, io.MousePos.y, ImGui::GetMouseClickedCount(ImGuiMouseButton_Left));
+                uncaptured_target->do_leftbtn_down(1, io.MousePos.x, io.MousePos.y, ImGui::GetMouseClickedCount(ImGuiMouseButton_Left));
             }
             if (ImGui::IsMouseReleased(ImGuiMouseButton_Left)) {
                 CTadsWin* capture_win = CTadsApp::get_app()->getMouseCapture();
@@ -15105,7 +15127,7 @@ int CHtmlSys_mainwin::event_loop(int* flag) {
                     capture_win->do_leftbtn_up(1, io.MousePos.x, io.MousePos.y);
                 }
                 else {
-                    do_leftbtn_up(1, io.MousePos.x, io.MousePos.y);
+                    uncaptured_target->do_leftbtn_up(1, io.MousePos.x, io.MousePos.y);
                 }
             }
             if (ImGui::IsMousePosValid()) {
@@ -15123,7 +15145,7 @@ int CHtmlSys_mainwin::event_loop(int* flag) {
                 lastX = io.MousePos.x;
                 lastY = io.MousePos.y;
                 if (!capture_win) {
-                    do_setcursor(io.MousePos.x, io.MousePos.y);
+                    uncaptured_target->do_setcursor(io.MousePos.x, io.MousePos.y);
                 }
             }
         }
