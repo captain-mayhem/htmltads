@@ -694,3 +694,90 @@ before this was caught). Also confirmed no hit-testing regression on link clicks
 fix, rebuilding, and reproducing the *same* click test against the unmodified baseline - it behaved
 identically, proving an initial concern (that link clicks might be broken) was pre-existing/unrelated to
 this change, not something introduced by it.
+
+## 5. Blinking text-entry caret
+
+**Symptom**: in `htmlt3` (Win32), a blinking caret marks the insertion point on the command input line.
+In `guit3`, no caret ever appeared, with or without typing.
+
+**Root cause, in three layers**, each masking the next until fixed:
+
+1. The obvious one: `show_caret()`/`hide_caret()`/`update_caret_pos()` (`htmlgui.cpp`, `CHtmlSysWin_win32`)
+   called the real Win32 caret API (`CreateCaret`/`ShowCaret`/`HideCaret`/`SetCaretPos`) against `handle_`.
+   Like everything else built on this permanently-hidden top-level HWND (see § "root cause: both windows
+   open"), that GDI-based caret can never reach the screen - the visible frame is entirely OpenGL,
+   redrawn from scratch every frame by GLFW, so nothing painted into `handle_`'s device context survives
+   past the next `SwapBuffers`. **Fix**: replaced with `draw_caret_imgui()`, a new per-frame method
+   (called from `do_render_content_begin()` right after `render_vscrollbar_imgui()`) that draws a
+   filled rect directly via `ImGui::GetWindowDrawList()->AddRectFilled()` at `caret_pos_`, blinking by
+   checking `ImGui::GetTime()` modulo ~1060ms (matching the classic Windows caret rate) - the same
+   "draw it directly into the current frame's draw list" pattern already used for the status bar and
+   scrollbar. `show_caret()`/`hide_caret()`/`modal_hide_caret()`/`modal_show_caret()` now just track
+   `caret_vis_`/`caret_modal_hide_` state for `draw_caret_imgui()` to read; no Win32 caret calls remain.
+
+2. Less obvious: `show_caret()` only turned `caret_vis_` on if `GetFocus() == handle_` - i.e. if this
+   window currently has the logical Win32 input focus. Instrumenting this (temporarily, via an
+   `ImGui::GetForegroundDrawList()->AddText()` overlay showing live state, plus a call counter in
+   `do_setfocus()`) showed `do_setfocus()` *does* fire (so `SetFocus()` did something), but
+   `GetFocus() == handle_` reads false immediately afterwards anyway - Win32's focus tracking for a
+   window behind a permanently-hidden top-level ancestor is unreliable, not just its GDI painting.
+   Also found in passing: `is_in_foreground()` had the same disease (compared `GetForegroundWindow()`
+   against `handle_`, which can never match since the real foreground window is the separate GLFW
+   window) - fixed by asking Dear ImGui instead (`!ImGui::GetIO().AppFocusLost`, which Dear ImGui already
+   tracks via the GLFW backend's window-focus callback). **Fix**: dropped the `GetFocus() == handle_`
+   requirement from `show_caret()` entirely - `CHtmlSysWin_win32_Input::update_caret_pos()` already
+   independently parks `caret_pos_` off-screen (`(-100,-100)`, which `draw_caret_imgui()` treats as
+   "hidden") whenever this window shouldn't actually be accepting input, so `show_caret()` only needs
+   `caret_enabled_`. The real-app-focus check moved to `draw_caret_imgui()` itself (via the fixed
+   `is_in_foreground()`), since a one-shot gate in `show_caret()` can lose a startup race (it can run
+   before the GLFW window's first OS focus event arrives) with no way to retry, whereas a per-frame draw
+   check just tries again next frame.
+
+3. The one that actually explains "still nothing, even with both of the above fixed": **something was
+   calling `hide_caret()` right back** after every successful `show_caret()`. Traced with an event-trace
+   log (a capped string, appended to on every `show_caret()`/`hide_caret()`/`do_setfocus()`/
+   `do_killfocus()` call, rendered on-screen each frame) - the trace always ended in a `KF+`/`HC!` pair
+   (a `WM_KILLFOCUS` hiding the caret) with nothing after it, even though `set_caret_size()` (called from
+   `get_input_begin()`) had already shown it moments earlier. Two independent sources of this, both now
+   removed:
+   - `CHtmlSys_mainwin::do_ncactivate(flag)` used to `show_caret()`/`hide_caret()` the main panel in
+     step with `WM_NCACTIVATE`. Since the frame's `WM_NCACTIVATE` state bounces independently of real
+     app focus (same hidden-top-level-window disease as above - Windows' internal activation bookkeeping
+     for a hidden frame doesn't track whether the *actual* visible GLFW window is focused), this
+     immediately re-hid the caret after almost every `show_caret()`, including the one from
+     `do_ncactivate(TRUE)` itself's own dance. **Fix**: removed the caret toggling from
+     `do_ncactivate()` entirely; the default `CHtmlSys_framewin::do_ncactivate()` behavior is untouched.
+   - `do_setfocus()`/`do_killfocus()` (`WM_SETFOCUS`/`WM_KILLFOCUS`) themselves also directly called
+     `show_caret()`/`hide_caret()`, and per point 2 above these events fire in an unreliable ping-pong
+     for this window, with the *last* one during startup routinely being a spurious `WM_KILLFOCUS`.
+     **Fix**: removed the caret calls from both handlers too - they still do their other jobs
+     (`inval_sel_range()`, `notify_parent_focus()`, link-highlight cleanup). `set_caret_size()` (called
+     once from `get_input_begin()` when input actually starts) is now the only thing that needs to call
+     `show_caret()`, and it does so directly and unconditionally, independent of any Win32 focus message.
+
+**Separately, and required regardless of the above**: `get_input_begin()` never called `take_focus()` at
+the start of an input session (unlike `update_input_display()`, which calls it on every keystroke once
+input is under way) - so even once the caret could render, the very first prompt after the window was
+created had no caret until the player typed something. Added a `take_focus()` call at the top of
+`get_input_begin()`, before `set_caret_size()` runs.
+
+**Net effect**: `caret_vis_`/`show_caret()`/`hide_caret()` no longer depend on any Win32 focus message at
+all for this window - only `caret_enabled_` (set once per window at construction) and
+`update_caret_pos()`'s own semantic checks (`cmdtag_ != 0`, `cmdbuf_->is_caret_visible()`,
+`owner_->is_active_page()`) gate whether a caret is logically shown, and `draw_caret_imgui()` alone
+decides whether it's actually *drawn* this frame, based on `caret_pos_`, `more_mode_`,
+`caret_modal_hide_`, and real app focus via `is_in_foreground()`.
+
+**Verification method**: launched `guit3.exe` from PowerShell (`Start-Process` with a test game, per
+"Running/verifying it visually" above), then used `(New-Object -ComObject WScript.Shell).AppActivate($pid)`
+to give it real focus - `SetForegroundWindow()` called from an unrelated PowerShell process was
+unreliable for this (Windows' foreground-lock-timeout heuristic), while `AppActivate` (used internally by
+`SendKeys`) worked consistently. Captured a burst of cropped screenshots (~250ms apart) of the prompt-line
+area and confirmed the caret bar toggles on/off across frames (proving it blinks, not just that it's
+present in one static screenshot) and follows the cursor position after typing text via
+`[System.Windows.Forms.SendKeys]::SendWait(...)`. **Debugging technique worth reusing**: when a
+render-side fix compiles and appears correct but still produces no visible effect, temporarily draw the
+relevant internal state as on-screen text via `ImGui::GetForegroundDrawList()->AddText()` (with a static
+call-counter or a capped event-trace string for anything event-driven) rather than guessing - this is
+what actually found layers 2 and 3 above, both of which were invisible from reading the code alone since
+the Win32 focus-message ping-pong they depend on isn't something you can spot by inspection.

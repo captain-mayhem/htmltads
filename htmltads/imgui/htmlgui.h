@@ -747,6 +747,14 @@ public:
     void show_caret();
     void hide_caret();
 
+    /*
+     *   Draw the blinking text-entry caret for the current frame, if it
+     *   should be visible right now.  Called once per frame from
+     *   do_render_content_begin() - see its definition for why this
+     *   replaced the old native Win32 caret (CreateCaret/ShowCaret).
+     */
+    void draw_caret_imgui();
+
     /* 
      *   reset the last input height counter for the purposes of figuring
      *   out where the "more" prompt goes - this should be called whenever

@@ -4462,16 +4462,29 @@ void CHtmlSysWin_win32::get_moreprompt_rect(RECT *rc)
 }
 
 /*
- *   Gain focus - show the caret if appropriate.
+ *   Gain focus.
  */
 void CHtmlSysWin_win32::do_setfocus(HWND)
 {
-    /* show the caret if it's enabled */
-    show_caret();
+    /*
+     *   This used to also show_caret() here, mirroring the original
+     *   native-caret code's WM_SETFOCUS handling.  That's no longer
+     *   reliable: WM_SETFOCUS/WM_KILLFOCUS fire in a ping-pong pattern for
+     *   this window because handle_'s top-level ancestor (the frame
+     *   window) is permanently hidden (see migration.md "root cause: both
+     *   windows open"), and instrumenting this showed the *last* focus
+     *   event during startup is routinely a spurious WM_KILLFOCUS with no
+     *   following WM_SETFOCUS, which would leave the caret hidden forever
+     *   with nothing left to turn it back on. set_caret_size() (called
+     *   once input actually begins - see get_input_begin()) already calls
+     *   show_caret() directly and unconditionally, which is what actually
+     *   needs to happen for the caret to work, so there's nothing useful
+     *   left for this WM_SETFOCUS handler to do for the caret.
+     */
 
-    /* 
+    /*
      *   invalidate any selection range, so that we will redraw it with
-     *   highlighting 
+     *   highlighting
      */
     formatter_->inval_sel_range();
 
@@ -4480,14 +4493,23 @@ void CHtmlSysWin_win32::do_setfocus(HWND)
 }
 
 /*
- *   Lose focus.  Hide the caret.
+ *   Lose focus.
  */
 void CHtmlSysWin_win32::do_killfocus(HWND)
 {
-    /* hide the caret if necessary */
-    hide_caret();
+    /*
+     *   See do_setfocus()'s comment - hide_caret() used to run here too,
+     *   but WM_KILLFOCUS is just as unreliable a signal as WM_SETFOCUS for
+     *   this permanently-hidden window, and was observed to fire as the
+     *   very last focus-related event during startup with nothing to
+     *   un-hide the caret afterwards. draw_caret_imgui() already checks
+     *   real app focus itself (is_in_foreground()) at draw time, and a
+     *   window that isn't being rendered this frame (e.g. we've switched
+     *   to the history page) never gets its draw_caret_imgui() called at
+     *   all, so the caret can't wrongly linger on screen either way.
+     */
 
-    /* 
+    /*
      *   proceed only if we have a formatter AND the formatter is still
      *   connected to us (we may not, or it may not, since we could be
      *   killing focus during window destruction) 
@@ -4510,98 +4532,138 @@ void CHtmlSysWin_win32::do_killfocus(HWND)
 
 /*
  *   Determine if I'm in the foreground.  I'm a foreground window if I'm the
- *   system foreground window or a child of the system foreground window. 
+ *   system foreground window or a child of the system foreground window.
  */
 int CHtmlSysWin_win32::is_in_foreground() const
 {
-    HWND fgwin;
-
-    /* get the system foreground window */
-    fgwin = GetForegroundWindow();
-
-    /* 
-     *   if we are the foreground window, or we're a child of the foreground
-     *   window, we're in the foreground 
+    /*
+     *   The real OS-level foreground window is the GLFW/ImGui window, not
+     *   our permanently-hidden top-level HWND (handle_ - see migration.md
+     *   "root cause: both windows open"), so comparing HWNDs via
+     *   GetForegroundWindow()/IsChild() never matches any more.  Dear
+     *   ImGui already tracks OS window focus itself, via the GLFW
+     *   backend's window-focus callback (ImGui_ImplGlfw_WindowFocusCallback
+     *   -> io.AddFocusEvent()), so ask it instead.
      */
-    return (fgwin == handle_ || IsChild(fgwin, handle_));
+    return !ImGui::GetIO().AppFocusLost;
 }
 
 /*
- *   Create and show the caret 
+ *   Create and show the caret
+ *
+ *   The old Win32 native caret (CreateCaret/ShowCaret/SetCaretPos) drew
+ *   into the GDI surface of handle_, which is now a permanently-hidden
+ *   HWND (see migration.md "root cause: both windows open") - the actual
+ *   frame buffer the player sees is composited entirely by OpenGL via
+ *   GLFW, which overwrites the whole client area every frame, so a native
+ *   caret can never be visible any more no matter how it's positioned.
+ *   We now just track visibility/position state here and let
+ *   draw_caret_imgui() (called once per frame from
+ *   do_render_content_begin()) paint a blinking caret ourselves, the same
+ *   "draw it directly with the current frame's draw list" pattern already
+ *   used for the status bar and scrollbar.
  */
 void CHtmlSysWin_win32::show_caret()
 {
-    /* 
-     *   show the caret only if it's not already visible, it's enabled, and
-     *   we're the foreground and focus window 
+    /*
+     *   Show the caret only if it's not already visible and it's enabled.
+     *
+     *   This used to also require GetFocus() == handle_ (i.e. we're the
+     *   window with the logical Win32 input focus), mirroring the
+     *   original native-caret code.  That check is no longer reliable:
+     *   handle_'s top-level ancestor (the frame window) is permanently
+     *   hidden (see migration.md "root cause: both windows open"), and
+     *   Win32's focus tracking for a window behind a hidden ancestor is
+     *   flaky - confirmed by instrumenting this: do_setfocus() (driven by
+     *   a real WM_SETFOCUS, so SetFocus() did do something) fires as
+     *   expected, but GetFocus() == handle_ still reads false immediately
+     *   afterwards. CHtmlSysWin_win32_Input::update_caret_pos() already
+     *   independently tracks whether we should actually be showing a
+     *   caret right now (it parks caret_pos_ off-screen via
+     *   cmdbuf_->is_caret_visible()/is_active_page() when we're not the
+     *   window that should be accepting input), so that's sufficient here
+     *   without also needing the broken Win32 logical-focus check.  The
+     *   real-OS-focus check (is_in_foreground()) still applies, but at
+     *   draw time in draw_caret_imgui() instead of here: show_caret() can
+     *   run before the GLFW window has actually received its first OS
+     *   focus event (e.g. during the very first input prompt at startup),
+     *   and unlike a per-frame draw check, a one-shot gate here would
+     *   never get retried once that startup race is lost.
      */
-    if (!caret_vis_
-        && caret_enabled_
-        && GetFocus() == handle_
-        && is_in_foreground())
+    if (!caret_vis_ && caret_enabled_)
     {
-        /* create it */
-        CreateCaret(handle_, 0, 2, caret_ascent_);
         caret_vis_ = TRUE;
         update_caret_pos(FALSE, FALSE);
-
-        /* show it if we're not in a modal hide */
-        if (caret_modal_hide_ == 0)
-            ShowCaret(handle_);
     }
 }
 
 /*
- *   Hide and destroy the caret 
+ *   Hide the caret
  */
 void CHtmlSysWin_win32::hide_caret()
 {
-    if (caret_vis_)
-    {
-        /* hide the caret only if it's actually visible */
-        if (caret_modal_hide_ == 0)
-            HideCaret(handle_);
-
-        /* destroy it */
-        DestroyCaret();
-        caret_vis_ = FALSE;
-    }
+    caret_vis_ = FALSE;
 }
 
 /*
- *   Hide the caret temporarily for a modal operation 
+ *   Hide the caret temporarily for a modal operation
  */
 void CHtmlSysWin_win32::modal_hide_caret()
 {
-    /* 
-     *   only hide the caret if it's generally visible right now, and we're
-     *   not already in a modal hide 
-     */
-    if (caret_vis_ && caret_modal_hide_ == 0)
-        HideCaret(handle_);
-
     /* increment the caret hiding depth */
     ++caret_modal_hide_;
 }
 
 /*
- *   Restore the caret from a temporary modal operation 
+ *   Restore the caret from a temporary modal operation
  */
 void CHtmlSysWin_win32::modal_show_caret()
 {
     /* decrement the hiding depth */
     --caret_modal_hide_;
-
-    /* 
-     *   show the caret again if it was visible to start with and our hiding
-     *   depth is back to zero 
-     */
-    if (caret_vis_ && caret_modal_hide_ == 0)
-        ShowCaret(handle_);
 }
 
 /*
- *   Update the caret position 
+ *   Draw the blinking text-entry caret for the current frame, if it should
+ *   be visible right now.  This stands in for the old native Win32 caret
+ *   (CreateCaret()/ShowCaret()/SetCaretPos()), which drew into handle_'s
+ *   GDI surface - handle_ is now a permanently-hidden HWND (see
+ *   migration.md "root cause: both windows open"), and the actual visible
+ *   frame is entirely OpenGL, redrawn from scratch every frame by GLFW, so
+ *   nothing painted into that HWND could ever reach the screen.  Called
+ *   from do_render_content_begin() right after the scrollbar overlay,
+ *   while our content child window is still the current ImGui window -
+ *   same pattern as CTadsWinScroll::render_vscrollbar_imgui().
+ */
+void CHtmlSysWin_win32::draw_caret_imgui()
+{
+    /* nothing to draw if the caret isn't enabled/visible right now */
+    if (!caret_vis_ || caret_modal_hide_ != 0 || more_mode_)
+        return;
+
+    /* a negative position means update_caret_pos() wants it hidden */
+    if (caret_pos_.x < 0 || caret_pos_.y < 0)
+        return;
+
+    /* don't draw (and don't blink) while the app itself isn't focused */
+    if (!is_in_foreground())
+        return;
+
+    /* blink at roughly the classic Windows caret rate (~530ms per phase) */
+    long phase_ms = ((long)(ImGui::GetTime() * 1000.0)) % 1060;
+    if (phase_ms >= 530)
+        return;
+
+    ImVec2 win_pos = ImGui::GetWindowPos();
+    ImVec2 top(win_pos.x + (float)caret_pos_.x, win_pos.y + (float)caret_pos_.y + 2.0f);
+    ImVec2 bottom(top.x + 2.0f, top.y + (float)caret_ascent_);
+
+    ImGui::GetWindowDrawList()->AddRectFilled(
+        top, bottom, ImGui::ColorConvertFloat4ToU32(text_color_));
+}
+
+/*
+ *   Update the caret position
  */
 void CHtmlSysWin_win32::update_caret_pos(int bring_on_screen,
                                          int update_sel_range)
@@ -4628,14 +4690,11 @@ void CHtmlSysWin_win32::update_caret_pos(int bring_on_screen,
     if (bring_on_screen)
         scroll_to_show_caret();
 
-    /* move the Windows caret, if we're showing it */
-    if (caret_vis_)
-    {
-        if (more_mode_)
-            SetCaretPos(-100, -100);
-        else
-            SetCaretPos(caret_pos_.x, caret_pos_.y + 2);
-    }
+    /*
+     *   caret_pos_ is drawn each frame by draw_caret_imgui(), which checks
+     *   more_mode_ itself, so there's no native caret to reposition here
+     *   any more (see show_caret()'s comment)
+     */
 
     /* update the selection range in the formatter */
     if (update_sel_range)
@@ -4649,7 +4708,7 @@ void CHtmlSysWin_win32::update_caret_pos(int bring_on_screen,
 }
 
 /*
- *   Scroll as needed to bring the caret on-screen 
+ *   Scroll as needed to bring the caret on-screen
  */
 void CHtmlSysWin_win32::scroll_to_show_caret()
 {
@@ -5649,6 +5708,9 @@ void CHtmlSysWin_win32::do_render_content_begin()
 
     /* draw our scrollbar (if any) over the content we just drew */
     render_vscrollbar_imgui();
+
+    /* draw the blinking text-entry caret, if it's showing right now */
+    draw_caret_imgui();
 
     /* if we're in "MORE" mode, draw a prompt at the bottom */
     if (more_mode_ && !prefs_->get_alt_more_style())
@@ -8227,8 +8289,11 @@ void CHtmlSysWin_win32_Input::update_caret_pos(int bring_on_screen,
         || owner_ == 0
         || !owner_->is_active_page())
     {
-        /* move the caret somewhere where we won't see it */
-        SetCaretPos(-100, -100);
+        /*
+         *   move the caret somewhere where draw_caret_imgui() won't draw
+         *   it (it treats a negative position as "hidden")
+         */
+        caret_pos_.set(-100, -100);
 
         /* done */
         return;
@@ -8254,14 +8319,11 @@ void CHtmlSysWin_win32_Input::update_caret_pos(int bring_on_screen,
     if (bring_on_screen)
         scroll_to_show_caret();
 
-    /* move the Windows caret, if we're showing it */
-    if (caret_vis_)
-    {
-        if (more_mode_)
-            SetCaretPos(-100, -100);
-        else
-            SetCaretPos(caret_pos_.x, caret_pos_.y + 2);
-    }
+    /*
+     *   caret_pos_ is drawn each frame by draw_caret_imgui(), which checks
+     *   more_mode_ itself, so there's no native caret to reposition here
+     *   any more (see show_caret()'s comment)
+     */
 
     /* update the selection range in the formatter */
     if (update_sel_range)
@@ -8809,7 +8871,17 @@ void CHtmlSysWin_win32_Input::get_input_begin(size_t bufsiz)
     if (statusline_ != 0)
         statusline_->update();
 
-    /* 
+    /*
+     *   Take the (logical) focus now, before set_caret_size()/show_caret()
+     *   run below - show_caret() only turns the caret on if we already
+     *   have focus, and unlike update_input_display() (called on every
+     *   keystroke once input is under way), nothing was previously calling
+     *   take_focus() at the start of an input session, so the very first
+     *   prompt after this window was created never got a caret at all.
+     */
+    take_focus();
+
+    /*
      *   Check to see if we're resuming an interrupted session - if we never
      *   canceled a previously interrupted input, or we have a non-empty
      *   saved buffer, we're resuming.  
@@ -8969,9 +9041,8 @@ void CHtmlSysWin_win32_Input::get_input_done()
     /* don't prompt with "MORE" again until we scroll the command away */
     last_input_height_ = screen_to_doc_y(caret_pos_.y + caret_ht_);
 
-    /* get rid of the caret by moving it off-screen */
+    /* get rid of the caret by moving it off-screen (see draw_caret_imgui()) */
     caret_pos_.set(-100, -100);
-    SetCaretPos(-100, -100);
 
     /* input is no longer in progress */
     input_in_progress_ = FALSE;
@@ -12759,18 +12830,26 @@ int CHtmlSys_mainwin::do_notify(int /*control_id*/, int notify_code,
 }
 
 /*
- *   non-client area activation 
+ *   non-client area activation
  */
 int CHtmlSys_mainwin::do_ncactivate(int flag)
 {
-    /* show or hide the caret in the main panel */
-    if (main_panel_ != 0)
-    {
-        if (flag)
-            main_panel_->show_caret();
-        else
-            main_panel_->hide_caret();
-    }
+    /*
+     *   This used to show/hide the caret in the main panel in step with
+     *   WM_NCACTIVATE.  That no longer tracks anything meaningful: this
+     *   window (handle_) is a permanently-hidden top-level frame (see
+     *   migration.md "root cause: both windows open"), while the real,
+     *   visible, OS-focused window is the separate GLFW window - so
+     *   Windows' internal activation bookkeeping for this hidden frame
+     *   bounces true/false independently of whether the app is actually
+     *   focused, and was observed to immediately re-deactivate (and so
+     *   re-hide the caret) right after every show_caret() driven from
+     *   here or from take_focus()'s SetFocus() call, leaving the caret
+     *   permanently hidden.  draw_caret_imgui() already checks real app
+     *   focus itself (via is_in_foreground(), backed by Dear ImGui's
+     *   io.AppFocusLost) at draw time, so there's nothing useful left for
+     *   this handler to do for the caret.
+     */
 
     /* proceed with the default handling */
     return CHtmlSys_framewin::do_ncactivate(flag);
