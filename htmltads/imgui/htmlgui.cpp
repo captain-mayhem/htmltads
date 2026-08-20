@@ -11654,10 +11654,41 @@ void CHtmlSys_mainwin::render_menu_bar()
             do_command(0, id, 0);
     };
 
-    if (!ImGui::BeginMainMenuBar())
-        return;
+    /*
+     *   render a top-level menu bar label ("File", "Edit", etc.) in black,
+     *   regardless of the app's (currently dark, hence light-text-by-default)
+     *   ImGui theme, since the label sits directly on the menu bar's light
+     *   grey chrome background (see chrome_bg below) rather than on the
+     *   theme's own (dark) popup background. Scoped to just the label via
+     *   Push/Pop around BeginMenu() itself, so the dropdown's own items -
+     *   drawn against the theme's normal dark popup background - keep their
+     *   normal light text.
+     */
+    auto menu = [](const char *label)
+    {
+        ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.0f, 0.0f, 0.0f, 1.0f));
+        bool open = ImGui::BeginMenu(label);
+        ImGui::PopStyleColor();
+        return open;
+    };
 
-    if (ImGui::BeginMenu("File"))
+    /*
+     *   Match the status bar's classic grey (see CTadsStatusline::render()
+     *   in tadsstat.cpp) rather than letting the menu bar pick up the app's
+     *   theme colors - the menu bar, toolbar, and status bar form one
+     *   consistent strip of chrome.
+     */
+    const ImVec4 chrome_bg(212.0f / 255.0f, 212.0f / 255.0f, 212.0f / 255.0f, 1.0f);
+    ImGui::PushStyleColor(ImGuiCol_WindowBg, chrome_bg);
+    ImGui::PushStyleColor(ImGuiCol_MenuBarBg, chrome_bg);
+
+    if (!ImGui::BeginMainMenuBar())
+    {
+        ImGui::PopStyleColor(2);
+        return;
+    }
+
+    if (menu("File"))
     {
         item(ID_FILE_LOADGAME, "Open New Game...", "Ctrl+O");
         ImGui::Separator();
@@ -11713,7 +11744,7 @@ void CHtmlSys_mainwin::render_menu_bar()
         ImGui::EndMenu();
     }
 
-    if (ImGui::BeginMenu("Edit"))
+    if (menu("Edit"))
     {
         item(ID_EDIT_UNDO, "Undo Typing", "Ctrl+Z");
         ImGui::Separator();
@@ -11732,7 +11763,7 @@ void CHtmlSys_mainwin::render_menu_bar()
         ImGui::EndMenu();
     }
 
-    if (ImGui::BeginMenu("View"))
+    if (menu("View"))
     {
         item(ID_VIEW_TOOLBAR, "Show Toolbar");
 
@@ -11768,13 +11799,13 @@ void CHtmlSys_mainwin::render_menu_bar()
         ImGui::EndMenu();
     }
 
-    if (ImGui::BeginMenu("Themes"))
+    if (menu("Themes"))
     {
         render_themes_menu_items();
         ImGui::EndMenu();
     }
 
-    if (ImGui::BeginMenu("Go"))
+    if (menu("Go"))
     {
         item(ID_GO_PREVIOUS, "Previous Page", "Alt+<");
         item(ID_GO_NEXT, "Next Page", "Alt+>");
@@ -11786,7 +11817,7 @@ void CHtmlSys_mainwin::render_menu_bar()
         ImGui::EndMenu();
     }
 
-    if (ImGui::BeginMenu("Help"))
+    if (menu("Help"))
     {
         item(ID_HELP_CONTENTS, "HTML TADS Help");
         item(ID_HELP_WWWTADSORG, "TADS Web Site");
@@ -11797,6 +11828,7 @@ void CHtmlSys_mainwin::render_menu_bar()
     }
 
     ImGui::EndMainMenuBar();
+    ImGui::PopStyleColor(2);
 }
 
 /*
@@ -11991,10 +12023,29 @@ void CHtmlSys_mainwin::render_toolbar()
     };
 
     ImGuiStyle &style = ImGui::GetStyle();
-    float height = TOOLBAR_ICON_HEIGHT + style.FramePadding.y * 2 + 6;
+    float button_height = TOOLBAR_ICON_HEIGHT + style.FramePadding.y * 2;
+    float height = button_height + style.WindowPadding.y * 2;
 
     ImGuiWindowFlags flags = ImGuiWindowFlags_NoScrollbar
                              | ImGuiWindowFlags_NoSavedSettings;
+
+    /* match the status bar's classic grey - see render_menu_bar() */
+    const ImVec4 chrome_bg(212.0f / 255.0f, 212.0f / 255.0f, 212.0f / 255.0f, 1.0f);
+    ImGui::PushStyleColor(ImGuiCol_WindowBg, chrome_bg);
+
+    /*
+     *   ImGui::ImageButton() always paints its frame with the regular Button
+     *   colors (idle included, not just on hover/press - see ImageButtonEx()
+     *   in imgui_widgets.cpp), which in the app's dark theme are a
+     *   semi-transparent blue that clashed against this toolbar's grey
+     *   chrome. Override with neutral greys instead: invisible at rest so
+     *   the icon alone shows, and a plain grey (not the theme's blue) on
+     *   hover/press to indicate state.
+     */
+    ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.0f, 0.0f, 0.0f, 0.0f));
+    ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.75f, 0.75f, 0.75f, 1.0f));
+    ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(0.65f, 0.65f, 0.65f, 1.0f));
+
     bool open = ImGui::BeginViewportSideBar("##Toolbar", ImGui::GetMainViewport(),
                                             ImGuiDir_Up, height, flags);
     if (open)
@@ -12010,7 +12061,7 @@ void CHtmlSys_mainwin::render_toolbar()
                 /* draw a thin vertical divider in the gap SameLine() just left */
                 ImVec2 p = ImGui::GetCursorScreenPos();
                 ImGui::GetWindowDrawList()->AddLine(
-                    ImVec2(p.x - 7, p.y + 2), ImVec2(p.x - 7, p.y + height - 10),
+                    ImVec2(p.x - 7, p.y), ImVec2(p.x - 7, p.y + button_height),
                     ImGui::GetColorU32(ImGuiCol_Separator));
             }
 
@@ -12066,6 +12117,7 @@ void CHtmlSys_mainwin::render_toolbar()
         }
     }
     ImGui::End();
+    ImGui::PopStyleColor(4);
 }
 
 /*

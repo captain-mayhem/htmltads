@@ -354,6 +354,37 @@ was duplicated, just re-entered from a new call site.
   `do_command()`'s `ID_VIEW_TOOLBAR` case, both unchanged and still the source of truth for this flag).
   The native `toolbar_` `HWND` and `create_toolbar()` were left in place, same reasoning as the
   never-removed native menu.
+- **Chrome color**: `render_menu_bar()` and `render_toolbar()` each `PushStyleColor`/`PopStyleColor`
+  around their `BeginMainMenuBar()`/`BeginViewportSideBar()` call (`ImGuiCol_WindowBg`, plus
+  `ImGuiCol_MenuBarBg` for the menu bar) to give both the status bar's own light grey
+  (`IM_COL32(212, 212, 212, 255)`, §3.2) rather than letting them pick up the active ImGui theme's
+  window background, which looked inconsistent against the always-grey status bar underneath them.
+  The app's base ImGui style is `StyleColorsDark()` (`do_create()`, `htmlgui.cpp:10405`-ish), whose
+  default (light) text doesn't read well against that light chrome, so `render_menu_bar()` has a
+  `menu(label)` helper (wraps `ImGui::BeginMenu()`) that pushes `ImGuiCol_Text` black just for
+  rendering each top-level label ("File", "Edit", etc. - the six calls that sit directly on the menu
+  bar's light background) and pops it again immediately after the call, before any of that menu's
+  dropdown items are drawn. The dropdown popups themselves (and nested submenus like View > Timer)
+  render on the theme's normal dark popup background, so they're left alone to use the theme's default
+  light text - only wrapping the label itself, rather than pushing black for the whole
+  `BeginMenu()`/`EndMenu()` block, is what keeps those readable too. Tried an all-over darker chrome
+  grey (`60, 60, 60`) and, before that, an all-over `StyleColorsLight()` switch as alternatives; this
+  targeted per-label push is what stuck since it keeps the dark theme everywhere else.
+- **Toolbar vertical centering**: the toolbar window's `height` used to be
+  `TOOLBAR_ICON_HEIGHT + style.FramePadding.y * 2 + 6`, an arbitrary `+ 6` fudge that didn't account
+  for `ImGuiViewportSideBar`'s actual top/bottom `WindowPadding.y` inset. Since ImGui only applies
+  padding above the button row, not below, the window was too short and the icon buttons overflowed
+  the bottom edge instead of sitting centered. Fixed by computing `height` as
+  `button_height + style.WindowPadding.y * 2` (symmetric padding top and bottom), with the vertical
+  divider lines between button groups redrawn to span exactly `button_height` (previously hardcoded
+  `p.y + 2` to `p.y + height - 10`, which no longer lined up once `height`'s formula changed).
+- **Toolbar button color**: `ImGui::ImageButton()` always paints its frame with the regular Button
+  colors, even at rest and not just on hover/press (see `ImageButtonEx()` in `imgui_widgets.cpp`),
+  which in the app's dark theme is a semi-transparent blue - it clashed against the toolbar's grey
+  chrome (above). `render_toolbar()` now pushes `ImGuiCol_Button` transparent (so idle icons show no
+  box at all) and `ImGuiCol_ButtonHovered`/`ImGuiCol_ButtonActive` to plain greys instead of the
+  theme's blue, so hovering/pressing a toolbar icon darkens it slightly without introducing a color
+  that doesn't belong to this chrome.
 
 ### 3.2 Status bar — done
 `CTadsStatusline` ([tadsstat.h](tadsstat.h)/[tadsstat.cpp](tadsstat.cpp)) no longer owns a native
