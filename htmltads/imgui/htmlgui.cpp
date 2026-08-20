@@ -5553,8 +5553,10 @@ void CHtmlSysWin_win32::do_render_content_begin()
     }
     CTadsWin::do_render_content_begin();
 
-    /* adjust the paint area to local coordinates */
-   // area.set(rc->left, rc->top, rc->right, rc->bottom);
+    /* adjust the paint area to local coordinates - we always redraw our
+       entire visible area every frame, since we're an immediate-mode
+       renderer with no persistent backing store to patch up */
+    area.set(0, 0, (long)m_size.x, (long)m_size.y);
 
     /*
      *   Fill the redraw area with the background brush.  Do this even if we
@@ -5639,15 +5641,14 @@ void CHtmlSysWin_win32::do_render_content_begin()
     }
 
     /* offset by scrolling position */
-    //area = screen_to_doc(area);
-    area.left = 0;
-    area.right = 10000;
-    area.top = 0;
-    area.bottom = 10000;
+    area = screen_to_doc(area);
 
     /* draw everything in the client area */
     if (formatter_ != 0 && formatter_->get_win() != nullptr)
         formatter_->draw(&area, clip_lines, &clip_ypos_);
+
+    /* draw our scrollbar (if any) over the content we just drew */
+    render_vscrollbar_imgui();
 
     /* if we're in "MORE" mode, draw a prompt at the bottom */
     if (more_mode_ && !prefs_->get_alt_more_style())

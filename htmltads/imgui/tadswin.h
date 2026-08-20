@@ -1167,6 +1167,26 @@ protected:
     virtual void do_render_content_begin();
     virtual void do_render_content_end();
 
+    /*
+     *   ImGui child-window flags for our content area.  By default we
+     *   auto-size the child to fit whatever we draw into it, since most
+     *   windows draw a fixed, non-scrolling amount of content.  Windows
+     *   that manage scrollable content (see CTadsWinScroll) override this
+     *   to clip to our actual m_size instead, so ImGui can show and drive
+     *   a scrollbar.
+     */
+    virtual ImGuiChildFlags get_content_child_flags() const
+        { return ImGuiChildFlags_AutoResizeX | ImGuiChildFlags_AutoResizeY; }
+
+    /*
+     *   ImGui window flags for our content area.  By default we block all
+     *   mouse/keyboard input, since plain CTadsWin content isn't
+     *   ImGui-interactive.  Scrollable windows override this to accept
+     *   mouse input for wheel scrolling and scrollbar dragging.
+     */
+    virtual ImGuiWindowFlags get_content_window_flags() const
+        { return ImGuiWindowFlags_NoInputs; }
+
     /* 
      *   Get the palette for painting.  This is required only if we're in a
      *   paletted video mode, and the window has a private palette, and it
@@ -1832,6 +1852,45 @@ public:
 
     /* handle a mouse-wheel scroll event */
     virtual int do_mousewheel(int keys, int dist, int x, int y);
+
+    /*
+     *   Scroll-capable windows clip to their actual size instead of
+     *   auto-resizing to fit content (our content is already windowed to
+     *   our visible area via doc_to_screen()/vscroll_ofs_ before we ever
+     *   draw it - see CHtmlSysWin_win32::do_render_content_begin() - so
+     *   this just guards against transient overflow), and accept mouse
+     *   input so our own scrollbar overlay (render_vscrollbar_imgui())
+     *   can be dragged and wheel-scrolled.  Windows created with neither
+     *   scrollbar requested keep the base CTadsWin behavior.
+     */
+    ImGuiChildFlags get_content_child_flags() const override
+    {
+        return (has_vscroll_ || has_hscroll_)
+            ? 0 : CTadsWin::get_content_child_flags();
+    }
+    ImGuiWindowFlags get_content_window_flags() const override
+    {
+        if (!has_vscroll_ && !has_hscroll_)
+            return CTadsWin::get_content_window_flags();
+
+        /* accept mouse input (wheel, scrollbar drag) but don't let this
+           content area steal keyboard focus/nav from the real input line;
+           we draw our own scrollbar rather than ImGui's native one, since
+           our content is pre-clipped to our visible area before ImGui
+           ever sees it (ImGui's own overflow-based scrollbar would never
+           have anything to show) */
+        return ImGuiWindowFlags_NoNavInputs | ImGuiWindowFlags_NoNavFocus
+            | ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse;
+    }
+
+    /*
+     *   Draw an ImGui scrollbar overlay for our vertical scroll range (if
+     *   we have one) and handle wheel/drag input for it, driving the
+     *   existing do_scroll()/vscroll_ofs_ machinery.  Must be called while
+     *   our ImGui content child window is current (i.e. from within
+     *   do_render_content_begin()/do_render_content_end()).
+     */
+    void render_vscrollbar_imgui();
 
     /*
      *   Do scrolling.  If use_pos is true, we'll ignore the scrollbar's

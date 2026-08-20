@@ -623,3 +623,74 @@ lines and every edit shifts everything below it — several line numbers cited i
 a handful of lines by the time the section was finished being written, because an earlier edit in the
 same file shifted things. Treat line numbers here as "was roughly here as of this writing," and re-`grep`
 for the function/symbol name before trusting a specific line.
+
+## 4. Scrollback scrollbar (main text panel and other `CTadsWinScroll` windows)
+
+**Symptom**: in `htmlt3` (Win32), the main game-text panel grows a scrollbar once output overflows the
+window (e.g. spamming blank input lines), and it works. In `guit3`, no scrollbar ever appeared and the
+panel couldn't be scrolled at all.
+
+**Root cause, in two layers:**
+
+1. `CTadsWin::do_render_content_begin()` ([tadswin.cpp](tadswin.cpp)) wraps every child window's content
+   in `ImGui::BeginChild(..., ImGuiChildFlags_AutoResizeX | ImGuiChildFlags_AutoResizeY,
+   ImGuiWindowFlags_NoInputs)` unconditionally. `NoInputs` blocks all mouse/wheel input to the child
+   (so even a real scrollbar couldn't have been dragged), and `AutoResizeX/Y` means the child always
+   grows to fit whatever's drawn into it rather than clipping - so there was never anything for ImGui to
+   consider "overflow" in the first place.
+2. **The deeper trap**: fixing (1) alone (give the child a fixed size, drop `NoInputs`, let ImGui's
+   native content-overflow scrollbar take over) looked right and compiles, but does *nothing* - ImGui's
+   own scrollbar never appears no matter how much text is generated. The reason: `draw_text_clip()`
+   ([htmlgui.cpp](htmlgui.cpp), inherited verbatim from
+   [win32/htmlw32.cpp](../../win32/htmlw32.cpp)) already does `x = doc_to_screen_x(x); y =
+   doc_to_screen_y(y);` before handing coordinates to `ImGui::SetCursorPos()` - i.e. **the content is
+   pre-windowed into screen-local space using the existing `vscroll_ofs_`/`doc_to_screen_y()` machinery
+   before ImGui ever sees it**, exactly like the old GDI `ExtTextOut` model this code was copied from.
+   From ImGui's point of view the child's content never exceeds roughly one window's height, so its
+   native `ContentSize`/`GetScrollMaxY()` never has anything to report regardless of how much text has
+   actually accumulated - `ImGui::SetScrollY()`/native scrollbars are the wrong tool here entirely.
+   Confirmed by instrumenting `draw_text_clip()`'s incoming `y` and `CHtmlSysWin_win32::content_height_`
+   side by side: `content_height_` (the true, growing document height, tracked via
+   `formatter_->get_max_y_pos()`) kept climbing past 1000px while the largest `y` ImGui ever saw stayed
+   around 610-630px, because `vscroll_ofs_` (nonzero, actively maintained - see below) was already
+   subtracting the difference.
+3. Also found and fixed in passing while chasing this: `do_render_content_begin()`'s `area` (the visible
+   rect passed to `formatter_->draw()`) was **left uninitialized** and then overridden to a hardcoded
+   `(0,0,10000,10000)` with the original `area = screen_to_doc(area)` line commented out. The correct
+   sequence, restored from the untouched `do_paint_content()` a few hundred lines above it in the same
+   file (the pre-ImGui GDI paint path, still present but dead) is: `area.set(0, 0, m_size.x, m_size.y)`
+   (the local visible rect) → apply MORE-mode prompt clipping to `area.bottom` while still local → *then*
+   `area = screen_to_doc(area)` right before `formatter_->draw(&area, ...)`.
+
+**What was already working, and shouldn't be rebuilt**: `vscroll_ofs_`, `do_scroll()`, `do_mousewheel()`,
+`get_scroll_info()`, and the auto-scroll-to-bottom behavior (`fmt_adjust_vscroll()` calling
+`do_scroll(TRUE, vscroll_, SB_BOTTOM, ...)` whenever new text arrives) are all inherited unmodified from
+`win32/htmlw32.cpp` and turned out to be fully correct and already active - `vscroll_ofs_` is not dead
+code. The only things actually missing were (a) a *visible, interactive* scrollbar control, since the
+real Win32 `SCROLLBAR` child (`CTadsWinScroll::do_create()`) is created against the permanently-hidden
+top-level HWND (§ "root cause: both windows open" above) and so is never seen or reachable by input, and
+(b) wiring mouse wheel through to `do_mousewheel()` at all (nothing called it in the live ImGui path).
+
+**Fix** (all three files): `CTadsWin` gained two virtual hooks,
+`get_content_child_flags()`/`get_content_window_flags()`, so `do_render_content_begin()` no longer
+hardcodes the `AutoResize*`/`NoInputs` flags - `CTadsWinScroll` overrides them (only when constructed
+with a scrollbar requested) to clip to a fixed size and accept mouse input while still blocking nav/focus
+stealing from the real command-input line. `CTadsWinScroll::render_vscrollbar_imgui()` (new, in
+[tadswin.cpp](tadswin.cpp)) is a self-contained ImGui-drawn thumb+track scrollbar: it reads
+`get_scroll_info()`/`get_scroll_area()` for range/geometry, forwards hovered mouse wheel into the
+existing `do_mousewheel()`, and drives thumb drag through `do_scroll(TRUE, vscroll_, SB_THUMBPOSITION,
+pos, TRUE)` - all pre-existing, correct machinery, now just given real input and a visible thumb. It's
+called from `CHtmlSysWin_win32::do_render_content_begin()` right after `formatter_->draw()`, while the
+content child window is still current. This generalizes to every `CTadsWinScroll` subclass (main text
+panel, history panel, banners, popups, credits/about windows), not just the main panel.
+
+**Verification method** (no automated UI test exists for `guit3` - see § "Running/verifying it visually"
+above): drove the real `ditch3.t3` game via `SendKeys`/`SendWait("{ENTER}")` and synthetic
+`mouse_event(MOUSEEVENTF_WHEEL, ...)`, screenshotting after each step. Confirmed the scrollbar thumb
+renders proportionally and moves in response to wheel input by diffing screenshots pixel-by-pixel (a
+near-zero diff count means "nothing moved" - useful for catching a scrollbar that draws but doesn't
+actually respond to input, which is exactly what the first ImGui-native-scrolling attempt looked like
+before this was caught). Also confirmed no hit-testing regression on link clicks by `git stash`-ing the
+fix, rebuilding, and reproducing the *same* click test against the unmodified baseline - it behaved
+identically, proving an initial concern (that link clicks might be broken) was pre-existing/unrelated to
+this change, not something introduced by it.

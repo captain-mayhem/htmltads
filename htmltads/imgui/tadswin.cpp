@@ -1740,7 +1740,8 @@ void CTadsWin::do_render_content_begin()
         ImVec2 parent_pos = ImGui::GetWindowPos();
         ImGui::SetNextWindowPos(ImVec2(parent_pos.x + m_pos.x, parent_pos.y + m_pos.y));
         ImGui::SetNextWindowSize(m_size);
-        ImGui::BeginChild(m_title.c_str(), ImVec2(0, 0), ImGuiChildFlags_AutoResizeX | ImGuiChildFlags_AutoResizeY, ImGuiWindowFlags_NoInputs);
+        ImGui::BeginChild(m_title.c_str(), ImVec2(0, 0),
+            get_content_child_flags(), get_content_window_flags());
     }
     else {
         ImGui::SetNextWindowPos(m_pos);
@@ -2846,8 +2847,82 @@ int CTadsWinScroll::do_mousewheel(int keys, int dist, int x, int y)
 }
 
 /*
+ *   Draw and drive an ImGui scrollbar overlay for our content, if we have
+ *   a vertical scrollbar.  Our content is windowed to our visible area
+ *   via doc_to_screen()/vscroll_ofs_ before it's ever drawn (see
+ *   CHtmlSysWin_win32::do_render_content_begin()), so ImGui's own
+ *   content-overflow tracking never sees anything to scroll - this reads
+ *   and drives the real scroll range/position (get_scroll_info(),
+ *   do_scroll(), do_mousewheel()) directly instead.  Must be called while
+ *   our content's ImGui child window is current.
+ */
+void CTadsWinScroll::render_vscrollbar_imgui()
+{
+    if (!has_vscroll_ || vscroll_ == 0)
+        return;
+
+    /* mouse wheel over our content scrolls us, same as the old WM_MOUSEWHEEL
+       handler would have */
+    bool hovered = ImGui::IsWindowHovered();
+    ImGuiIO &io = ImGui::GetIO();
+    if (hovered && io.MouseWheel != 0.0f)
+        do_mousewheel(0, (int)(io.MouseWheel * WHEEL_DELTA), 0, 0);
+
+    SCROLLINFO info;
+    memset(&info, 0, sizeof(info));
+    if (!get_scroll_info(TRUE, &info))
+        return;
+
+    long range = info.nMax - info.nMin;
+    if (range <= 0)
+        return;
+
+    RECT rc;
+    get_scroll_area(&rc, TRUE);
+    ImVec2 win_pos = ImGui::GetWindowPos();
+    const float track_w = 10.0f;
+    ImVec2 track_min(win_pos.x + rc.right - track_w, win_pos.y + rc.top);
+    ImVec2 track_max(win_pos.x + rc.right, win_pos.y + rc.bottom);
+    float track_h = track_max.y - track_min.y;
+    if (track_h <= 0)
+        return;
+
+    float page = (float)(info.nPage > 0 ? info.nPage : 1);
+    float thumb_h = track_h * (page / (float)(range + (long)page));
+    if (thumb_h < 20.0f) thumb_h = 20.0f;
+    if (thumb_h > track_h) thumb_h = track_h;
+    float avail = track_h - thumb_h;
+    float frac = (float)(info.nPos - info.nMin) / (float)range;
+
+    ImGui::PushID("vscrollbar_imgui");
+    ImGui::SetCursorScreenPos(track_min);
+    ImGui::InvisibleButton("##track", ImVec2(track_w, track_h));
+    bool active = ImGui::IsItemActive();
+    if (active)
+    {
+        float my = io.MousePos.y - track_min.y - thumb_h * 0.5f;
+        float f = avail > 0.0f ? my / avail : 0.0f;
+        if (f < 0.0f) f = 0.0f;
+        if (f > 1.0f) f = 1.0f;
+        long newpos = info.nMin + (long)(f * range + 0.5f);
+        do_scroll(TRUE, vscroll_, SB_THUMBPOSITION, newpos, TRUE);
+        frac = f;
+    }
+
+    float thumb_y = track_min.y + avail * frac;
+    ImU32 track_col = IM_COL32(0, 0, 0, 40);
+    ImU32 thumb_col = (active || ImGui::IsItemHovered())
+        ? IM_COL32(120, 120, 120, 230) : IM_COL32(150, 150, 150, 170);
+    ImDrawList *draw = ImGui::GetWindowDrawList();
+    draw->AddRectFilled(track_min, track_max, track_col);
+    draw->AddRectFilled(ImVec2(track_min.x + 1, thumb_y),
+        ImVec2(track_max.x - 1, thumb_y + thumb_h), thumb_col, 3.0f);
+    ImGui::PopID();
+}
+
+/*
  *   perform scrolling, either in response to a scrollbar input event or
- *   programmatically 
+ *   programmatically
  */
 void CTadsWinScroll::do_scroll(int vert, HWND hwnd, int scroll_code,
                                long pos, int use_pos)
