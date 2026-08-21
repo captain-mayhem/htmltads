@@ -2805,8 +2805,14 @@ int CHtmlSysWin_win32::do_command(int notify_code,
         return TRUE;
 
     case ID_VIEW_OPTIONS:
-        /* run the preferences dialog */
-        prefs_->run_preferences_dlg(owner_->get_owner_frame_handle(), this);
+        /*
+         *   open the ImGui-native Options dialog - unlike the old
+         *   run_preferences_dlg() property sheet, this doesn't block: it
+         *   just snapshots the current settings and marks the dialog
+         *   pending, and CHtmlSys_mainwin::do_render() draws it every frame
+         *   from here on (see htmlpref.cpp)
+         */
+        prefs_->open_options_dialog(owner_->get_owner_frame_handle(), this);
 
         /* set the accelerator table for the Ctrl+V preferences */
         set_current_accel();
@@ -11589,6 +11595,9 @@ int CHtmlSys_mainwin::do_render() {
                              viewport->WorkPos.y + viewport->WorkSize.y - stat_ht,
                              viewport->WorkSize.x);
     }
+
+    /* draw the Options dialog on top, if it's open (see htmlpref.cpp) */
+    prefs_->render_options_dialog();
 
     return ret;
 }

@@ -56,6 +56,8 @@ Modified
 #include "w32main.h"
 #endif
 
+#include <imgui/imgui.h>
+
 
 /* ------------------------------------------------------------------------ */
 /*
@@ -3476,8 +3478,824 @@ void CHtmlPreferences::run_profiles_dlg(HWND hwndOwner,
 }
 
 
+/* ------------------------------------------------------------------------ */
 /*
- *   Schedule reformatting of the window 
+ *   ImGui-native "Options" dialog (guit3).  Replaces the Win32 property
+ *   sheet run_preferences_dlg() shows (that function, and the
+ *   CHtmlDialog{Appearance,Keys,Safety,NetSafety,Mem,Quit,Start,GameChest}
+ *   property-page classes above, are left in place unused rather than
+ *   removed - same reasoning as the never-removed native menu elsewhere in
+ *   the port: they're harmless dead code once nothing calls them).
+ *
+ *   Each control below writes straight through to the preferences object
+ *   the instant it changes - there's no separate "Apply" staging step like
+ *   the original PSN_APPLY-driven pages had, matching how the rest of the
+ *   already-ported ImGui chrome (menu bar, toolbar) works.
+ *
+ *   A few sub-dialogs reachable from here are deliberately left native for
+ *   now: "Customize Theme..." (the Fonts/Colors/More/Media property sheet,
+ *   run_appearance_dlg()) and the folder/file browse buttons (Starting tab,
+ *   Game Chest tab).  These all block via their own self-pumping Windows
+ *   modal loop (PropertySheet()/GetOpenFileName()/CTadsDialogFolderSel2) -
+ *   unlike the app's own WM_COMMAND-routed main frame, they never depended
+ *   on guit3's (nonexistent) main message pump, so they still work
+ *   correctly when invoked from an ImGui button handler.  Porting them to
+ *   ImGui is future work, not a correctness fix.
+ */
+
+/*
+ *   Re-enumerate the available themes/profiles from the registry into
+ *   opt_profile_names_/opt_profile_count_, and re-sync opt_profile_sel_ to
+ *   whichever entry matches the currently active profile (falling back to
+ *   the first entry if the active profile no longer exists, e.g. mid-way
+ *   through deleting it).
+ */
+void CHtmlPreferences::opt_refresh_profile_list()
+{
+    HKEY key;
+    DWORD disposition;
+    char base_key[256];
+    const textchar_t *active;
+    int i;
+
+    opt_profile_count_ = 0;
+
+    sprintf(base_key, "%s\\Profiles", w32_pref_key_name);
+    key = CTadsRegistry::open_key(HKEY_CURRENT_USER, base_key,
+                                  &disposition, TRUE);
+    for (i = 0 ;
+         opt_profile_count_ < (int)(sizeof(opt_profile_names_)
+                                     / sizeof(opt_profile_names_[0])) ;
+         ++i)
+    {
+        char subkey[128];
+        DWORD len;
+        FILETIME ft;
+
+        len = sizeof(subkey);
+        if (RegEnumKeyEx(key, i, subkey, &len, 0, 0, 0, &ft) != ERROR_SUCCESS)
+            break;
+
+        strcpy(opt_profile_names_[opt_profile_count_], subkey);
+        ++opt_profile_count_;
+    }
+    CTadsRegistry::close_key(key);
+
+    active = get_active_profile_name();
+    opt_profile_sel_ = -1;
+    for (i = 0 ; i < opt_profile_count_ ; ++i)
+    {
+        if (stricmp(opt_profile_names_[i], active) == 0)
+        {
+            opt_profile_sel_ = i;
+            break;
+        }
+    }
+    if (opt_profile_sel_ < 0 && opt_profile_count_ > 0)
+        opt_profile_sel_ = 0;
+}
+
+/*
+ *   Refresh opt_desc_ (and the standard-profile description, if the newly
+ *   active profile is one of the pre-defined ones) for the currently active
+ *   profile.  Mirrors CHtmlDialogAppearance::on_profile_change().
+ */
+void CHtmlPreferences::opt_on_profile_change()
+{
+    const char *active = get_active_profile_name();
+
+    if (is_standard_profile(active))
+        set_std_profile_desc(active);
+
+    strncpy(opt_desc_, get_profile_desc(), sizeof(opt_desc_) - 1);
+    opt_desc_[sizeof(opt_desc_) - 1] = '\0';
+}
+
+/*
+ *   Open the Options dialog: snapshot all the current preference values
+ *   into the dialog's working state and mark it pending-open.
+ */
+void CHtmlPreferences::open_options_dialog(HWND owner, CHtmlWinWithPrefs *win)
+{
+    /* remember the owning window, as the native dialog did */
+    win_ = win;
+    opt_owner_hwnd_ = owner;
+
+    opt_refresh_profile_list();
+    opt_on_profile_change();
+
+    opt_emacs_ctrl_v_ = get_emacs_ctrl_v();
+    opt_arrow_scroll_ = get_arrow_keys_always_scroll();
+    opt_emacs_alt_v_ = get_emacs_alt_v();
+
+    get_file_safety_level(&opt_safety_read_, &opt_safety_write_);
+    get_net_safety_level(&opt_net_client_, &opt_net_server_);
+
+    opt_mem_idx_ = (int)(get_mem_text_limit() / (unsigned long)32768);
+    if (opt_mem_idx_ > 4)
+        opt_mem_idx_ = 4;
+
+    opt_ask_game_ = get_init_ask_game();
+    strncpy(opt_init_folder_, get_init_open_folder(),
+            sizeof(opt_init_folder_) - 1);
+    opt_init_folder_[sizeof(opt_init_folder_) - 1] = '\0';
+
+    opt_close_action_ = get_close_action();
+    opt_postquit_action_ = get_postquit_action();
+
+    strncpy(opt_gc_file_, get_gc_database(), sizeof(opt_gc_file_) - 1);
+    opt_gc_file_[sizeof(opt_gc_file_) - 1] = '\0';
+    strncpy(opt_gc_bkg_, get_gc_bkg(), sizeof(opt_gc_bkg_) - 1);
+    opt_gc_bkg_[sizeof(opt_gc_bkg_) - 1] = '\0';
+
+    opt_new_profile_name_[0] = '\0';
+    opt_new_profile_err_[0] = '\0';
+    opt_new_profile_popup_pending_ = false;
+
+    opt_dlg_open_ = true;
+    opt_dlg_want_open_ = true;
+}
+
+/*
+ *   Draw the Options dialog for the current ImGui frame.  Safe to call
+ *   unconditionally every frame; it's a no-op once the dialog is closed.
+ */
+void CHtmlPreferences::render_options_dialog()
+{
+    if (!opt_dlg_open_)
+        return;
+
+    if (opt_dlg_want_open_)
+    {
+        ImGui::OpenPopup("Options");
+        opt_dlg_want_open_ = false;
+    }
+
+    ImGui::SetNextWindowSize(ImVec2(480, 420), ImGuiCond_FirstUseEver);
+    if (ImGui::BeginPopupModal("Options", &opt_dlg_open_,
+                               ImGuiWindowFlags_NoSavedSettings))
+    {
+        if (ImGui::BeginTabBar("OptionsTabs"))
+        {
+            if (ImGui::BeginTabItem("Appearance"))
+            {
+                opt_render_appearance_tab();
+                ImGui::EndTabItem();
+            }
+            if (ImGui::BeginTabItem("Keyboard"))
+            {
+                opt_render_keys_tab();
+                ImGui::EndTabItem();
+            }
+            if (ImGui::BeginTabItem("File Safety"))
+            {
+                opt_render_filesafety_tab();
+                ImGui::EndTabItem();
+            }
+            if (ImGui::BeginTabItem("Network Safety"))
+            {
+                opt_render_netsafety_tab();
+                ImGui::EndTabItem();
+            }
+            if (ImGui::BeginTabItem("Memory"))
+            {
+                opt_render_mem_tab();
+                ImGui::EndTabItem();
+            }
+            if (ImGui::BeginTabItem("Starting"))
+            {
+                opt_render_start_tab();
+                ImGui::EndTabItem();
+            }
+            if (ImGui::BeginTabItem("Quitting"))
+            {
+                opt_render_quit_tab();
+                ImGui::EndTabItem();
+            }
+            if (CHtmlSys_mainwin::is_game_chest_present()
+                && ImGui::BeginTabItem("Game Chest"))
+            {
+                opt_render_gamechest_tab();
+                ImGui::EndTabItem();
+            }
+            ImGui::EndTabBar();
+        }
+
+        ImGui::Separator();
+        if (ImGui::Button("Close", ImVec2(80, 0)))
+        {
+            opt_dlg_open_ = false;
+            ImGui::CloseCurrentPopup();
+        }
+
+        ImGui::EndPopup();
+    }
+}
+
+/*
+ *   Appearance tab: theme/profile picker, description, and buttons to
+ *   create/delete themes or jump to the (still-native) Customize Theme and
+ *   Reset to Defaults flows.  Mirrors CHtmlDialogAppearance.
+ */
+void CHtmlPreferences::opt_render_appearance_tab()
+{
+    ImGui::TextWrapped(
+        "A theme is a set of font, color, and other visual settings.  "
+        "Each game remembers its theme, so you can use different themes "
+        "for different games.");
+    ImGui::Spacing();
+
+    ImGui::AlignTextToFramePadding();
+    ImGui::Text("Theme:");
+    ImGui::SameLine();
+    ImGui::SetNextItemWidth(200);
+    if (ImGui::BeginCombo("##ThemePicker",
+                          opt_profile_sel_ >= 0
+                          ? opt_profile_names_[opt_profile_sel_] : ""))
+    {
+        for (int i = 0 ; i < opt_profile_count_ ; ++i)
+        {
+            bool sel = (i == opt_profile_sel_);
+            if (ImGui::Selectable(opt_profile_names_[i], sel))
+            {
+                /* save the outgoing profile's description, then switch */
+                set_profile_desc(opt_desc_);
+                save();
+
+                opt_profile_sel_ = i;
+                win_->set_game_specific_profile(opt_profile_names_[i]);
+                opt_on_profile_change();
+            }
+            if (sel)
+                ImGui::SetItemDefaultFocus();
+        }
+        ImGui::EndCombo();
+    }
+
+    ImGui::SameLine();
+    if (ImGui::Button("New..."))
+    {
+        opt_new_profile_name_[0] = '\0';
+        opt_new_profile_err_[0] = '\0';
+        opt_new_profile_popup_pending_ = true;
+    }
+
+    bool is_std = opt_profile_sel_ >= 0
+        && is_standard_profile(opt_profile_names_[opt_profile_sel_]);
+
+    ImGui::SameLine();
+    ImGui::BeginDisabled(is_std);
+    if (ImGui::Button("Delete"))
+        ImGui::OpenPopup("Delete Theme?");
+    ImGui::EndDisabled();
+
+    if (ImGui::BeginPopupModal("Delete Theme?", nullptr,
+                               ImGuiWindowFlags_AlwaysAutoResize))
+    {
+        ImGui::TextWrapped("Are you sure you want to delete this theme "
+                            "and discard all of its settings?");
+        if (ImGui::Button("Yes", ImVec2(80, 0)))
+        {
+            char keybuf[256];
+            const char *active = get_active_profile_name();
+            get_settings_key_for(keybuf, sizeof(keybuf), active);
+            RegDeleteKey(HKEY_CURRENT_USER, keybuf);
+
+            opt_refresh_profile_list();
+            if (opt_profile_sel_ >= 0)
+            {
+                win_->set_game_specific_profile(
+                    opt_profile_names_[opt_profile_sel_]);
+                opt_on_profile_change();
+            }
+
+            ImGui::CloseCurrentPopup();
+        }
+        ImGui::SameLine();
+        if (ImGui::Button("No", ImVec2(80, 0)))
+            ImGui::CloseCurrentPopup();
+        ImGui::EndPopup();
+    }
+
+    ImGui::Spacing();
+    ImGui::Text("Description:");
+    ImGui::BeginDisabled(is_std);
+    ImGui::SetNextItemWidth(-1);
+    if (ImGui::InputText("##ThemeDesc", opt_desc_, sizeof(opt_desc_)))
+        set_profile_desc(opt_desc_);
+    ImGui::EndDisabled();
+
+    ImGui::Spacing();
+    if (ImGui::Button("Customize Theme...", ImVec2(140, 0)))
+        run_appearance_dlg(opt_owner_hwnd_, win_, FALSE);
+    ImGui::SameLine();
+    ImGui::TextWrapped("This lets you customize the fonts, colors, and "
+                        "other visual settings of the selected theme.");
+
+    ImGui::Spacing();
+    ImGui::BeginDisabled(!is_std);
+    if (ImGui::Button("Reset to Defaults", ImVec2(140, 0)))
+        ImGui::OpenPopup("Reset Theme?");
+    ImGui::EndDisabled();
+    ImGui::SameLine();
+    ImGui::TextWrapped("If a standard, pre-defined theme is selected, you "
+                        "can reset the theme to its factory defaults.  Use "
+                        "this if you've made changes you don't want to "
+                        "keep.");
+
+    if (ImGui::BeginPopupModal("Reset Theme?", nullptr,
+                               ImGuiWindowFlags_AlwaysAutoResize))
+    {
+        ImGui::TextWrapped(
+            "Resetting will discard any customizations you've made to "
+            "this theme's fonts, colors, and other visual settings.  Are "
+            "you sure you want to discard your changes and reset the "
+            "theme to its default settings?");
+        if (ImGui::Button("Yes", ImVec2(80, 0)))
+        {
+            set_theme_defaults(get_active_profile_name());
+            save();
+            schedule_reformat(FALSE);
+            notify_sound_pref_change();
+            opt_on_profile_change();
+            ImGui::CloseCurrentPopup();
+        }
+        ImGui::SameLine();
+        if (ImGui::Button("No", ImVec2(80, 0)))
+            ImGui::CloseCurrentPopup();
+        ImGui::EndPopup();
+    }
+
+    /* "New Theme" name-entry popup, replacing CTadsDialogNewProfile */
+    if (opt_new_profile_popup_pending_)
+    {
+        ImGui::OpenPopup("New Theme");
+        opt_new_profile_popup_pending_ = false;
+    }
+    if (ImGui::BeginPopupModal("New Theme", nullptr,
+                               ImGuiWindowFlags_AlwaysAutoResize))
+    {
+        ImGui::Text("Theme name:");
+        ImGui::SetNextItemWidth(220);
+        bool enter = ImGui::InputText(
+            "##NewThemeName", opt_new_profile_name_,
+            sizeof(opt_new_profile_name_),
+            ImGuiInputTextFlags_EnterReturnsTrue);
+        if (opt_new_profile_err_[0] != '\0')
+        {
+            ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.4f, 1.0f), "%s",
+                               opt_new_profile_err_);
+        }
+
+        bool ok_clicked = ImGui::Button("OK", ImVec2(80, 0));
+        ImGui::SameLine();
+        bool cancel_clicked = ImGui::Button("Cancel", ImVec2(80, 0));
+
+        if (cancel_clicked)
+        {
+            ImGui::CloseCurrentPopup();
+        }
+        else if ((enter || ok_clicked) && opt_new_profile_name_[0] != '\0')
+        {
+            opt_new_profile_err_[0] = '\0';
+
+            if (strlen(opt_new_profile_name_) > 128)
+            {
+                strcpy(opt_new_profile_err_,
+                       "This theme name is too long.  Please choose a "
+                       "shorter name.");
+            }
+            else if (strchr(opt_new_profile_name_, '\\') != 0)
+            {
+                strcpy(opt_new_profile_err_,
+                       "The character '\\' is not allowed in a theme "
+                       "name.");
+            }
+            else
+            {
+                int dup = FALSE;
+                for (int i = 0 ; i < opt_profile_count_ ; ++i)
+                {
+                    if (stricmp(opt_profile_names_[i],
+                                opt_new_profile_name_) == 0)
+                    {
+                        dup = TRUE;
+                        break;
+                    }
+                }
+
+                if (dup)
+                {
+                    strcpy(opt_new_profile_err_,
+                           "A theme with this name already exists.  You "
+                           "must give each theme a unique name.");
+                }
+                else
+                {
+                    set_profile_desc(opt_desc_);
+                    save();
+                    save_as(opt_new_profile_name_);
+                    win_->set_game_specific_profile(opt_new_profile_name_);
+                    set_profile_desc("");
+
+                    opt_refresh_profile_list();
+                    opt_on_profile_change();
+
+                    ImGui::CloseCurrentPopup();
+                }
+            }
+        }
+
+        ImGui::EndPopup();
+    }
+}
+
+/*
+ *   Keyboard tab.  Mirrors CHtmlDialogKeys.
+ */
+void CHtmlPreferences::opt_render_keys_tab()
+{
+    ImGui::Text("Ctrl+V");
+    if (ImGui::RadioButton("Page Down (Paste is Ctrl+Y)",
+                           opt_emacs_ctrl_v_ != 0))
+    {
+        opt_emacs_ctrl_v_ = TRUE;
+        set_emacs_ctrl_v(opt_emacs_ctrl_v_);
+    }
+    if (ImGui::RadioButton("Paste", opt_emacs_ctrl_v_ == 0))
+    {
+        opt_emacs_ctrl_v_ = FALSE;
+        set_emacs_ctrl_v(opt_emacs_ctrl_v_);
+    }
+
+    ImGui::Spacing();
+    ImGui::Text("Alt+V");
+    if (ImGui::RadioButton("Page Up", opt_emacs_alt_v_ != 0))
+    {
+        opt_emacs_alt_v_ = TRUE;
+        set_emacs_alt_v(opt_emacs_alt_v_);
+    }
+    if (ImGui::RadioButton("Standard Windows Menu Shortcut",
+                           opt_emacs_alt_v_ == 0))
+    {
+        opt_emacs_alt_v_ = FALSE;
+        set_emacs_alt_v(opt_emacs_alt_v_);
+    }
+
+    ImGui::Spacing();
+    ImGui::Text("Up/Down Arrow Keys");
+    if (ImGui::RadioButton("Scroll window contents", opt_arrow_scroll_ != 0))
+    {
+        opt_arrow_scroll_ = TRUE;
+        set_arrow_keys_always_scroll(opt_arrow_scroll_);
+    }
+    if (ImGui::RadioButton("Command history", opt_arrow_scroll_ == 0))
+    {
+        opt_arrow_scroll_ = FALSE;
+        set_arrow_keys_always_scroll(opt_arrow_scroll_);
+    }
+}
+
+/*
+ *   File Safety tab.  Mirrors CHtmlDialogSafety; the read/write button
+ *   arrays there (rbuttons_/wbuttons_) collapse to exactly three selectable
+ *   levels per side, which is what's reproduced here directly.
+ */
+void CHtmlPreferences::opt_render_filesafety_tab()
+{
+    struct level_opt_t { const char *label; int level; };
+
+    ImGui::TextUnformatted("File Read Access:");
+    static const level_opt_t rlevels[] = {
+        { "No read access", 4 },
+        { "Read from game folder only", 2 },
+        { "Read from any file", 0 },
+    };
+    for (int i = 0 ; i < 3 ; ++i)
+    {
+        if (ImGui::RadioButton(rlevels[i].label,
+                               opt_safety_read_ == rlevels[i].level))
+        {
+            opt_safety_read_ = rlevels[i].level;
+            set_file_safety_level(opt_safety_read_, opt_safety_write_);
+        }
+    }
+
+    ImGui::Spacing();
+    ImGui::TextUnformatted("File Write Access:");
+    static const level_opt_t wlevels[] = {
+        { "No write access", 4 },
+        { "Write to game folder only", 1 },
+        { "Write to any file", 0 },
+    };
+    for (int i = 0 ; i < 3 ; ++i)
+    {
+        if (ImGui::RadioButton(wlevels[i].label,
+                               opt_safety_write_ == wlevels[i].level))
+        {
+            opt_safety_write_ = wlevels[i].level;
+            set_file_safety_level(opt_safety_read_, opt_safety_write_);
+        }
+    }
+
+    ImGui::Spacing();
+    ImGui::TextWrapped(
+        "Note: The File Safety Setting applies only to explicit file "
+        "operations by the game.  It does not affect saving or restoring "
+        "games or logging a transcript to a file.");
+}
+
+/*
+ *   Network Safety tab.  Mirrors CHtmlDialogNetSafety.
+ */
+void CHtmlPreferences::opt_render_netsafety_tab()
+{
+    struct level_opt_t { const char *label; int level; };
+
+    ImGui::TextWrapped(
+        "Client Safety (access FROM game to network services):");
+    static const level_opt_t cli[] = {
+        { "Maximum safety: No network access", 2 },
+        { "Local: Access to services on this computer only", 1 },
+        { "Minimum safety: All network access allowed", 0 },
+    };
+    for (int i = 0 ; i < 3 ; ++i)
+    {
+        if (ImGui::RadioButton(cli[i].label, opt_net_client_ == cli[i].level))
+        {
+            opt_net_client_ = cli[i].level;
+            set_net_safety_level(opt_net_client_, opt_net_server_);
+        }
+    }
+
+    ImGui::Spacing();
+    ImGui::TextWrapped(
+        "Server Safety (access TO game from network clients):");
+    static const level_opt_t srv[] = {
+        { "Maximum safety: No server capabilities", 2 },
+        { "Local: Access from this computer only", 1 },
+        { "Minimum safety: Access from any computer", 0 },
+    };
+    for (int i = 0 ; i < 3 ; ++i)
+    {
+        if (ImGui::RadioButton(srv[i].label, opt_net_server_ == srv[i].level))
+        {
+            opt_net_server_ = srv[i].level;
+            set_net_safety_level(opt_net_client_, opt_net_server_);
+        }
+    }
+}
+
+/*
+ *   Memory tab.  Mirrors CHtmlDialogMem.
+ */
+void CHtmlPreferences::opt_render_mem_tab()
+{
+    static const char *settings[] =
+    {
+        "No Limit", "32 KBytes", "64 KBytes", "96 KBytes", "128 KBytes",
+    };
+    const int settings_count = sizeof(settings) / sizeof(settings[0]);
+
+    ImGui::TextWrapped(
+        "Use this setting to limit the amount of previously-displayed "
+        "text that the system will keep in memory.  Use a smaller size "
+        "if your system runs low on memory during long game sessions.");
+    ImGui::Spacing();
+
+    ImGui::AlignTextToFramePadding();
+    ImGui::Text("Text Memory Limit");
+    ImGui::SameLine();
+    ImGui::SetNextItemWidth(150);
+    if (ImGui::BeginCombo("##MemLimit", settings[opt_mem_idx_]))
+    {
+        for (int i = 0 ; i < settings_count ; ++i)
+        {
+            bool sel = (i == opt_mem_idx_);
+            if (ImGui::Selectable(settings[i], sel))
+            {
+                opt_mem_idx_ = i;
+                set_mem_text_limit((unsigned long)i * (unsigned long)32768);
+            }
+            if (sel)
+                ImGui::SetItemDefaultFocus();
+        }
+        ImGui::EndCombo();
+    }
+}
+
+/*
+ *   Starting tab.  Mirrors CHtmlDialogStart; the folder browse button still
+ *   uses the native CTadsDialogFolderSel2 dialog (see the file header
+ *   comment above for why that's fine to leave as-is for now).
+ */
+void CHtmlPreferences::opt_render_start_tab()
+{
+    bool ask = (opt_ask_game_ != 0);
+    if (ImGui::Checkbox("Ask for a game to open on starting HTML TADS",
+                        &ask))
+    {
+        opt_ask_game_ = ask ? TRUE : FALSE;
+        set_init_ask_game(opt_ask_game_);
+    }
+
+    ImGui::Spacing();
+    ImGui::Text("Initial game folder:");
+    ImGui::SetNextItemWidth(300);
+    if (ImGui::InputText("##InitFolder", opt_init_folder_,
+                         sizeof(opt_init_folder_)))
+        set_init_open_folder(opt_init_folder_);
+    ImGui::SameLine();
+    if (ImGui::Button("Browse..."))
+    {
+        textchar_t fname[OSFNMAX];
+        strcpy(fname, opt_init_folder_);
+        if (fname[0] == '\0')
+            GetCurrentDirectory(sizeof(fname), fname);
+
+        if (CTadsDialogFolderSel2::run_select_folder(
+                opt_owner_hwnd_, CTadsApp::get_app()->get_instance(),
+                "&Initial \"Open\" Folder:", "Select Initial Folder",
+                fname, sizeof(fname), fname, 0, 0))
+        {
+            strncpy(opt_init_folder_, fname, sizeof(opt_init_folder_) - 1);
+            opt_init_folder_[sizeof(opt_init_folder_) - 1] = '\0';
+            set_init_open_folder(opt_init_folder_);
+
+            /* make the new folder active for the next "open" dialog too */
+            CTadsApp::get_app()->set_openfile_path(opt_init_folder_);
+        }
+    }
+}
+
+/*
+ *   Quitting tab.  Mirrors CHtmlDialogQuit.
+ */
+void CHtmlPreferences::opt_render_quit_tab()
+{
+    struct close_opt_t { const char *label; int val; };
+
+    ImGui::TextUnformatted("Action on closing game window:");
+    static const close_opt_t close_opts[] = {
+        { "Send QUIT command to game", HTML_PREF_CLOSE_CMD },
+        { "Prompt before closing window and exiting", HTML_PREF_CLOSE_PROMPT },
+        { "Close window and exit without prompting", HTML_PREF_CLOSE_NOW },
+    };
+    for (int i = 0 ; i < 3 ; ++i)
+    {
+        if (ImGui::RadioButton(close_opts[i].label,
+                               opt_close_action_ == close_opts[i].val))
+        {
+            opt_close_action_ = close_opts[i].val;
+            set_close_action(opt_close_action_);
+        }
+    }
+
+    ImGui::Spacing();
+    ImGui::TextUnformatted("After quitting the game:");
+    static const close_opt_t quit_opts[] = {
+        { "Wait for a keystroke, then exit", HTML_PREF_POSTQUIT_EXIT },
+        { "Keep running", HTML_PREF_POSTQUIT_KEEP },
+    };
+    for (int i = 0 ; i < 2 ; ++i)
+    {
+        if (ImGui::RadioButton(quit_opts[i].label,
+                               opt_postquit_action_ == quit_opts[i].val))
+        {
+            opt_postquit_action_ = quit_opts[i].val;
+            set_postquit_action(opt_postquit_action_);
+        }
+    }
+}
+
+/*
+ *   Game Chest tab.  Mirrors CHtmlDialogGameChest; the browse buttons still
+ *   use the native GetOpenFileName() common dialog (see the file header
+ *   comment above for why that's fine to leave as-is for now).
+ */
+void CHtmlPreferences::opt_render_gamechest_tab()
+{
+    ImGui::TextWrapped(
+        "Game Chest database file: this is where your list of game links "
+        "is stored.  Game Chest puts this file in the \"TADS\" folder in "
+        "\"My Documents\" by default, but you can choose a custom "
+        "location.");
+    ImGui::SetNextItemWidth(-90);
+    if (ImGui::InputText("##GcFile", opt_gc_file_, sizeof(opt_gc_file_)))
+        set_gc_database(opt_gc_file_);
+    ImGui::SameLine();
+    if (ImGui::Button("Browse...##GcFileBrowse"))
+    {
+        char fname[OSFNMAX], dir[OSFNMAX];
+        strcpy(fname, opt_gc_file_);
+        if (fname[0] == '\0')
+        {
+            GetCurrentDirectory(sizeof(dir), dir);
+        }
+        else
+        {
+            textchar_t *root;
+            os_get_path_name(dir, sizeof(dir), fname);
+            root = os_get_root_name(fname);
+            memmove(fname, root, strlen(root) + 1);
+        }
+
+        OPENFILENAME5 info;
+        info.hwndOwner = opt_owner_hwnd_;
+        info.hInstance = CTadsApp::get_app()->get_instance();
+        info.lpstrFilter = "Game Chest Database\0GameChest.txt\0";
+        info.lpstrFile = fname;
+        info.nMaxFile = sizeof(fname);
+        info.lpstrTitle = "Select the Game Chest database file";
+        info.Flags = OFN_PATHMUSTEXIST | OFN_HIDEREADONLY | OFN_NOCHANGEDIR
+                     | OFN_ENABLESIZING;
+        info.lpstrInitialDir = dir;
+        CTadsDialog::set_filedlg_center_hook((OPENFILENAME *)&info);
+
+        if (GetOpenFileName((OPENFILENAME *)&info))
+        {
+            strncpy(opt_gc_file_, fname, sizeof(opt_gc_file_) - 1);
+            opt_gc_file_[sizeof(opt_gc_file_) - 1] = '\0';
+            set_gc_database(opt_gc_file_);
+        }
+    }
+    ImGui::SameLine();
+    if (ImGui::Button("Restore Default##GcFileDefault"))
+    {
+        char fname[OSFNMAX];
+        if (CTadsApp::get_my_docs_path(fname, sizeof(fname)))
+        {
+            char dir[OSFNMAX];
+            strcpy(dir, fname);
+            os_build_full_path(fname, sizeof(fname), dir,
+                               "TADS\\GameChest.txt");
+        }
+        else
+        {
+            strcpy(fname, "GameChest.txt");
+        }
+
+        strncpy(opt_gc_file_, fname, sizeof(opt_gc_file_) - 1);
+        opt_gc_file_[sizeof(opt_gc_file_) - 1] = '\0';
+        set_gc_database(opt_gc_file_);
+    }
+
+    ImGui::Spacing();
+    ImGui::TextWrapped(
+        "Game Chest background picture.  You can choose a custom image "
+        "(JPEG or PNG) for the background, or leave this blank if you "
+        "don't want a background picture at all.");
+    ImGui::SetNextItemWidth(-90);
+    if (ImGui::InputText("##GcBkg", opt_gc_bkg_, sizeof(opt_gc_bkg_)))
+        set_gc_bkg(opt_gc_bkg_);
+    ImGui::SameLine();
+    if (ImGui::Button("Browse...##GcBkgBrowse"))
+    {
+        char fname[OSFNMAX], dir[OSFNMAX];
+        strcpy(fname, opt_gc_bkg_);
+        if (fname[0] == '\0')
+        {
+            GetCurrentDirectory(sizeof(dir), dir);
+        }
+        else
+        {
+            textchar_t *root;
+            os_get_path_name(dir, sizeof(dir), fname);
+            root = os_get_root_name(fname);
+            memmove(fname, root, strlen(root) + 1);
+        }
+
+        OPENFILENAME5 info;
+        info.hwndOwner = opt_owner_hwnd_;
+        info.hInstance = CTadsApp::get_app()->get_instance();
+        info.lpstrFilter = "Images\0*.jpg;*.jpeg;*.jpe;*.png\0";
+        info.lpstrFile = fname;
+        info.nMaxFile = sizeof(fname);
+        info.lpstrTitle =
+            "Select an image to use as the Game Chest background";
+        info.Flags = OFN_FILEMUSTEXIST | OFN_PATHMUSTEXIST | OFN_HIDEREADONLY
+                     | OFN_NOCHANGEDIR | OFN_ENABLESIZING;
+        info.lpstrInitialDir = dir;
+        CTadsDialog::set_filedlg_center_hook((OPENFILENAME *)&info);
+
+        if (GetOpenFileName((OPENFILENAME *)&info))
+        {
+            strncpy(opt_gc_bkg_, fname, sizeof(opt_gc_bkg_) - 1);
+            opt_gc_bkg_[sizeof(opt_gc_bkg_) - 1] = '\0';
+            set_gc_bkg(opt_gc_bkg_);
+        }
+    }
+    ImGui::SameLine();
+    if (ImGui::Button("Restore Default##GcBkgDefault"))
+    {
+        strcpy(opt_gc_bkg_, "exe:gamechest/bkg.png");
+        set_gc_bkg(opt_gc_bkg_);
+    }
+}
+
+
+/*
+ *   Schedule reformatting of the window
  */
 void CHtmlPreferences::schedule_reformat(int more_mode)
 {

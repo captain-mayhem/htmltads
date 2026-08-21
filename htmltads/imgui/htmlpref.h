@@ -208,6 +208,23 @@ public:
     /* run the dialog */
     void run_preferences_dlg(HWND owner, class CHtmlWinWithPrefs *win);
 
+    /*
+     *   Open the ImGui-native "Options" dialog (the guit3 replacement for
+     *   run_preferences_dlg()'s native property sheet).  This just marks the
+     *   dialog as pending open and snapshots the current preference values
+     *   into the dialog's working state; the dialog itself is drawn every
+     *   frame by render_options_dialog(), called from
+     *   CHtmlSys_mainwin::do_render().
+     */
+    void open_options_dialog(HWND owner, class CHtmlWinWithPrefs *win);
+
+    /*
+     *   Draw the Options dialog for the current ImGui frame, if it's open.
+     *   Safe to call unconditionally every frame; it's a no-op when the
+     *   dialog isn't open.
+     */
+    void render_options_dialog();
+
     /* run the profiles dialog */
     void run_profiles_dlg(HWND owner, class CHtmlWinWithPrefs *win);
 
@@ -970,6 +987,73 @@ private:
     int temp_net_client_safety_;
     int temp_net_server_safety_;
     int temp_net_safety_level_set_ : 1;
+
+    /* ------------------------------------------------------------------ */
+    /*
+     *   ImGui "Options" dialog state (see open_options_dialog() /
+     *   render_options_dialog() in htmlpref.cpp).  Unlike the old
+     *   property-sheet pages, there's no separate "Apply" step: each control
+     *   writes straight through to the preferences object as soon as it
+     *   changes, exactly like the rest of the already-ported ImGui chrome
+     *   (menu bar, toolbar).  These fields are just the dialog's working
+     *   copy of on-screen state (combo/radio selections, edit buffers).
+     */
+    bool opt_dlg_open_ = false;
+    bool opt_dlg_want_open_ = false;
+    HWND opt_owner_hwnd_ = 0;
+
+    /* Appearance tab */
+    char opt_desc_[128] = "";
+    char opt_profile_names_[64][128];
+    int opt_profile_count_ = 0;
+    int opt_profile_sel_ = -1;
+    bool opt_new_profile_popup_pending_ = false;
+    char opt_new_profile_name_[128] = "";
+    char opt_new_profile_err_[256] = "";
+
+    /* Keyboard tab */
+    int opt_emacs_ctrl_v_ = 0;
+    int opt_arrow_scroll_ = 0;
+    int opt_emacs_alt_v_ = 0;
+
+    /* File Safety tab */
+    int opt_safety_read_ = 0;
+    int opt_safety_write_ = 0;
+
+    /* Network Safety tab */
+    int opt_net_client_ = 0;
+    int opt_net_server_ = 0;
+
+    /* Memory tab */
+    int opt_mem_idx_ = 0;
+
+    /* Starting tab */
+    int opt_ask_game_ = 0;
+    char opt_init_folder_[OSFNMAX] = "";
+
+    /* Quitting tab */
+    int opt_close_action_ = 0;
+    int opt_postquit_action_ = 0;
+
+    /* Game Chest tab */
+    char opt_gc_file_[OSFNMAX] = "";
+    char opt_gc_bkg_[OSFNMAX] = "";
+
+    /* refresh opt_profile_names_/opt_profile_count_/opt_profile_sel_ */
+    void opt_refresh_profile_list();
+
+    /* update opt_* Appearance-tab state for the (newly) active profile */
+    void opt_on_profile_change();
+
+    /* individual tab renderers, called from render_options_dialog() */
+    void opt_render_appearance_tab();
+    void opt_render_keys_tab();
+    void opt_render_filesafety_tab();
+    void opt_render_netsafety_tab();
+    void opt_render_mem_tab();
+    void opt_render_start_tab();
+    void opt_render_quit_tab();
+    void opt_render_gamechest_tab();
 };
 
 #endif /* HTMLPREF_H */

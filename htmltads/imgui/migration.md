@@ -31,8 +31,10 @@ Progress so far (25+ commits): GLFW/ImGui window creation, keyboard input, FreeT
 and metrics, text display, child-window handling, coloring, resizing, link coloring, positioning,
 character-encoding fixes, image rendering via GL textures, text selection, mouse hover, and text
 highlighting. This is genuinely useful progress, and now the application chrome has its first
-ImGui-native pieces too: the menu bar, toolbar, and status bar (§3.1, §3.2) are all done. Dialogs,
-window creation itself, and the remaining chrome (banners/scrollbars) are still 100% Win32.
+ImGui-native pieces too: the menu bar, toolbar, and status bar (§3.1, §3.2) are all done, and the first
+dialog - Options (§3.3) - is done too. Window creation itself, the remaining chrome
+(banners/scrollbars), and the rest of the dialogs (find/replace, folder picker, Customize Theme) are
+still 100% Win32.
 
 ## 2. Root cause: "both windows open"
 
@@ -446,14 +448,73 @@ issue).
 All dialog infrastructure (`tadsdlg.cpp`/`tadsdlg2.cpp`, `htmlpref.cpp`, `foldsel2.cpp`,
 `w32fndlg.cpp`) is built on `CreateDialogParam`/`DialogBoxParam` with resource-defined (`.rc`) layouts,
 `WM_INITDIALOG`/`WM_COMMAND` handlers, and native controls (buttons, tree views, tab controls via
-`tadsdlg2.cpp`'s `CreateWindow("SysTreeView32", ...)`). None of this has been started.
+`tadsdlg2.cpp`'s `CreateWindow("SysTreeView32", ...)`).
 
-**Plan**: this is the largest remaining chunk of work by file count. Recommend introducing an
-ImGui-native modal/dialog base class mirroring the current `CTadsDialog` API surface (so call sites
-mostly stay the same), then porting dialogs one at a time in order of how often they're hit during
-normal play (probably: preferences → find/replace → folder picker → the rest), each rebuilt as a plain
-data structure of controls drawn with `ImGui::Begin(..., ImGuiWindowFlags_Modal)`/checkboxes/combos/
-input fields instead of a `.rc` template.
+**The "Options" dialog (Edit > Options, `run_preferences_dlg()`'s native property sheet) is now
+ImGui-native - done.** Rather than building the general `CTadsDialog`-mirroring base class this section
+used to recommend, this went with a more direct approach that turned out not to need one:
+`CHtmlPreferences::open_options_dialog()`/`render_options_dialog()` (new, in
+[htmlpref.cpp](htmlpref.cpp)/[htmlpref.h](htmlpref.h)) draw the whole dialog - all 7-8 tabs
+(Appearance/Keyboard/File Safety/Network Safety/Memory/Starting/Quitting, plus Game Chest when
+`is_game_chest_present()`) - as one `ImGui::BeginPopupModal()` with a `BeginTabBar()`, called from
+`CHtmlSys_mainwin::do_render()` every frame. The `ID_VIEW_OPTIONS` menu handler
+([htmlgui.cpp](htmlgui.cpp)) now calls `open_options_dialog()` instead of the old (blocking)
+`run_preferences_dlg()`; the old property-sheet code and all eight `CHtmlDialog*PropPage` classes are
+left in place unused, same "harmless dead code" reasoning as the never-removed native menu elsewhere in
+this port.
+
+**No "Apply" staging step.** The original pages worked in two phases - edit controls, then commit
+everything on `PSN_APPLY` via each page's `has_changes(save)` method. The ImGui version drops that
+entirely: every control writes straight through to the corresponding `CHtmlPreferences` setter the
+instant it changes (radio buttons on click, text fields via `InputText()`'s changed-this-frame return
+value), exactly like the rest of the already-ported ImGui chrome (menu bar, toolbar) reads/writes
+`prefs_` live. This matches the *original* app's own persistence model, not just a simplification: the
+per-field setters (`set_emacs_ctrl_v()` etc.) only ever mutate the in-memory property list -
+`CHtmlPreferences::save()` (the actual registry write) is called from very few places, mainly
+`CHtmlSys_mainwin`'s destructor (app exit) and on a profile switch - so the native dialog's "Apply"
+button never persisted anything to disk either; it just committed the dialog's pending edits into the
+same in-memory object the ImGui version now writes to directly.
+
+**What's still native, deliberately.** A few sub-flows reachable from the Options dialog remain
+Win32 for now: "Customize Theme..." (Appearance tab; opens `run_appearance_dlg()`'s own
+Fonts/Colors/More/Media property sheet - a comparably large second dialog, out of scope for this pass),
+the Starting tab's folder-browse button (`CTadsDialogFolderSel2::run_select_folder()`), and the Game
+Chest tab's two file-browse buttons (`GetOpenFileName()`). The "New Theme" name-entry prompt, which
+*was* a small custom native dialog (`CTadsDialogNewProfile`, `DLG_NEW_PROFILE`), was reimplemented as a
+small ImGui popup instead of kept native, since its only dependency on Win32 was a real `HWND` combo box
+handle passed in purely for a duplicate-name check - easier to redo as a plain loop over the ImGui
+dialog's own already-in-memory profile list than to keep threading a native control handle through.
+Deleting/resetting a theme reuses plain `MessageBox()` confirmation prompts, same as the original.
+
+These remaining pieces are safe to leave native, and were verified (not just assumed) to still work
+correctly when triggered from an ImGui button's click handler: `PropertySheet()`, `GetOpenFileName()`,
+`DialogBoxParam()` (which is what both `CTadsDialogFolderSel2` and the old `CTadsDialogNewProfile` were
+built on) and `MessageBox()` are all *modal, self-pumping* Win32 APIs - each one blocks the calling
+thread and internally runs its own `GetMessage`/`DispatchMessage` loop for the duration of the call. That
+loop is entirely independent of `guit3`'s own (nonexistent - see §2) main message pump, unlike the
+now-fixed WM_COMMAND-routed *non-modal* child controls (banners, scrollbars, the old toolbar/menu) that
+motivated this whole port. Confirmed empirically too: `GetOpenFileName()` was already in active,
+working use elsewhere (File > Open) before this change, and `File > Open`/File-safety-style native
+common dialogs have worked throughout the port. Practical implication for future dialog work: a modal
+system/common dialog invoked from an ImGui callback is safe to leave native and defer; a custom
+non-modal Win32 child control is not, and needs the ImGui treatment before it'll do anything at all.
+
+**Verification**: built `guit3` and drove it via the PowerShell screenshot recipe in §6 - clicked
+Edit > Options, confirmed the Appearance tab (theme combo showing "Multimedia", Delete/description
+correctly disabled since it's a standard theme, Reset to Defaults correctly enabled), switched to the
+Keyboard tab and clicked a radio button, switched away and back to confirm the change stuck, checked
+File Safety and Network Safety tabs both show sane non-default-looking real values (game-folder-only /
+local-only, i.e. genuinely read from the preferences object, not just placeholder UI), and clicked
+Close to confirm the popup dismisses cleanly without disturbing the main window underneath (command
+input line still live immediately after).
+
+**Not yet ported**: find/replace (`w32fndlg.cpp`), the folder-picker dialog itself
+(`CTadsDialogFolderSel2`/`foldsel2.cpp`, still only *called* from ImGui code, not rewritten), and
+`run_appearance_dlg()`'s Fonts/Colors/More/Media "Customize Theme" property sheet. The general
+`CTadsDialog`-mirroring base class this section used to recommend turned out not to be necessary for
+the Options dialog - whether it's worth building depends on whether the remaining dialogs turn out to
+share enough structure to benefit from one; worth revisiting once find/replace or Customize Theme is
+tackled rather than building it speculatively now.
 
 ### 3.4 Child "windows" (banners, scrollbars, tooltips, size-grip)
 `CTadsWin` treats banners, scrollbars, and the resize grip as real child `HWND`s
@@ -545,8 +606,11 @@ Windows-locked.
 3. **Child windows** (§3.4): scrollbars/banners/size-grip — needed so the top-level HWND can actually
    be deleted, not just hidden. Skip MDI-frame/MDI-client child-window paths entirely (§4) — the client
    doesn't need them.
-4. **Dialog framework** (§3.3): biggest chunk; do this after chrome is ImGui-native so dialogs can be
-   simple ImGui modals over an all-ImGui main window instead of native popups over a mixed window.
+4. **Dialogs** (§3.3): biggest chunk by file count. The Options dialog (Edit > Options) is **done** -
+   ImGui modal with a tab bar, no separate framework needed. Still remaining: find/replace
+   (`w32fndlg.cpp`), the folder-picker dialog (`foldsel2.cpp`, only called from ImGui code so far, not
+   itself rewritten), and the "Customize Theme" Fonts/Colors/More/Media property sheet
+   (`run_appearance_dlg()`).
 5. **Font/image cleanup** (§3.5, §3.6): remove now-dead GDI code paths once nothing still calls them.
 6. **Gate the Web UI behind `#ifdef`s** (§3.8/§4): get `tadswebctl.*`/`w32webui.h` and their
    COM/ActiveX calls compiling out cleanly for `guit3` rather than porting them now.
