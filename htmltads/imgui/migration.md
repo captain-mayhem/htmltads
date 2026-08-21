@@ -159,6 +159,130 @@ game command into the main window while the debug window was open (main window i
 Not yet covered: keyboard-focus routing between the two windows (the debug log is presumably read-only
 so this may not matter) and live resizing (deliberately left off, see above).
 
+**Correction to the above: `-debugwin` still showed a real, blank second OS window — fixed.** Reported
+as "the debug window opens, but it is displayed with a strange black border and no menu." The dragging/
+click-routing fixes above were real and necessary, but incomplete: they fixed the *ImGui-rendered*
+debug-log overlay, while a second, entirely separate problem meant a real native window was *also* on
+screen at the same time, sitting on top of (and visually indistinguishable in front of) that overlay.
+
+Root cause: `CTadsWin::create_system_window()` ([tadswin.cpp:513](tadswin.cpp#L513)) creates a real
+Win32 `HWND` (`handle_`) unconditionally for every window, top-level or not — see §2's "both windows
+open" writeup, which describes exactly this for the *main* window, but the fix that followed
+(`setVisible()` hiding `handle_` for top-level windows) was accidentally scoped to only apply when the
+window also owns a GLFW context (`m_window != 0`). That's true for the main window, but
+`CHtmlSys_dbglogwin` is a *second* top-level window (`parent_ == nullptr`,
+`w32main.cpp:552`); `CTadsSyswin::syswin_create_system_window()`'s GLFW overload
+([tadswin.cpp:3617](tadswin.cpp#L3617)) deliberately refuses to create a second real GLFW window ("we
+want only one real main window") and returns `nullptr`, so the debug window's `m_window` is always
+`nullptr`. `setVisible()`'s `if (m_window)` check was therefore always false for it, falling through to
+the plain-Win32-window `else` branch and calling `ShowWindow(handle_, SW_SHOW)` — putting a real, blank,
+undecorated-by-content native window on screen, with no `WM_PAINT` ever reaching it (no message pump,
+per §2) and no native menu rendering meaningfully either. That real window is exactly what "black border
+and no menu" was describing, layered right on top of the correctly-working ImGui debug-log overlay
+underneath it.
+
+**Fix**: `CTadsWin::setVisible()` ([tadswin.cpp:2594](tadswin.cpp#L2594)) now branches on `parent_ ==
+nullptr` (i.e. "is this a top-level window at all") rather than `m_window != 0` (i.e. "does this
+top-level window happen to also own a real GLFW context"). Every top-level window's `handle_` now stays
+permanently hidden; only the one that actually owns a GLFW window (`m_window`, the main window only)
+gets `glfwShowWindow`/`glfwHideWindow` calls, same as before. A secondary top-level window like the debug
+log has nothing to show/hide at that point at all — it's purely an ImGui overlay — and `isVisible()`
+(which gates that overlay's rendering in `do_render()`) already reflects `m_visible` regardless of which
+branch ran. Verified by enumerating the process's windows with `EnumWindows` before and after: before the
+fix, `guit3.exe -debugwin` had **two** visible top-level windows (`GLFW30` plus a second, real
+`TADS_Window`-class HWND positioned at the debug window's saved screen rect); after the fix, only
+`GLFW30` is visible, and both `TADS_Window`-class HWNDs (main and debug) report `IsWindowVisible() ==
+FALSE`.
+
+**The debug window's own menu — ported.** `IDR_DEBUGWIN_MENU` (`win32/htmlcmn.rc`: File > Hide Window;
+Edit > Copy, Select All) was previously flagged in §3.1 as one of the not-yet-ported native menus (its
+`load_menu()`/`SetMenu()` call, [htmlgui.cpp](htmlgui.cpp), was exactly as dead as the main window's old
+native menu, for the same no-message-pump reason). `CHtmlSys_dbglogwin::render_menu_bar()`
+([htmlgui.cpp](htmlgui.cpp), declared in [htmlgui.h](htmlgui.h) next to `load_menu()`) now draws it as an
+in-window ImGui menu bar, dispatching through `check_command()`/`do_command()` on `this` exactly like
+`CHtmlSys_mainwin::render_menu_bar()` does (§3.1) — both command IDs (`ID_FILE_HIDE`, `ID_EDIT_COPY`,
+`ID_EDIT_SELECTALL`) were already fully implemented in `CHtmlSys_dbglogwin::do_command()`/
+`check_command()`, just never reachable from any UI before this.
+
+Unlike the main window, the debug window isn't the main ImGui viewport, so it can't use
+`BeginMainMenuBar()`/`BeginViewportSideBar()` (those are viewport-anchored). Instead,
+`CHtmlSys_dbglogwin::do_render_content_begin()` (new override) adds `ImGuiWindowFlags_MenuBar` to the
+base top-level `Begin()` call it otherwise duplicates from `CTadsWin::do_render_content_begin()`'s
+parentless branch, then calls `render_menu_bar()` — which wraps a plain `ImGui::BeginMenuBar()`/
+`EndMenuBar()` pair — immediately afterwards, before any child content renders. `ImGui::BeginMenuBar()`
+must be called directly inside the `Begin()`/`End()` it belongs to (not from a nested child window), so
+this has to happen in `do_render_content_begin()` itself rather than, say, a separate call from
+`do_render()` the way the main window's `render_menu_bar()` is invoked.
+
+**Verification note for a fresh session**: `Graphics.CopyFromScreen()` can silently capture the Windows
+*lock screen* instead of the real desktop — it returned the same stock photo regardless of which window/
+process/region was captured, which briefly looked like "screenshots don't work in this sandbox" until the
+user pointed out the session had been locked the whole time. Unlocking fixed it immediately, no code
+changes needed. If a screenshot recipe (§6) that worked before suddenly returns a suspiciously identical
+image across unrelated windows, check for a locked session before concluding the capture path is broken;
+`EnumWindows`/`IsWindowVisible` (a real Win32 API call, not a pixel capture) is a reasonable fallback for
+yes/no visibility questions in the meantime, but it can't diagnose a rendering/layout bug the way an
+actual screenshot can — see the very next entry, which needed real screenshots to crack.
+
+**Second, separate `-debugwin` bug: the panel rendered with a solid, unpainted band across its bottom
+edge — fixed.** Reported as "the black border is still there" *after* the two fixes just above had
+already landed and been verified by `EnumWindows` (no more phantom OS window) and by an early screenshot
+that only *looked* fine because it was cropped tighter than the actual gap. A later, full screenshot of
+the debug window showed a solid ~38px-tall dark band spanning the full width, directly beneath the white
+HTML content area and above the window's own bottom border — inside the window, not a second window
+behind it, and unaffected by two different attempted fixes to `CHtmlSysWin_win32_dbglog`'s (the debug
+log's HTML content panel, `get_html_panel()`) size before the real cause was found.
+
+**Diagnosis.** Suspected first that the panel was simply undersized (its size otherwise comes from a
+one-time `do_create()`-time snapshot of the now-permanently-hidden native `handle_`'s client rect — see
+the previous fix — which predates the menu bar above it and has no reason to match the window's real
+size). Fixing that (resizing the panel every frame via `calc_banner_layout()`, the same call
+`CHtmlSys_mainwin::recalc_banner_layout()` makes on `main_panel_`, keyed off `ImGui::GetContentRegionAvail()`
+computed *after* `render_menu_bar()`) changed nothing visible — the band was still there, same size, same
+place. That ruled out sizing and pointed at *positioning*: instrumented the panel's `BeginChild()` call to
+also paint its entire nominal rect solid magenta, and compared that against
+`ImGui::GetWindowDrawList()->GetClipRectMin()/Max()` at the same point. The magenta rect and the visible
+white area matched exactly (confirming the panel's *paintable* region was correct and un-clipped there) —
+but the clip rect's top edge sat exactly one menu-bar-height *below* the panel's own nominal top edge,
+while its bottom edge matched the panel's nominal bottom exactly. In other words, the panel's window was
+being positioned one menu-bar-height too high, and only the portion of it that happened to still fall
+inside its parent's actual content area (below the parent's own menu bar) was drawable at all — the
+17px-ish invisible strip was the part of the panel ImGui had to clip away because it overlapped the parent
+window's own menu bar chrome above it.
+
+**Root cause**: `CTadsWin::do_render_content_begin()`'s `parent_ != nullptr` branch
+([tadswin.cpp:1747](tadswin.cpp#L1747)) positions a child at `parent_pos + m_pos`, where `parent_pos` is
+`ImGui::GetWindowPos()` for the *parent* window — its absolute top-left corner, above its own title bar
+*and* menu bar, since (per the previous entry) the debug window draws its menu bar with a plain
+`ImGuiWindowFlags_MenuBar` inside its own single `Begin()`/`End()`, not via a separate
+`BeginMainMenuBar()` call the way the main window does. `calc_banner_layout()` (called from
+`CHtmlSys_dbglogwin::do_render_content_begin()` per the sizing fix above) was seeding the panel's `m_pos`
+at `(0, 0)` — correct only if `parent_pos` already excluded the menu bar, which for *this* window it
+doesn't. The main window's own children don't hit this, because there the content window is positioned at
+`viewport->WorkPos`, which the menu bar has *already* shrunk by the time it's read (see §3.1's
+`BeginViewportSideBar()` gotcha) — `GetWindowPos()` there already means "below the menu bar." For the
+debug window, menu bar and content share one `Begin()`, so `GetWindowPos()` means "above the menu bar,"
+and `(0, 0)` was the wrong origin for anything meant to start below it.
+
+**Fix**: [htmlgui.cpp](htmlgui.cpp), `CHtmlSys_dbglogwin::do_render_content_begin()` now anchors the
+panel's rect at `ImGui::GetCursorPos()` (the window-relative cursor position, already correctly advanced
+past the menu bar by `render_menu_bar()`'s `BeginMenuBar()`/`EndMenuBar()`) instead of `(0, 0)`, both for
+the rect's origin and, added to `avail`, its far corner. Verified by screenshot: the white HTML panel now
+fills the debug window's content area edge-to-edge, no dark band, in both a narrow crop and the full
+window.
+
+**Lesson for next time a "some of my child fills, some doesn't" symptom shows up**: don't jump straight to
+a sizing fix. Confirm size *and* position independently — paint the child's full nominal rect a
+throwaway solid color and diff it against `GetWindowDrawList()->GetClipRectMin()/Max()`; if the visible
+paint and the clip rect agree with each other but disagree with the child's own claimed `Pos`/`Size`, the
+bug is in *where* the child thinks it starts, not how big it is. This is the same
+`parent_pos`/`m_pos` coordinate-space class of bug §6 already documents for the main window's children
+(rendering pinned near screen `(0,0)` instead of following the parent) — worth checking first any time a
+*non-main-viewport* top-level window (the only other one so far being the debug log) gets its own
+in-window chrome that consumes space at the top, since `GetWindowPos()`'s meaning quietly depends on
+whether that chrome was reserved at the viewport level (main window) or inside the same `Begin()` (debug
+window).
+
 **Startup `MessageBox` — fixed.** A native `MessageBox(..., "TADS", ...)` was observed popping up as a
 real, separate Win32 dialog (`#32770` window class) on every startup. Traced it to
 `MyClientIfc::display_error()` in [t3main.cpp:68](t3main.cpp#L68) — the VM's error-display callback,
@@ -304,11 +428,12 @@ directly, independent of this menu-bar rendering change.
 **Not ported in this pass, left for later**: `iconmenu.cpp`'s owner-drawn menu icons (also dead code
 today for the same "no `WM_MEASUREITEM`/`WM_DRAWITEM`" reason — the toolbar's GL-texture icon loading,
 below, is the pattern to follow if menu icons are wanted later, rather than reviving this Win32
-owner-draw path); and the debug-log window's separate `IDR_DEBUGWIN_MENU`
-([htmlgui.cpp:16092](htmlgui.cpp#L16092)). The game-text right-click context/edit popup menu (from
-`IDR_EDIT_POPUP_MENU`) is now ported — see §3.1a below. The debug-log window's own right-click popup
-(`IDR_DEBUGLOG_POPUP`, loaded via the same `load_context_popup()`) and the status bar's right-click
-popup (`IDR_STATUSBAR_POPUP`, `statusline_popup_`) are structurally identical but still unported.
+owner-draw path). The game-text right-click context/edit popup menu (from `IDR_EDIT_POPUP_MENU`) is now
+ported — see §3.1a below. The debug-log window's `IDR_DEBUGWIN_MENU` is now ported too — see the
+"`-debugwin` still showed a real, blank second OS window" entry further down. The debug-log window's own
+right-click popup (`IDR_DEBUGLOG_POPUP`, loaded via the same `load_context_popup()`) and the status bar's
+right-click popup (`IDR_STATUSBAR_POPUP`, `statusline_popup_`) are structurally identical to §3.1a's
+right-click menu but still unported.
 
 **Toolbar**: `CHtmlSys_mainwin::render_toolbar()` (`htmlgui.cpp`, defined right after
 `load_toolbar_texture()`, called from `do_render()` right after `render_menu_bar()`) replaces the

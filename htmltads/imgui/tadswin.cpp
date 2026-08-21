@@ -2593,19 +2593,33 @@ void CTadsWin::setWindowTitle(const textchar_t* title) {
 
 void CTadsWin::setVisible(bool visible) {
     m_visible = visible;
-    if (m_window) {
+    if (parent_ == nullptr) {
         /*
-         *   Top-level window: the GLFW/ImGui window is the one the user
-         *   actually sees.  The Win32 HWND (handle_) still exists in
-         *   parallel because not-yet-ported native children (banners,
-         *   scrollbars, dialogs) need a real HWND to parent themselves to,
-         *   but it must never be shown on screen, or we'd end up with two
-         *   visible top-level windows.
+         *   Top-level window (parent_ == nullptr): its Win32 HWND
+         *   (handle_) must never be shown on screen, or we'd end up with a
+         *   second, real OS window alongside the GLFW/ImGui one.  It still
+         *   exists in parallel because not-yet-ported native children
+         *   (banners, scrollbars, dialogs) need a real HWND to parent
+         *   themselves to.
+         *
+         *   Only the *main* top-level window actually owns a GLFWwindow
+         *   (m_window) - syswin_create_system_window()'s GLFW overload
+         *   deliberately refuses to create a second one ("we want only one
+         *   real main window").  A secondary top-level window, like the
+         *   debug log (CHtmlSys_dbglogwin), has m_window == nullptr and is
+         *   instead drawn every frame as an ImGui overlay inside the main
+         *   window's GLFW context (see CTadsWin::do_render_content_begin()'s
+         *   parentless branch and CHtmlSys_mainwin::event_loop()'s
+         *   dbgwin_->do_render() call) - so it has nothing here to
+         *   show/hide at all; isVisible() (used to gate that overlay
+         *   rendering) already reflects m_visible regardless.
          */
-        if (visible)
-            glfwShowWindow(m_window);
-        else
-            glfwHideWindow(m_window);
+        if (m_window) {
+            if (visible)
+                glfwShowWindow(m_window);
+            else
+                glfwHideWindow(m_window);
+        }
     }
     else if (visible) {
 		ShowWindow(handle_, SW_SHOW);

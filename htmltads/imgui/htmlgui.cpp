@@ -16854,8 +16854,132 @@ void CHtmlSys_dbglogwin::load_menu()
 }
 
 /*
+ *   Render this window's content.  Adds ImGuiWindowFlags_MenuBar to the
+ *   base top-level Begin() call and draws render_menu_bar() right after it,
+ *   inside the same Begin()/End() the base class opened - ImGui requires
+ *   BeginMenuBar()/EndMenuBar() to be called between a window's Begin() and
+ *   its first child/content call.  Otherwise identical to
+ *   CTadsWin::do_render_content_begin()'s parentless branch (this window is
+ *   always top-level - see CHtmlSys_dbgwin's get_winstyle() comment on the
+ *   docked-debugger case, which doesn't apply to guit3's standalone use).
+ */
+void CHtmlSys_dbglogwin::do_render_content_begin()
+{
+    ImGui::SetNextWindowPos(m_pos, ImGuiCond_FirstUseEver);
+    ImGui::SetNextWindowSize(m_size, ImGuiCond_FirstUseEver);
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0.0f, 0.0f));
+    ImGui::Begin(m_title.c_str(), nullptr,
+                 ImGuiWindowFlags_NoResize | ImGuiWindowFlags_MenuBar);
+    m_pos = ImGui::GetWindowPos();
+    m_size = ImGui::GetWindowSize();
+
+    render_menu_bar();
+
+    /*
+     *   Resize the HTML panel to fill whatever's left of the window below
+     *   the menu bar.  html_panel_'s size (m_pos/m_size, which is what
+     *   do_render_content_begin() actually renders from) is otherwise only
+     *   ever set once, by do_create() from the (now permanently hidden)
+     *   native handle_'s creation-time client rect - a size that predates
+     *   the menu bar above ever existing, and in general has no reason to
+     *   match this ImGui window's actual size.  Left unfixed, the panel
+     *   renders shorter than the window, leaving a gap that shows this
+     *   window's own (near-black, StyleColorsDark) background - the "black
+     *   border" at the bottom of the debug window.
+     *
+     *   This deliberately calls calc_banner_layout() - the same method
+     *   CHtmlSys_mainwin::recalc_banner_layout() calls on main_panel_ every
+     *   frame to keep *its* size current - rather than do_resize().
+     *   calc_banner_layout() is what actually writes m_pos/m_size (see
+     *   htmlgui.cpp, right before its own do_resize()/MoveWindow() calls);
+     *   CHtmlSysWin_win32::do_resize() by itself only schedules a
+     *   reformat-on-resize message (via PostMessage(), which never gets
+     *   processed here anyway - there's no message pump, see migration.md
+     *   section 2) and never touches m_size at all.  Guarded on an actual
+     *   change so we're not re-laying-out every frame.
+     *
+     *   The panel's rect is anchored at ImGui::GetCursorPos() - the current
+     *   window-relative cursor, i.e. right below the menu bar we just
+     *   drew - rather than (0,0).  CTadsWin::do_render_content_begin()'s
+     *   parent_ branch positions a child at "parent_pos + m_pos", where
+     *   parent_pos is ImGui::GetWindowPos() for *this* window: the outer
+     *   window's absolute top-left corner, above its own title bar and menu
+     *   bar, since menu bar and content share one Begin()/End() here (unlike
+     *   the main window, which reserves menu bar space at the viewport
+     *   level via BeginMainMenuBar() before its separate content window is
+     *   even positioned - see migration.md section 3.1). An m_pos of (0,0)
+     *   would therefore place the panel back at the window's very top,
+     *   overlapping the title bar and menu bar; ImGui then clips the
+     *   panel's own drawing to the region actually left over for it (correct
+     *   in extent, ~38px short), but at the wrong end - it silently keeps
+     *   the panel's *bottom* edge and clips its top, instead of the other
+     *   way around, since the clip is against the *parent* window's already-
+     *   consumed decoration area, not against the panel's own nominal
+     *   bounds. Diagnosed by temporarily filling the panel's full nominal
+     *   Begin()/BeginChild() rect with a solid color and comparing it to
+     *   ImGui::GetWindowDrawList()->GetClipRectMin()/Max() - the fill and
+     *   the clip rect disagreed by exactly the menu bar's height, always at
+     *   the top edge.
+     */
+    ImVec2 avail = ImGui::GetContentRegionAvail();
+    if (get_html_panel() != 0 && avail.x > 0 && avail.y > 0
+        && (avail.x != panel_content_size_.x
+            || avail.y != panel_content_size_.y))
+    {
+        panel_content_size_ = avail;
+        ImVec2 cursor = ImGui::GetCursorPos();
+        RECT rc;
+        SetRect(&rc, (int)cursor.x, (int)cursor.y,
+                (int)(cursor.x + avail.x), (int)(cursor.y + avail.y));
+        get_html_panel()->calc_banner_layout(
+            &rc, get_html_panel()->get_first_banner_child());
+    }
+}
+
+/*
+ *   Render the debug window's menu bar - mirrors win32/htmlcmn.rc's
+ *   IDR_DEBUGWIN_MENU (File > Hide Window; Edit > Copy, Select All).  Same
+ *   "dispatch through the existing virtuals" approach as
+ *   CHtmlSys_mainwin::render_menu_bar(): items call check_command()/
+ *   do_command() on 'this', so no application logic is duplicated.
+ */
+void CHtmlSys_dbglogwin::render_menu_bar()
+{
+    auto item = [this](int id, const char *label, const char *shortcut = 0)
+    {
+        check_cmd_info ci(id);
+        TadsCmdStat_t stat = check_command(&ci);
+        bool enabled = (stat != TADSCMD_DISABLED
+                        && stat != TADSCMD_DISABLED_CHECKED
+                        && stat != TADSCMD_DISABLED_INDETERMINATE
+                        && stat != TADSCMD_UNKNOWN);
+        if (ImGui::MenuItem(label, shortcut, false, enabled))
+            do_command(0, id, 0);
+    };
+
+    if (!ImGui::BeginMenuBar())
+        return;
+
+    if (ImGui::BeginMenu("File"))
+    {
+        item(ID_FILE_HIDE, "Hide Window");
+        ImGui::EndMenu();
+    }
+
+    if (ImGui::BeginMenu("Edit"))
+    {
+        item(ID_EDIT_COPY, "Copy", "Ctrl+C");
+        ImGui::Separator();
+        item(ID_EDIT_SELECTALL, "Select All", "Ctrl+A");
+        ImGui::EndMenu();
+    }
+
+    ImGui::EndMenuBar();
+}
+
+/*
  *   Process a close-window request.  Never actually close the debug
- *   window; merely hide it.  
+ *   window; merely hide it.
  */
 int CHtmlSys_dbglogwin::do_close()
 {

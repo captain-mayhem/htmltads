@@ -3680,7 +3680,7 @@ public:
     CHtmlSys_dbglogwin(class CHtmlParser *parser,
                        class CHtmlPreferences *prefs,
                        CHtmlSys_dbglogwin_hostifc *debugger_ifc)
-        : CHtmlSys_dbgwin(parser, prefs)
+        : CHtmlSys_dbgwin(parser, prefs), panel_content_size_(-1.0f, -1.0f)
     {
         /* remember the debugger interface, and add a reference to it */
         debugger_ifc_ = debugger_ifc;
@@ -3725,6 +3725,14 @@ public:
 
     /* load my menu */
     virtual void load_menu();
+
+    /*
+     *   Render this window's content, adding ImGuiWindowFlags_MenuBar so
+     *   render_menu_bar() can draw an in-window menu bar - overridden
+     *   because the base CTadsWin::do_render_content_begin() top-level
+     *   branch doesn't request a menu bar.
+     */
+    void do_render_content_begin() override;
 
     /* initialize the parser */
     virtual void init_parser();
@@ -3772,15 +3780,34 @@ public:
     }
 
 private:
-    /* 
+    /*
+     *   Render the debug window's menu bar, mirroring win32/htmlcmn.rc's
+     *   IDR_DEBUGWIN_MENU (File > Hide Window; Edit > Copy, Select All).
+     *   Dispatches through check_command()/do_command() on 'this', same
+     *   pattern as CHtmlSys_mainwin::render_menu_bar().
+     */
+    void render_menu_bar();
+
+    /*
      *   service routine for disp_text variants - append text to our
      *   internal buffer and parse it, sending only complete lines to the
-     *   parser 
+     *   parser
      */
     void append_and_parse(const textchar_t *msg);
 
     /* receive notification of activation from parent */
     void do_parent_activate(int flag);
+
+    /*
+     *   Last content-region size passed to do_resize() from
+     *   do_render_content_begin() - lets us skip re-resizing (and the
+     *   reformat that triggers) on frames where it hasn't actually changed.
+     *   See do_render_content_begin() for why this is needed at all: our
+     *   HTML panel's size is otherwise only ever set once, at creation
+     *   time, from the (now-hidden, and creation-time-only-accurate) native
+     *   HWND's client rect.
+     */
+    ImVec2 panel_content_size_;
 
     /* text buffer for sending text to the parser */
     class CHtmlTextBuffer *txtbuf_;
