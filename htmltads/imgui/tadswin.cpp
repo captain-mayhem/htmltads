@@ -1687,6 +1687,29 @@ int CTadsWin::do_leftbtn_down(int keys, int x, int y,
 }
 
 /*
+ *   Same child-dispatch as do_leftbtn_down() above, needed so a right-click
+ *   anywhere under a top-level window (e.g. CHtmlSys_mainwin, which is what
+ *   event_loop()'s manual mouse routing calls this on) reaches the actual
+ *   leaf banner/text window instead of stopping at the base class's no-op
+ *   default.  do_rightbtn_up() doesn't need the same treatment: by the time
+ *   it fires, mouse capture (set by the leaf window's do_leftbtn_down(),
+ *   called via its do_rightbtn_down() override) already identifies the
+ *   right target, so event_loop() dispatches button-up straight to the
+ *   captured window rather than via this recursive search.
+ */
+int CTadsWin::do_rightbtn_down(int keys, int x, int y,
+    int clicks) {
+    for (auto& child : m_children) {
+        int handled = FALSE;
+        if (child->isVisible())
+            handled = child->do_rightbtn_down(keys, x, y, clicks);
+        if (handled)
+            return TRUE;
+    }
+    return FALSE;
+}
+
+/*
  *   paint the window minimized 
  */
 int CTadsWin::do_paint_iconic()

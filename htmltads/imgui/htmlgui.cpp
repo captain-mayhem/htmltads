@@ -2487,12 +2487,20 @@ int CHtmlSysWin_win32::do_rightbtn_up(int keys, int x, int y)
 {
     /* don't clear the selection */
     clear_sel_pending_ = FALSE;
-    
+
     /* finish the normal button tracking */
     end_mouse_tracking(HTML_TRACK_RIGHT);
 
-    /* run the edit context menu */
-    track_context_menu(edit_popup_, x, y);
+    /*
+     *   Run the edit context menu.  track_context_menu(edit_popup_, x, y)
+     *   is the old native TrackPopupMenu() call - harmless dead code now
+     *   (see migration.md), since edit_popup_ hangs off a hidden native
+     *   HWND that's never shown.  ImGui::OpenPopup() here just flags the
+     *   popup open; CHtmlSys_mainwin::render_context_menu() (called every
+     *   frame from CHtmlSys_mainwin::do_render()) is what actually draws
+     *   it and dispatches the chosen command.
+     */
+    ImGui::OpenPopup("EditContextMenu");
 
     /* return focus to the main window if appropriate */
     owner_->focus_to_main();
@@ -11599,6 +11607,9 @@ int CHtmlSys_mainwin::do_render() {
     /* draw the Options dialog on top, if it's open (see htmlpref.cpp) */
     prefs_->render_options_dialog();
 
+    /* draw the edit context menu on top, if it's open (see do_rightbtn_up()) */
+    render_context_menu();
+
     return ret;
 }
 
@@ -11838,6 +11849,56 @@ void CHtmlSys_mainwin::render_menu_bar()
 
     ImGui::EndMainMenuBar();
     ImGui::PopStyleColor(2);
+}
+
+/*
+ *   Render the right-click edit context menu (Cut/Copy/Paste/etc for the
+ *   game text window) as an ImGui popup.  do_rightbtn_up() (htmlgui.cpp,
+ *   CHtmlSysWin_win32) flags this open with ImGui::OpenPopup("EditContextMenu")
+ *   from the manual mouse-routing block in event_loop() - a root-ID-stack
+ *   call site, same as the one this is called from (CHtmlSys_mainwin::do_render(),
+ *   right after CTadsWin::do_render() closes its own Begin/BeginChild), so
+ *   the string ID hashes to the same popup in both places.  Same command
+ *   set and order as the old win32/htmlcmn.rc IDR_EDIT_POPUP_MENU resource.
+ *   Dispatches through do_command()/check_command() exactly like
+ *   render_menu_bar()'s Edit menu, which is what makes this work no matter
+ *   which banner subwindow was actually right-clicked: those virtuals
+ *   forward ID_EDIT_CUT/COPY/DELETE/SELECTALL to get_focus_subwin(), and
+ *   everything else to main_panel_/hist_panel_, and do_rightbtn_down()
+ *   (via do_leftbtn_down()) already moved focus to the clicked subwindow
+ *   before the button-up that opens this popup.
+ */
+void CHtmlSys_mainwin::render_context_menu()
+{
+    if (!ImGui::BeginPopup("EditContextMenu"))
+        return;
+
+    auto item = [this](int id, const char *label)
+    {
+        check_cmd_info ci(id);
+        TadsCmdStat_t stat = check_command(&ci);
+        bool enabled = (stat != TADSCMD_DISABLED
+                        && stat != TADSCMD_DISABLED_CHECKED
+                        && stat != TADSCMD_DISABLED_INDETERMINATE
+                        && stat != TADSCMD_UNKNOWN);
+        if (ImGui::MenuItem(label, nullptr, false, enabled))
+            do_command(0, id, 0);
+    };
+
+    item(ID_EDIT_UNDO, "Undo Typing");
+    ImGui::Separator();
+    item(ID_EDIT_CUT, "Cut");
+    item(ID_EDIT_COPY, "Copy");
+    item(ID_EDIT_PASTE, "Paste");
+    item(ID_EDIT_DELETE, "Delete");
+    ImGui::Separator();
+    item(ID_EDIT_SELECTALL, "Select All");
+    item(ID_EDIT_SELECTLINE, "Select Command");
+    ImGui::Separator();
+    item(ID_EDIT_FIND, "Find Text...");
+    item(ID_EDIT_FINDNEXT, "Find Next");
+
+    ImGui::EndPopup();
 }
 
 /*
@@ -15189,6 +15250,18 @@ int CHtmlSys_mainwin::event_loop(int* flag) {
                 }
                 else {
                     uncaptured_target->do_leftbtn_up(1, io.MousePos.x, io.MousePos.y);
+                }
+            }
+            if (ImGui::IsMouseClicked(ImGuiMouseButton_Right)) {
+                uncaptured_target->do_rightbtn_down(1, io.MousePos.x, io.MousePos.y, ImGui::GetMouseClickedCount(ImGuiMouseButton_Right));
+            }
+            if (ImGui::IsMouseReleased(ImGuiMouseButton_Right)) {
+                CTadsWin* capture_win = CTadsApp::get_app()->getMouseCapture();
+                if (capture_win) {
+                    capture_win->do_rightbtn_up(1, io.MousePos.x, io.MousePos.y);
+                }
+                else {
+                    uncaptured_target->do_rightbtn_up(1, io.MousePos.x, io.MousePos.y);
                 }
             }
             if (ImGui::IsMousePosValid()) {

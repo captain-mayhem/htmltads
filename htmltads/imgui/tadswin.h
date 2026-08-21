@@ -1215,9 +1215,8 @@ protected:
     virtual int do_leftbtn_down(int keys, int x, int y,
         int clicks);
     virtual int do_leftbtn_up(int keys, int x, int y);
-    virtual int do_rightbtn_down(int /*keys*/, int /*x*/, int /*y*/,
-                                 int /*clicks*/)
-        { return FALSE; }
+    virtual int do_rightbtn_down(int keys, int x, int y,
+        int clicks);
     virtual int do_rightbtn_up(int /*keys*/, int /*x*/, int /*y*/)
         { return FALSE; }
     virtual int do_mousemove(int keys, int x, int y);

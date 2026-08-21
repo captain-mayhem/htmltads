@@ -2549,6 +2549,21 @@ public:
      */
     void load_toolbar_texture();
 
+    /*
+     *   Render the game-text right-click edit context menu as an ImGui
+     *   popup - the ImGui-native replacement for the native HMENU tracked
+     *   (but never shown - see migration.md) by track_context_menu() in
+     *   do_rightbtn_up().  Same command set/order as the old
+     *   win32/htmlcmn.rc IDR_EDIT_POPUP_MENU resource, dispatched through
+     *   the same do_command()/check_command() virtuals as render_menu_bar()'s
+     *   Edit menu (which forwards ID_EDIT_* to whichever subwindow has
+     *   focus, so this works no matter which banner was right-clicked).
+     *   Must be called every frame at the same (root) ID-stack depth that
+     *   do_rightbtn_up() calls ImGui::OpenPopup() from, since ImGui hashes
+     *   string popup IDs against the current ID stack.
+     */
+    void render_context_menu();
+
     /* process creation event */
     void do_create();
 

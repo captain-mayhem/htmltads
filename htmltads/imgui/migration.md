@@ -304,10 +304,11 @@ directly, independent of this menu-bar rendering change.
 **Not ported in this pass, left for later**: `iconmenu.cpp`'s owner-drawn menu icons (also dead code
 today for the same "no `WM_MEASUREITEM`/`WM_DRAWITEM`" reason — the toolbar's GL-texture icon loading,
 below, is the pattern to follow if menu icons are wanted later, rather than reviving this Win32
-owner-draw path); the debug-log window's separate `IDR_DEBUGWIN_MENU`
-([htmlgui.cpp:16092](htmlgui.cpp#L16092)); and the right-click context/edit popup menus
-(`load_context_popup()`, [htmlgui.cpp:748](htmlgui.cpp#L748)), which are a different, smaller
-`ImGui::BeginPopupContextItem()`-shaped problem, not a main-menu-bar one.
+owner-draw path); and the debug-log window's separate `IDR_DEBUGWIN_MENU`
+([htmlgui.cpp:16092](htmlgui.cpp#L16092)). The game-text right-click context/edit popup menu (from
+`IDR_EDIT_POPUP_MENU`) is now ported — see §3.1a below. The debug-log window's own right-click popup
+(`IDR_DEBUGLOG_POPUP`, loaded via the same `load_context_popup()`) and the status bar's right-click
+popup (`IDR_STATUSBAR_POPUP`, `statusline_popup_`) are structurally identical but still unported.
 
 **Toolbar**: `CHtmlSys_mainwin::render_toolbar()` (`htmlgui.cpp`, defined right after
 `load_toolbar_texture()`, called from `do_render()` right after `render_menu_bar()`) replaces the
@@ -387,6 +388,53 @@ was duplicated, just re-entered from a new call site.
   box at all) and `ImGuiCol_ButtonHovered`/`ImGuiCol_ButtonActive` to plain greys instead of the
   theme's blue, so hovering/pressing a toolbar icon darkens it slightly without introducing a color
   that doesn't belong to this chrome.
+
+### 3.1a Right-click edit context menu — done
+
+The game-text window's right-click popup (`Undo Typing` / `Cut` / `Copy` / `Paste` / `Delete` /
+`Select All` / `Select Command` / `Find Text...` / `Find Next` — same set and order as
+`win32/htmlcmn.rc`'s `IDR_EDIT_POPUP_MENU`) is now an ImGui popup,
+`CHtmlSys_mainwin::render_context_menu()` (`htmlgui.cpp`, declared in `htmlgui.h` next to
+`render_menu_bar()`), called every frame from `CHtmlSys_mainwin::do_render()` right after
+`prefs_->render_options_dialog()`. Same "dispatch through the existing virtuals, don't duplicate
+application logic" approach as §3.1: items call `check_command()`/`do_command()` on `this`
+(`CHtmlSys_mainwin`), exactly like `render_menu_bar()`'s Edit menu — which is what makes this work
+regardless of which banner subwindow was actually right-clicked, since `CHtmlSys_mainwin::do_command()`/
+`check_command()` already forward `ID_EDIT_CUT/COPY/DELETE/SELECTALL` to `get_focus_subwin()` and
+everything else to `main_panel_`/`hist_panel_`, and the click itself moves focus to the right subwindow
+before the popup opens (see below). `CHtmlSysWin_win32::do_rightbtn_up()`'s old
+`track_context_menu(edit_popup_, x, y)` call (native `TrackPopupMenu()`) is now
+`ImGui::OpenPopup("EditContextMenu")`; `load_context_popup()`/`popup_container_`/`edit_popup_`
+themselves were left in place as harmless dead code, same reasoning as §3.1's native `HMENU`.
+
+**Gotcha — `ImGui::OpenPopup()` and `ImGui::BeginPopup()` must be called from matching ID-stack
+depths for the same string ID to refer to the same popup**, since ImGui hashes string IDs against
+whatever window/child ID is currently on the stack. `do_rightbtn_up()` fires from
+`event_loop()`'s manual mouse-routing block, which runs right after `ImGui::NewFrame()` with nothing
+pushed yet (root level) - so `render_context_menu()` has to run at that same root level too. It does,
+because it's called from `CHtmlSys_mainwin::do_render()` *after* `CTadsWin::do_render()` returns
+(which already closed its own `Begin()`/`BeginChild()`) - the same spot `render_options_dialog()` uses
+for the same reason. Calling `BeginPopup()` from inside a per-window `do_render_content_begin()`/`_end()`
+pair (nested inside that window's own `BeginChild()`) would silently never match the root-level
+`OpenPopup()` call and the menu would never appear - worth remembering for the still-unported debug-log
+and status-bar popups (previous section), since it's tempting to open/draw those from wherever their
+own right-click handler happens to live instead.
+
+**`CTadsWin::do_rightbtn_down()` needed the same recursive child-dispatch `do_leftbtn_down()` already
+had** (`tadswin.cpp`) - the base class's version was a `{ return FALSE; }` stub (`tadswin.h`), so a
+right-click on `CHtmlSys_mainwin` (the `uncaptured_target` `event_loop()` calls into) never reached the
+actual leaf banner/text window's overridden `do_rightbtn_down()`. Added an out-of-line
+`CTadsWin::do_rightbtn_down()` that loops over `m_children` exactly like `do_leftbtn_down()` does.
+`do_rightbtn_up()` didn't need the same fix: mouse capture (set by `do_leftbtn_down()`, which
+`do_rightbtn_down()`'s existing override already calls) already identifies the right window by the time
+button-up fires, so `event_loop()`'s existing "dispatch to the captured window" logic (mirrored from the
+left-button case) finds it without any recursion.
+
+**Verified** by launching `guit3.exe tests/ditch3.t3`, right-clicking the game text area, and
+screenshotting (per the recipe in §6): the popup appears positioned at the click point with the correct
+item set/order and correct enabled/disabled state (Cut/Copy/Delete/Undo greyed out with no selection,
+Paste/Find enabled); clicking "Find Text..." dispatched through to `do_command(ID_EDIT_FIND)` and opened
+the (still-native) Find dialog, confirming the click-to-command path works end to end.
 
 ### 3.2 Status bar — done
 `CTadsStatusline` ([tadsstat.h](tadsstat.h)/[tadsstat.cpp](tadsstat.cpp)) no longer owns a native
