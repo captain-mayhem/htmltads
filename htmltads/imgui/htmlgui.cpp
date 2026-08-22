@@ -11626,6 +11626,9 @@ int CHtmlSys_mainwin::do_render() {
     render_new_game_confirm();
     render_quit_confirm();
 
+    /* draw the file open/save dialog on top, if one is pending or open */
+    CTadsFileDialog::render();
+
     return ret;
 }
 
@@ -14053,51 +14056,31 @@ void CHtmlSys_mainwin::load_new_game()
 }
 
 /*
- *   Show the native file-open common dialog and load the chosen game.
- *   Split out of load_new_game() so it can run either immediately or after
- *   the player confirms ending the current game - see load_new_game().
- *   GetOpenFileName() itself is left native: it's a self-pumping modal
- *   common dialog, safe to invoke from an ImGui click handler (confirmed
- *   working throughout the port - see migration.md), unlike the blocking
- *   MessageBox() this replaces upstream of it.
+ *   Show the ImGui file-open dialog and load the chosen game.  Split out of
+ *   load_new_game() so it can run either immediately or after the player
+ *   confirms ending the current game - see load_new_game().  This used to
+ *   call the native GetOpenFileName() common dialog directly (safe to
+ *   invoke from an ImGui click handler, since it's self-pumping - see
+ *   migration.md), but is now an ImGui-native dialog too; since
+ *   CTadsFileDialog::open() just queues the dialog (it's drawn on the next
+ *   frame by CTadsFileDialog::render(), called from do_render()), the rest
+ *   of what this function used to do inline after a successful
+ *   GetOpenFileName() call - loading the chosen game - now happens in the
+ *   completion callback instead.
  */
 void CHtmlSys_mainwin::do_load_new_game_prompt()
 {
-    OPENFILENAME5 info;
-    char fullname[MAX_PATH];
     char prompt[256];
-
-    /* set up to get the filename */
-    info.hwndOwner = handle_;
-    info.hInstance = CTadsApp::get_app()->get_instance();
-    info.lpstrFilter = w32_opendlg_filter;
-    info.lpstrCustomFilter = 0;
-    info.nFilterIndex = 0;
-    info.lpstrFile = fullname;
-    fullname[0] = '\0';
-    info.nMaxFile = sizeof(fullname);
-    info.lpstrFileTitle = 0;
-    info.nMaxFileTitle = 0;
-    info.lpstrInitialDir = CTadsApp::get_app()->get_openfile_dir();
     LoadString(CTadsApp::get_app()->get_instance(),
                IDS_CHOOSE_NEW_GAME, prompt, sizeof(prompt));
-    info.lpstrTitle = prompt;
-    info.Flags = OFN_FILEMUSTEXIST | OFN_PATHMUSTEXIST | OFN_HIDEREADONLY
-                 | OFN_ENABLESIZING;
-    info.nFileOffset = 0;
-    info.nFileExtension = 0;
-    info.lpstrDefExt = 0;
-    info.lCustData = 0;
-    info.lpfnHook = 0;
-    info.lpTemplateName = 0;
-    CTadsDialog::set_filedlg_center_hook((OPENFILENAME *)&info);
 
-    /* get the filename - if they cancel, simply return with nothing done */
-    if (!GetOpenFileName((OPENFILENAME *)&info))
-        return;
-
-    /* load the new game */
-    load_new_game(fullname);
+    CTadsFileDialog::open(TADSFILEDLG_OPEN, prompt, w32_opendlg_filter,
+        CTadsApp::get_app()->get_openfile_dir(), TRUE,
+        [this](const char *fullname)
+        {
+            if (fullname != 0)
+                load_new_game(fullname);
+        });
 }
 
 /*

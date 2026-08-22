@@ -53,6 +53,8 @@ add_executable(guit3
 	htmlpref.cpp
 	tadsdlg.cpp
 	tadsdlg2.cpp
+	tadsfiledlg.h
+	tadsfiledlg.cpp
 	tadscbtn.cpp
 	tadsreg.cpp
 	tadsjpeg.cpp

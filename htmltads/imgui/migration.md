@@ -31,10 +31,10 @@ Progress so far (25+ commits): GLFW/ImGui window creation, keyboard input, FreeT
 and metrics, text display, child-window handling, coloring, resizing, link coloring, positioning,
 character-encoding fixes, image rendering via GL textures, text selection, mouse hover, and text
 highlighting. This is genuinely useful progress, and now the application chrome has its first
-ImGui-native pieces too: the menu bar, toolbar, and status bar (§3.1, §3.2) are all done, and two
-dialogs - Options and Customize Theme (§3.3) - are done too. Window creation itself, the remaining
-chrome (banners/scrollbars), and the rest of the dialogs (find/replace, folder picker) are still 100%
-Win32.
+ImGui-native pieces too: the menu bar, toolbar, and status bar (§3.1, §3.2) are all done, and so are
+three dialogs - Options, Customize Theme, and the file open/save dialog (§3.3). Window creation itself,
+the remaining chrome (banners/scrollbars), and the rest of the dialogs (find/replace, folder picker) are
+still 100% Win32.
 
 ## 2. Root cause: "both windows open"
 
@@ -689,27 +689,33 @@ the main window behind it. Fix was to shorten each label to a short phrase and m
 sentence to an indented `ImGui::TextWrapped()` line below the radio button - not a one-off workaround,
 worth remembering for any future dialog port that carries long native radio/checkbox label text.
 
-A few sub-flows reachable from the Options dialog remain Win32, deliberately: the Starting tab's
-folder-browse button (`CTadsDialogFolderSel2::run_select_folder()`), and the Game Chest tab's two
-file-browse buttons (`GetOpenFileName()`). The "New Theme" name-entry prompt, which *was* a small custom
+One sub-flow reachable from the Options dialog remains Win32, deliberately: the Starting tab's
+folder-browse button (`CTadsDialogFolderSel2::run_select_folder()`) - see the "Not yet ported" note
+below. The Game Chest tab's two file-browse buttons, which used to call `GetOpenFileName()`, are now
+ImGui-native too - see the "File open/save dialog" entry further down. The "New Theme" name-entry
+prompt, which *was* a small custom
 native dialog (`CTadsDialogNewProfile`, `DLG_NEW_PROFILE`), was reimplemented as a small ImGui popup
 instead of kept native, since its only dependency on Win32 was a real `HWND` combo box handle passed in
 purely for a duplicate-name check - easier to redo as a plain loop over the ImGui dialog's own
 already-in-memory profile list than to keep threading a native control handle through.
 Deleting/resetting a theme reuses plain `MessageBox()` confirmation prompts, same as the original.
 
-These remaining pieces are safe to leave native, and were verified (not just assumed) to still work
-correctly when triggered from an ImGui button's click handler: `PropertySheet()`, `GetOpenFileName()`,
-`DialogBoxParam()` (which is what both `CTadsDialogFolderSel2` and the old `CTadsDialogNewProfile` were
-built on) and `MessageBox()` are all *modal, self-pumping* Win32 APIs - each one blocks the calling
-thread and internally runs its own `GetMessage`/`DispatchMessage` loop for the duration of the call. That
-loop is entirely independent of `guit3`'s own (nonexistent - see §2) main message pump, unlike the
-now-fixed WM_COMMAND-routed *non-modal* child controls (banners, scrollbars, the old toolbar/menu) that
-motivated this whole port. Confirmed empirically too: `GetOpenFileName()` was already in active,
-working use elsewhere (File > Open) before this change, and `File > Open`/File-safety-style native
-common dialogs have worked throughout the port. Practical implication for future dialog work: a modal
-system/common dialog invoked from an ImGui callback is safe to leave native and defer; a custom
-non-modal Win32 child control is not, and needs the ImGui treatment before it'll do anything at all.
+The remaining native piece (`CTadsDialogFolderSel2::run_select_folder()`, via `PropertySheet()`) is
+safe to leave native, and was verified (not just assumed) to still work correctly when triggered from
+an ImGui button's click handler: `PropertySheet()` and `DialogBoxParam()` (which is what both
+`CTadsDialogFolderSel2` and the old `CTadsDialogNewProfile` were built on) are *modal, self-pumping*
+Win32 APIs - each one blocks the calling thread and internally runs its own
+`GetMessage`/`DispatchMessage` loop for the duration of the call. That loop is entirely independent of
+`guit3`'s own (nonexistent - see §2) main message pump, unlike the now-fixed WM_COMMAND-routed
+*non-modal* child controls (banners, scrollbars, the old toolbar/menu) that motivated this whole port.
+`GetOpenFileName()`/`GetSaveFileName()` used to be cited here as the flagship example of this same
+"safe to leave native" class of API - they *are* self-pumping and were confirmed working from an ImGui
+click handler throughout the port - but they've since been replaced with a custom ImGui file browser
+anyway (see below); being safe to leave native doesn't mean there's no value in porting it, just that
+nothing was *broken* by leaving it native in the meantime. Practical implication for future dialog work:
+a modal system/common dialog invoked from an ImGui callback is safe to leave native and defer without
+anything breaking; a custom non-modal Win32 child control is not, and needs the ImGui treatment before
+it'll do anything at all.
 
 **Verification**: built `guit3` and drove it via the PowerShell screenshot recipe in §6 - clicked
 Edit > Options, confirmed the Appearance tab (theme combo showing "Multimedia", Delete/description
@@ -737,10 +743,83 @@ whole reason this dialog's writeup insists on describing what a screenshot actua
 **Not yet ported**: find/replace (`w32fndlg.cpp`) and the folder-picker dialog itself
 (`CTadsDialogFolderSel2`/`foldsel2.cpp`, still only *called* from ImGui code, not rewritten). The general
 `CTadsDialog`-mirroring base class this section used to recommend turned out not to be necessary for
-either the Options or Customize Theme dialogs - whether it's worth building for find/replace or the
-folder picker depends on whether those turn out to share enough structure with each other to benefit
+the Options, Customize Theme, or file open/save dialogs - whether it's worth building for find/replace or
+the folder picker depends on whether those turn out to share enough structure with each other to benefit
 from one; worth revisiting once one of them is actually tackled rather than building it speculatively
 now.
+
+**File open/save dialog - done.** Every live `GetOpenFileName()` call site in `imgui/` (there was no
+`GetSaveFileName()` call site anywhere in the tree) is now backed by a new, reusable ImGui-native file
+browser, `CTadsFileDialog` ([tadsfiledlg.h](tadsfiledlg.h)/[tadsfiledlg.cpp](tadsfiledlg.cpp)) - a
+directory listing (via `FindFirstFileA`/`FindNextFileA`, filtered per-entry by `PathMatchSpecA()` against
+the active filter group), an editable path bar, a filename field, an optional file-type combo when the
+caller passes more than one filter group, and a Save-mode overwrite confirmation, styled to match
+`tadswin_message_box()`. It parses the same Win32 `OPENFILENAME::lpstrFilter` multi-string format
+(`"Desc\0*.ext\0\0"`) callers already had lying around, so none of the filter strings needed rewriting.
+
+Four call sites were converted: `w32main.cpp`'s `get_game_name_cb()` (the VM's "no game given on the
+command line" startup callback), `CHtmlSys_mainwin::do_load_new_game_prompt()` (File > Open New Game,
+`htmlgui.cpp`), and both Game Chest-tab browse buttons in
+`CHtmlPreferences::opt_render_gamechest_tab()` (`htmlpref.cpp`). A fifth call site,
+`CHtmlSys_mainwin::view_script()` (`htmlgui.cpp`), is dead code (`#if 0`, "transcript viewing is not yet
+implemented") and was left alone.
+
+**Two entry points, matching the two situations call sites are in** - the same "is there an ImGui frame
+in progress or not" question this file keeps coming back to (see §2, and the `tadswin_message_box()`
+entry above):
+- `CTadsFileDialog::open()`/`render()` follow the exact same deferred pending-flag pattern as
+  `CHtmlPreferences::open_options_dialog()`/`render_options_dialog()`: `open()` (called from a menu or
+  button click handler, however deeply nested - the Game Chest tab's Browse buttons fire from inside
+  `render_options_dialog()`'s own `BeginPopupModal`) just records the request and a completion callback;
+  `render()`, called once per frame from `CHtmlSys_mainwin::do_render()` at the same root ID-stack depth
+  as the other top-level popups, is what actually calls `ImGui::OpenPopup()`/`BeginPopupModal()` and
+  invokes the callback when the dialog closes. Because `open()` never touches ImGui state itself, it
+  doesn't matter how deeply nested the click handler that calls it is - nested modals (the file dialog
+  opening on top of the still-open Options dialog) are just Dear ImGui's normal multiple-simultaneous-
+  modals behavior, the same mechanism the dialog's own Save-mode overwrite confirmation nests on top of
+  itself with.
+- `CTadsFileDialog::open_blocking()` is for the one call site with no ImGui frame to defer into at all -
+  `get_game_name_cb()` runs before `event_loop()` ever starts. It self-pumps its own local
+  `glfwPollEvents`/`NewFrame`/`Render` loop on the caller's `GLFWwindow*`, exactly like
+  `tadswin_message_box()` does, sharing the same per-frame drawing routine the deferred path uses via a
+  local callback lambda that flips a `bool done` the loop watches. If `window` is null (no GLFW window
+  exists yet - not actually reachable for this call site, since `win->create_system_window()` runs well
+  before the VM ever calls back for a game name, but kept for robustness/symmetry with
+  `tadswin_message_box()`'s equivalent fallback) it falls back to the native
+  `GetOpenFileName()`/`GetSaveFileName()` common dialog instead.
+
+**A path-splitting helper replaces logic that used to be duplicated at each call site.** The Game Chest
+tab's two Browse buttons used to each inline the same "does the field already hold a path? if so split
+it into dir+name; if not, use the current directory" logic before filling in `OPENFILENAME`
+(`CHtmlDialogGameChest::browse_for_file()`, the old native property-page class, had already generalized
+this once as dead code - see the earlier "Options dialog" entry). `CTadsFileDialog::open()` now takes a
+single `initial_path` parameter (a bare directory, a full path to a file that may or may not exist yet,
+a bare filename, or empty) and does this splitting once, internally, via `GetFileAttributesA()` to check
+whether it's an existing directory before falling back to a `strrchr('\\')` split - callers just pass
+whatever value they already had (`opt_gc_file_`, `CTadsApp::get_openfile_dir()`, etc.) unchanged.
+
+**Verification note for a fresh session: this environment cannot do pixel-level visual verification.**
+The `GetWindowRect`+`CopyFromScreen` screenshot recipe in §6 (and even a full-virtual-screen capture,
+independent of `guit3` entirely) comes back solid black here, and synthetic input
+(`SendKeys`/`AppActivate`, `SetCursorPos`+`mouse_event`) delivered to the running process produced no
+observable effect either - both point at this sandbox not having a real interactive desktop session,
+not a bug in the dialog. **What was verified instead**: temporary trace logging (`fopen`/`fprintf` to a
+scratch file from inside `open()`/`refresh_listing()`/`draw_frame()`/`finish()`, removed before
+finishing) confirmed, against the real `tests/` directory with `w32_opendlg_filter`'s `"*.t3"` pattern:
+`open()` correctly resolved a relative/bare initial path against the current directory;
+`refresh_listing()` found exactly the 2 expected entries (the `..` parent directory - always shown
+regardless of filter - plus `ditch3.t3`, correctly matched by `PathMatchSpecA()`; `ditch3.t3v`, the save
+file, was correctly excluded); and `BeginPopupModal()` succeeded and re-rendered the same stable listing
+every frame for 80,000+ consecutive frames while the underlying game (launched with `tests/ditch3.t3`,
+confirmed via the window title reading "Return to Ditch Day") kept running normally underneath, with no
+crash, no ImGui assertion, and no interference between the popup and the game's own frame loop. The
+Cancel/Escape/Enter-to-accept paths could not be exercised the same way (no working input injection in
+this sandbox), but use the identical `ImGui::IsKeyPressed(ImGuiKey_Escape)`/`CloseCurrentPopup()` idiom
+already verified working elsewhere in this exact file (`render_yesno_confirm_popup()`'s Enter/Escape
+handling, `tadswin_message_box()`'s button loop) rather than anything novel. **If a future session has a
+working screenshot/input setup, this dialog is the highest-value thing left to actually look at** -
+particularly the directory-listing layout, the Save-mode overwrite confirmation nested popup, and the
+Game Chest tab's Browse buttons opening on top of the already-open Options dialog.
 
 ### 3.4 Child "windows" (banners, scrollbars, tooltips, size-grip)
 `CTadsWin` treats banners, scrollbars, and the resize grip as real child `HWND`s
@@ -1303,12 +1382,11 @@ call `ImGui::OpenPopup()` only once per pending request (mirroring `tadswin_mess
 than the first, deliberately - both source `MessageBox()` calls used `MB_DEFBUTTON2`, and an accidental
 stray keystroke shouldn't be able to end a game or quit the app.
 
-**Deliberately left native, per an explicit scope decision**: the `GetOpenFileName()` file-picker dialog
-itself (shown after the new-game confirmation is answered Yes) is unchanged - it's a self-pumping modal
-common dialog, already established elsewhere in this file as safe to call from an ImGui click handler
-(see the "Startup `MessageBox`" entry's "Scope note"), and porting it to a custom ImGui file browser
-(directory navigation, filtering, etc.) is a materially larger, separate task than converting a Yes/No
-confirmation.
+**Update: the `GetOpenFileName()` file-picker dialog shown after this confirmation is now ImGui-native
+too** - see the "File open/save dialog" entry near the end of §3.3. The paragraph below describes
+testing from when it was still deliberately left native; the file-picker behavior it describes (a
+separate real OS window) no longer applies, but the confirmation-popup behavior it describes is
+unchanged.
 
 **Verified** end-to-end by launching `guit3.exe tests/ditch3.t3`, starting the game, and driving the UI
 via simulated mouse clicks (`SetCursorPos`/`mouse_event`) plus screenshots of the real GLFW window

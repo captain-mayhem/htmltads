@@ -4169,9 +4169,9 @@ void CHtmlPreferences::opt_render_quit_tab()
 }
 
 /*
- *   Game Chest tab.  Mirrors CHtmlDialogGameChest; the browse buttons still
- *   use the native GetOpenFileName() common dialog (see the file header
- *   comment above for why that's fine to leave as-is for now).
+ *   Game Chest tab.  Mirrors CHtmlDialogGameChest; the browse buttons now
+ *   show the ImGui-native CTadsFileDialog instead of the native
+ *   GetOpenFileName() common dialog.
  */
 void CHtmlPreferences::opt_render_gamechest_tab()
 {
@@ -4186,38 +4186,18 @@ void CHtmlPreferences::opt_render_gamechest_tab()
     ImGui::SameLine();
     if (ImGui::Button("Browse...##GcFileBrowse"))
     {
-        char fname[OSFNMAX], dir[OSFNMAX];
-        strcpy(fname, opt_gc_file_);
-        if (fname[0] == '\0')
-        {
-            GetCurrentDirectory(sizeof(dir), dir);
-        }
-        else
-        {
-            textchar_t *root;
-            os_get_path_name(dir, sizeof(dir), fname);
-            root = os_get_root_name(fname);
-            memmove(fname, root, strlen(root) + 1);
-        }
-
-        OPENFILENAME5 info;
-        info.hwndOwner = opt_owner_hwnd_;
-        info.hInstance = CTadsApp::get_app()->get_instance();
-        info.lpstrFilter = "Game Chest Database\0GameChest.txt\0";
-        info.lpstrFile = fname;
-        info.nMaxFile = sizeof(fname);
-        info.lpstrTitle = "Select the Game Chest database file";
-        info.Flags = OFN_PATHMUSTEXIST | OFN_HIDEREADONLY | OFN_NOCHANGEDIR
-                     | OFN_ENABLESIZING;
-        info.lpstrInitialDir = dir;
-        CTadsDialog::set_filedlg_center_hook((OPENFILENAME *)&info);
-
-        if (GetOpenFileName((OPENFILENAME *)&info))
-        {
-            strncpy(opt_gc_file_, fname, sizeof(opt_gc_file_) - 1);
-            opt_gc_file_[sizeof(opt_gc_file_) - 1] = '\0';
-            set_gc_database(opt_gc_file_);
-        }
+        CTadsFileDialog::open(TADSFILEDLG_OPEN,
+            "Select the Game Chest database file",
+            "Game Chest Database\0GameChest.txt\0", opt_gc_file_, FALSE,
+            [this](const char *fname)
+            {
+                if (fname != 0)
+                {
+                    strncpy(opt_gc_file_, fname, sizeof(opt_gc_file_) - 1);
+                    opt_gc_file_[sizeof(opt_gc_file_) - 1] = '\0';
+                    set_gc_database(opt_gc_file_);
+                }
+            });
     }
     ImGui::SameLine();
     if (ImGui::Button("Restore Default##GcFileDefault"))
@@ -4251,39 +4231,18 @@ void CHtmlPreferences::opt_render_gamechest_tab()
     ImGui::SameLine();
     if (ImGui::Button("Browse...##GcBkgBrowse"))
     {
-        char fname[OSFNMAX], dir[OSFNMAX];
-        strcpy(fname, opt_gc_bkg_);
-        if (fname[0] == '\0')
-        {
-            GetCurrentDirectory(sizeof(dir), dir);
-        }
-        else
-        {
-            textchar_t *root;
-            os_get_path_name(dir, sizeof(dir), fname);
-            root = os_get_root_name(fname);
-            memmove(fname, root, strlen(root) + 1);
-        }
-
-        OPENFILENAME5 info;
-        info.hwndOwner = opt_owner_hwnd_;
-        info.hInstance = CTadsApp::get_app()->get_instance();
-        info.lpstrFilter = "Images\0*.jpg;*.jpeg;*.jpe;*.png\0";
-        info.lpstrFile = fname;
-        info.nMaxFile = sizeof(fname);
-        info.lpstrTitle =
-            "Select an image to use as the Game Chest background";
-        info.Flags = OFN_FILEMUSTEXIST | OFN_PATHMUSTEXIST | OFN_HIDEREADONLY
-                     | OFN_NOCHANGEDIR | OFN_ENABLESIZING;
-        info.lpstrInitialDir = dir;
-        CTadsDialog::set_filedlg_center_hook((OPENFILENAME *)&info);
-
-        if (GetOpenFileName((OPENFILENAME *)&info))
-        {
-            strncpy(opt_gc_bkg_, fname, sizeof(opt_gc_bkg_) - 1);
-            opt_gc_bkg_[sizeof(opt_gc_bkg_) - 1] = '\0';
-            set_gc_bkg(opt_gc_bkg_);
-        }
+        CTadsFileDialog::open(TADSFILEDLG_OPEN,
+            "Select an image to use as the Game Chest background",
+            "Images\0*.jpg;*.jpeg;*.jpe;*.png\0", opt_gc_bkg_, TRUE,
+            [this](const char *fname)
+            {
+                if (fname != 0)
+                {
+                    strncpy(opt_gc_bkg_, fname, sizeof(opt_gc_bkg_) - 1);
+                    opt_gc_bkg_[sizeof(opt_gc_bkg_) - 1] = '\0';
+                    set_gc_bkg(opt_gc_bkg_);
+                }
+            });
     }
     ImGui::SameLine();
     if (ImGui::Button("Restore Default##GcBkgDefault"))

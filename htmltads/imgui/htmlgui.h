@@ -56,6 +56,9 @@ Modified
 #ifndef TADSDLG_H
 #include "tadsdlg.h"
 #endif
+#ifndef TADSFILEDLG_H
+#include "tadsfiledlg.h"
+#endif
 #ifndef TADSAPP_H
 #include "tadsapp.h"
 #endif

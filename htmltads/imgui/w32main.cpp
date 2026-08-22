@@ -114,7 +114,6 @@ static int S_get_game_cb_invoked;
  */
 static int get_game_name_cb(void *ctx, char *buf, size_t buflen)
 {
-    OPENFILENAME5 info;
     CHtmlSys_mainwin *win = (CHtmlSys_mainwin *)ctx;
     int ret;
     char prompt[256];
@@ -142,48 +141,33 @@ static int get_game_name_cb(void *ctx, char *buf, size_t buflen)
         return TRUE;
     }
 
-    /* fill in the control structure for an "open file" dialog */
-    info.hwndOwner = win->get_handle();
-    info.hInstance = CTadsApp::get_app()->get_instance();
-    info.lpstrFilter = w32_opendlg_filter;
-    info.lpstrCustomFilter = 0;
-    info.nFilterIndex = 0;
-    info.lpstrFile = buf;
-    buf[0] = '\0';
-    info.nMaxFile = buflen;
-    info.lpstrFileTitle = 0;
-    info.nMaxFileTitle = 0;
-    info.lpstrInitialDir = CTadsApp::get_app()->get_openfile_dir();
+    /*
+     *   Ask for the game's filename via the ImGui-native file dialog.  This
+     *   runs before event_loop() ever starts, so there's no ImGui frame in
+     *   progress yet to defer into - use the blocking entry point instead
+     *   (CTadsFileDialog::open_blocking(), which self-pumps its own local
+     *   GLFW/ImGui frame loop on the main window, same as
+     *   tadswin_message_box() does for the same "called outside any frame"
+     *   situation).  The main window's GLFW window already exists by this
+     *   point (win->create_system_window() runs earlier in WinMain(), well
+     *   before the VM calls back into this function to ask for a game
+     *   name), so this doesn't need the native GetOpenFileName() fallback
+     *   open_blocking() falls back to when no window exists yet.
+     */
     LoadString(CTadsApp::get_app()->get_instance(),
                IDS_CHOOSE_GAME, prompt, sizeof(prompt));
-    info.lpstrTitle = prompt;
-    info.Flags = OFN_FILEMUSTEXIST | OFN_PATHMUSTEXIST | OFN_HIDEREADONLY
-                 | OFN_ENABLESIZING;
-    info.nFileOffset = 0;
-    info.nFileExtension = 0;
-    info.lpstrDefExt = 0;
-    info.lCustData = 0;
-    info.lpfnHook = 0;
-    info.lpTemplateName = 0;
 
-    /* set up to use the CTadsDialog centering hook */
-    CTadsDialog::set_filedlg_center_hook((OPENFILENAME *)&info);
-
-    /* 
-     *   run the open file dialog - if it returns zero, it means the user
-     *   cancelled, so we should return false to indicate that we can't
-     *   offer a game file name; if it returns non-zero, the user entered
-     *   a valid file, so we should return true to indicate that we
-     *   provided a file 
-     */
-    ret = GetOpenFileName((OPENFILENAME *)&info);
+    ret = CTadsFileDialog::open_blocking(
+        win != 0 ? win->get_glfw_window() : 0,
+        TADSFILEDLG_OPEN, prompt, w32_opendlg_filter,
+        CTadsApp::get_app()->get_openfile_dir(), TRUE, buf, buflen);
 
     /* save the open file directory if that succeeded */
-    if (ret != 0)
+    if (ret)
         CTadsApp::get_app()->set_openfile_dir(buf);
 
     /* return the result */
-    return (ret != 0);
+    return ret;
 }
 
 /* ------------------------------------------------------------------------ */
