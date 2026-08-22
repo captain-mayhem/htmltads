@@ -52,6 +52,9 @@ Modified
 #ifndef FOLDSEL_H
 #include "foldsel.h"
 #endif
+#ifndef TADSFOLDERDLG_H
+#include "tadsfolderdlg.h"
+#endif
 #ifndef W32MAIN_H
 #include "w32main.h"
 #endif
@@ -3688,6 +3691,15 @@ void CHtmlPreferences::render_options_dialog()
             ImGui::CloseCurrentPopup();
         }
 
+        /*
+         *   Draw the folder picker on top, if the Starting tab's Browse
+         *   button opened one. This has to happen here, nested inside our
+         *   own still-open BeginPopupModal, rather than from a top-level
+         *   call in CHtmlSys_mainwin::do_render() - see the "why render()
+         *   has to be called from here" comment in tadsfolderdlg.h.
+         */
+        CTadsFolderDialog::render();
+
         ImGui::EndPopup();
     }
 }
@@ -4085,9 +4097,9 @@ void CHtmlPreferences::opt_render_mem_tab()
 }
 
 /*
- *   Starting tab.  Mirrors CHtmlDialogStart; the folder browse button still
- *   uses the native CTadsDialogFolderSel2 dialog (see the file header
- *   comment above for why that's fine to leave as-is for now).
+ *   Starting tab.  Mirrors CHtmlDialogStart; the folder browse button now
+ *   shows the ImGui-native CTadsFolderDialog instead of the native
+ *   CTadsDialogFolderSel2 modal.
  */
 void CHtmlPreferences::opt_render_start_tab()
 {
@@ -4113,18 +4125,24 @@ void CHtmlPreferences::opt_render_start_tab()
         if (fname[0] == '\0')
             GetCurrentDirectory(sizeof(fname), fname);
 
-        if (CTadsDialogFolderSel2::run_select_folder(
-                opt_owner_hwnd_, CTadsApp::get_app()->get_instance(),
-                "&Initial \"Open\" Folder:", "Select Initial Folder",
-                fname, sizeof(fname), fname, 0, 0))
-        {
-            strncpy(opt_init_folder_, fname, sizeof(opt_init_folder_) - 1);
-            opt_init_folder_[sizeof(opt_init_folder_) - 1] = '\0';
-            set_init_open_folder(opt_init_folder_);
+        CTadsFolderDialog::open("Initial \"Open\" Folder:",
+            "Select Initial Folder", fname,
+            [this](const char *folder)
+            {
+                if (folder != 0)
+                {
+                    strncpy(opt_init_folder_, folder,
+                            sizeof(opt_init_folder_) - 1);
+                    opt_init_folder_[sizeof(opt_init_folder_) - 1] = '\0';
+                    set_init_open_folder(opt_init_folder_);
 
-            /* make the new folder active for the next "open" dialog too */
-            CTadsApp::get_app()->set_openfile_path(opt_init_folder_);
-        }
+                    /*
+                     *   make the new folder active for the next "open"
+                     *   dialog too
+                     */
+                    CTadsApp::get_app()->set_openfile_path(opt_init_folder_);
+                }
+            });
     }
 }
 

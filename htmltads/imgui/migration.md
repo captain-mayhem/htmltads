@@ -32,9 +32,8 @@ and metrics, text display, child-window handling, coloring, resizing, link color
 character-encoding fixes, image rendering via GL textures, text selection, mouse hover, and text
 highlighting. This is genuinely useful progress, and now the application chrome has its first
 ImGui-native pieces too: the menu bar, toolbar, and status bar (§3.1, §3.2) are all done, and so are
-four dialogs - Options, Customize Theme, the file open/save dialog, and the Find dialog (§3.3). Window
-creation itself, the remaining chrome (banners/scrollbars), and one dialog (the folder picker) are still
-100% Win32.
+all five dialogs - Options, Customize Theme, the file open/save dialog, the Find dialog, and the folder
+picker (§3.3). Window creation itself and the remaining chrome (banners/scrollbars) are still 100% Win32.
 
 ## 2. Root cause: "both windows open"
 
@@ -337,7 +336,7 @@ to help prioritize:
 | `tadsdlg.h` / `.cpp`, `tadsdlg2.cpp` | 35 / 28 / 19 | Generic dialog framework built on `CreateDialogParam`/`DialogBoxParam` — **not started**. Everything that uses `CTadsDialog` (most app dialogs) depends on this. |
 | `tadswebctl.h` | 17 | COM/OLE ActiveX browser control embedding (`exdisp.h`) for the in-game Web UI feature. Legacy IE technology — **recommend dropping**, not porting, unless the Web UI feature is still required (see §4). |
 | `tadsapp.cpp` / `.h` | 13 / 8 | App-level message routing, accelerators, modeless dialog list, MDI handling — tied to the Win32 message pump; needs redesign once there's no HWND to pump. |
-| `foldsel.h` / `foldsel2.cpp` | 11 / 10 | Custom folder-picker dialog. Has its own `WinMain` guarded by `#ifdef BUILD_TEST_PROG` (dead code in the `guit3` build) but the real dialog logic is still Win32. |
+| `foldsel.h` / `foldsel2.cpp` | 11 / 10 | Custom folder-picker dialog - **superseded**. The live call site (Options > Starting tab's Browse button) now uses the ImGui-native `CTadsFolderDialog` (`tadsfolderdlg.h`/`.cpp`); `foldsel.h`/`foldsel2.cpp` are left compiled but unused, same "harmless dead code" reasoning as elsewhere in this port. |
 | `w32fndlg.h` / `.cpp` | 6 / 10 | Find dialog (`CTadsDialogFind`) — **ported** (see §3.3's `CTadsFindDialog` entry); this file itself is left compiled but unused. Its `CTadsDialogFindReplace`/`CTadsDialogFindRegex` classes belong to the out-of-scope Workbench debugger and were never ported. |
 | `tadscbtn.h`, `w32webui.h`, `w32snd.h`, `tadsstat.h`, `htmlpref.h` | 6, 5, 4, 4, 4 | Custom button control, web-UI glue, sound glue, status line, prefs header — all **not started**. |
 
@@ -852,11 +851,10 @@ The general `CTadsDialog`-mirroring base class this section used to recommend tu
 necessary here either, same as Options/Customize Theme/file dialog - `CTadsFindDialog` just follows the
 existing `CTadsFileDialog` shape directly.
 
-**Not yet ported**: the folder-picker dialog itself (`CTadsDialogFolderSel2`/`foldsel2.cpp`, still only
-*called* from ImGui code, not rewritten) - it's the last dialog standing. Whether it's worth building a
-shared base class for it depends on how much structure it turns out to share with the now-two deferred-
-popup dialogs (`CTadsFileDialog`, `CTadsFindDialog`); worth revisiting once it's actually tackled rather
-than building one speculatively now.
+**The folder-picker dialog is now ImGui-native too - done - and it surfaced a real, previously-unverified
+bug in the nested-popup pattern used by the other deferred-popup dialogs.** See the "Folder picker
+dialog" entry further down for the full writeup, including the popup-nesting fix and why it also matters
+for `CTadsFileDialog`'s existing Game Chest tab call site.
 
 **File open/save dialog - done.** Every live `GetOpenFileName()` call site in `imgui/` (there was no
 `GetSaveFileName()` call site anywhere in the tree) is now backed by a new, reusable ImGui-native file
@@ -930,6 +928,82 @@ handling, `tadswin_message_box()`'s button loop) rather than anything novel. **I
 working screenshot/input setup, this dialog is the highest-value thing left to actually look at** -
 particularly the directory-listing layout, the Save-mode overwrite confirmation nested popup, and the
 Game Chest tab's Browse buttons opening on top of the already-open Options dialog.
+
+**Folder picker dialog - done, and it exposed a real nested-popup bug this session could finally
+click-test.** The Options dialog's Starting tab has one Browse button (next to "Initial game folder") that
+used to call the native `CTadsDialogFolderSel2::run_select_folder()` (`foldsel.h`/`foldsel2.cpp`) - the
+last dialog left on the Win32 side. It's now backed by `CTadsFolderDialog`
+([tadsfolderdlg.h](tadsfolderdlg.h)/[tadsfolderdlg.cpp](tadsfolderdlg.cpp)): a directory-only browser
+(subdirectories-only listing via `FindFirstFileA`/`FindNextFileA`, an editable/`Enter`-navigable path
+field, an "Up" button, double-click-to-enter navigation) with "Select Folder"/Cancel buttons instead of a
+filename field, following the same open()/render() deferred-popup shape as `CTadsFileDialog`/
+`CTadsFindDialog`. `foldsel.h`/`foldsel2.cpp` are left compiled but unused, same "harmless dead code"
+reasoning as the old Options property-sheet code and `w32fndlg.cpp`/`.h`.
+
+**This dialog's one real call site is nested one modal deep (inside the already-open Options dialog), and
+that nesting broke in a way the existing pattern's documentation had never actually verified by clicking.**
+Following `CTadsFileDialog`/`CTadsFindDialog`'s established convention exactly - `open()` just records a
+pending flag from the Browse button's click handler, and `render()` is called once per frame from the
+same root-level popup list in `CHtmlSys_mainwin::do_render()` that draws the other top-level popups -
+compiled fine and even *looked* right (a real screenshot showed the dimmed Options dialog correctly
+visible behind the folder picker, confirming the modal stacking looked plausible). But clicking Cancel (or
+Select Folder) closed **both** the folder picker and the entire Options dialog underneath it, dumping the
+user straight back to the main game window. This is the first time a click on a nested dialog
+like this in this codebase was actually exercised end-to-end - the earlier "File open/save dialog"
+entry above explicitly notes its own Game Chest-tab nesting (`CTadsFileDialog` opened from inside the
+already-open Options dialog) could only be verified via trace logging in that session's sandbox, never a
+real click, so the claim that "nested modals just work" there was never actually confirmed to survive a
+Cancel click - it likely has the exact same latent bug described here, just not yet observed.
+
+**Root cause, found via temporary `fprintf` trace logging of Dear ImGui's internal popup-stack state**
+(`ImGuiContext::BeginPopupStack`/`OpenPopupStack`, from `imgui_internal.h` - the same
+"instrument and look at real state" technique §6/"Blinking text-entry caret" already documents, just
+applied to popup bookkeeping instead of a `caret_vis_` flag): Dear ImGui decides what nesting *level* a
+popup opens at from `g.BeginPopupStack.Size` **at the exact moment `ImGui::OpenPopup()` is called** - not
+from whatever modal happened to be open most recently. `CTadsFolderDialog::render()`'s `OpenPopup()` call,
+sitting in the root-level popup list, runs *after* `render_options_dialog()`'s own `BeginPopupModal`/
+`EndPopup()` pair has already completed for that frame - so `BeginPopupStack.Size` is back down to 0 by
+the time it fires, and Dear ImGui treats the folder picker as a brand new **level-0** popup. Opening a new
+level-0 popup truncates the global `OpenPopupStack` back to size 0 first (a location can only have one
+active popup chain per level) - which silently evicts Options' own level-0 entry from the stack instead of
+stacking the folder picker on top of it as level 1. The trace log's smoking gun: right after the folder
+picker's `OpenPopup()` call, `OpenPopupStack` still read size 1, but with the folder picker's ID in slot 0
+- Options' ID (previously in that same slot) was just gone, not pushed down to slot 1 as "nested on top of"
+would require. From that point on the folder picker *looked* like a nested modal (screenshots showed the
+dimmed Options content behind it, since that's just the previous frame's pixels still on screen until
+something redraws over them) but structurally it had *replaced* Options in the popup stack, not stacked on
+it - so closing the folder picker via `CloseCurrentPopup()` correctly closed "the current level-0 popup,"
+which by then was the only entry left, taking Options down with it.
+
+**Fix**: `CTadsFolderDialog::render()` must be called from *inside* `render_options_dialog()`'s own
+still-open `BeginPopupModal` block (right before its `EndPopup()`), not from the root-level list in
+`CHtmlSys_mainwin::do_render()` - moved in [htmlpref.cpp](htmlpref.cpp), with the reasoning recorded
+in [tadsfolderdlg.h](tadsfolderdlg.h) so it isn't "simplified" back to the root-level pattern by a future
+session pattern-matching on `CTadsFileDialog`/`CTadsFindDialog`. With the call site nested there,
+`BeginPopupStack.Size` is 1 (Options) at the moment the folder picker's `OpenPopup()` fires, so it opens as
+a proper level-1 popup stacked on top of Options instead of replacing it. This only works because the
+folder picker's *only* real call site is already known to be nested one level under Options; a dialog
+needed at multiple nesting depths (or at the root) would need its `render()` called from whichever context
+it's actually opened under, not a single fixed call site - there is no single "safe" location that covers
+every possible caller.
+
+**Verified with actual mouse-driven interaction, not just trace logs** - the working input injection this
+session had (`SetCursorPos`/`mouse_event` after focusing via `AppActivate`, per §6's precedent) turned out
+to be exactly the missing piece the earlier `CTadsFileDialog`/`CTadsFindDialog` sessions never had for
+testing a nested-modal Cancel path. Drove `guit3.exe tests/ditch3.t3` through Edit > Options > Starting >
+Browse, double-clicked into a parent directory, and confirmed both directions: clicking Cancel now closes
+only the folder picker and leaves Options open (screenshotted immediately after, still showing the
+Starting tab); clicking "Select Folder" after navigating into `tests` closed the folder picker, left
+Options open, and correctly filled the chosen path into the "Initial game folder" field via the
+`open()`/callback plumbing. Also confirmed the whole app stays fully responsive afterward (command line
+still live, caret blinking) whether the dialog was cancelled or accepted.
+
+**Worth reusing for the next dialog that's ever triggered from inside an already-open modal**: don't trust
+that "it compiled, and a screenshot right after opening looked nested" means the popup stack is actually
+structured as nested - the visual dimming behind a freshly-opened popup is just leftover pixels from the
+previous frame regardless of whether the new popup actually stacked correctly or silently replaced its
+parent. The only way to tell the difference is to actually click the child popup's own Cancel/Close button
+and confirm the parent survives, or to trace `g.BeginPopupStack`/`g.OpenPopupStack` directly.
 
 ### 3.4 Child "windows" (banners, scrollbars, tooltips, size-grip)
 `CTadsWin` treats banners, scrollbars, and the resize grip as real child `HWND`s
@@ -1023,8 +1097,8 @@ Windows-locked.
    doesn't need them.
 4. **Dialogs** (§3.3): biggest chunk by file count. The Options dialog (Edit > Options), the
    "Customize Theme" Fonts/Colors/More/Media property sheet (`run_appearance_dlg()`), the file open/save
-   dialog, and the Find dialog (Edit > Find Text on Current Page...) are all **done**. Still remaining:
-   the folder-picker dialog (`foldsel2.cpp`, only called from ImGui code so far, not itself rewritten).
+   dialog, the Find dialog (Edit > Find Text on Current Page...), and the folder-picker dialog (Options >
+   Starting tab's Browse button) are all **done**. No dialogs remain on the Win32 side.
 5. **Font/image cleanup** (§3.5, §3.6): remove now-dead GDI code paths once nothing still calls them.
 6. **Gate the Web UI behind `#ifdef`s** (§3.8/§4): get `tadswebctl.*`/`w32webui.h` and their
    COM/ActiveX calls compiling out cleanly for `guit3` rather than porting them now.
