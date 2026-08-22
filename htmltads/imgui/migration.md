@@ -1070,6 +1070,50 @@ several attempts to blindly hit the real 10px-wide track via synthetic screen-co
 live visual feedback to correct aim) landed just outside it and hit a text selection instead. If a
 scrollbar-drag regression is ever reported, treat it as untested rather than ruled out by this note.
 
+**Correction from a later session: two more bugs, only visible once actually scrolled away from both
+extremes.** A user report ("scrollbar is there at the start even though content fits; scrolled to the
+bottom, the thumb doesn't reach the end; scrolled to the middle, it looks strange and isn't properly
+scrollable") led to two fixes, both in `render_vscrollbar_imgui()` (tadswin.cpp) and its window-flags
+neighbor in tadswin.h:
+
+1. **Thumb math used the wrong denominator.** The code treated `nMax - nMin` as the scrollbar's total
+   range, mirroring ImGui's own `GetScrollMaxY()` convention (a pure scrollable-extent value). But
+   `get_scroll_info()` here fills in a classic *Win32* `SCROLLINFO`, where `nMax` is the bottom-most
+   logical content unit (inclusive) and the thumb can only travel from `nMin` up to `nMax - nPage + 1` -
+   the true total extent is `nMax - nMin + 1`. Using the wrong denominator throughout made the thumb look
+   partially-sized even when the content fit on one page (should have been hidden), and stopped it short
+   of the track's bottom edge when actually scrolled all the way down. Fixed by computing
+   `total = nMax - nMin + 1` and `max_pos = total - page` and using those consistently for thumb sizing,
+   position fraction, and drag-to-position mapping; the bar is now hidden entirely (`return` before
+   drawing) whenever `max_pos <= 0` (content fits, nothing to scroll).
+2. **The real bug behind "looks strange in the middle" turned out to be unrelated to any of the above
+   math**: Dear ImGui was drawing *its own* native scrollbar on top of ours. `CTadsWinScroll`'s content
+   child window is fixed-size (`get_content_child_flags()` drops `AutoResizeX/Y` so ImGui can, per an old
+   comment there, "show and drive a scrollbar"), and `get_content_window_flags()` only added `NoInputs`,
+   never `NoScrollbar`. Any transient overflow in ImGui's own per-window cursor/content-extent bookkeeping
+   (e.g. a formatter draw landing a pixel or two past `m_size`) was enough for ImGui to paint its default
+   scrollbar decoration at the same right-hand edge - and Dear ImGui's default `ScrollbarGrab` color
+   (`(0.31, 0.31, 0.31)`, i.e. flat RGB 79) with the same rounded-rect shape visually reads as "the thumb
+   filling almost the entire track," which is exactly what made it look broken once scrolled away from an
+   extreme (near the top/bottom the real, correctly-computed thumb happened to overlap the ImGui one
+   closely enough to look plausible). Fixed by adding `ImGuiWindowFlags_NoScrollbar |
+   ImGuiWindowFlags_NoScrollWithMouse` to `CTadsWinScroll::get_content_window_flags()`.
+
+**Debugging technique worth reusing, and a trap to avoid**: `glReadPixels` on the real OpenGL backbuffer
+(right after `ImGui_ImplOpenGL3_RenderDrawData`, before `glfwSwapBuffers`) is a reliable way to sample
+exact rendered colors independent of screenshot/DWM compositing concerns, and disabling a suspect draw
+call with an early `return` to see whether an artifact persists is a fast way to prove/disprove that call
+is the source (this is what proved the gray fill wasn't coming from `render_vscrollbar_imgui()` itself).
+**The trap**: `glReadPixels` coordinates are in GL framebuffer space (origin bottom-left, sized to
+`glfwGetFramebufferSize()`), while an external `CopyFromScreen()` screenshot is in OS screen space
+(origin top-left, sized to the window's `GetWindowRect()`, which includes the title bar and ~8px window
+borders that the framebuffer doesn't). Cross-referencing an x/y coordinate between the two without
+converting for that offset silently samples two different physical pixels and produces misleading,
+contradictory-looking results (this cost significant time before the mismatch was noticed) - pick one
+coordinate system and stick to it, or convert explicitly. Zooming into an actual cropped screenshot
+(3x nearest-neighbor upscale of a tight crop around the scrollbar track) turned out to be far more
+reliable for this than trying to reason about raw sampled RGB values at a handful of points.
+
 ## 5. Blinking text-entry caret
 
 **Symptom**: in `htmlt3` (Win32), a blinking caret marks the insertion point on the command input line.

@@ -2933,8 +2933,24 @@ void CTadsWinScroll::render_vscrollbar_imgui()
     if (!get_scroll_info(TRUE, &info))
         return;
 
-    long range = info.nMax - info.nMin;
-    if (range <= 0)
+    /*
+     *   SCROLLINFO follows Win32 scrollbar conventions: nMax is the bottom-
+     *   most logical unit of content (inclusive), not a "scrollable extent"
+     *   the way ImGui's own GetScrollMaxY() is - so the total logical
+     *   extent covered by the bar is (nMax - nMin + 1), and the thumb can
+     *   only travel from nMin up to (total - page), not all the way to
+     *   nMax. Getting this wrong (treating nMax - nMin as the denominator
+     *   throughout) both shows a partial-looking thumb when the content
+     *   actually fits on one page, and stops the thumb short of the track's
+     *   bottom when scrolled all the way down.
+     */
+    long total = info.nMax - info.nMin + 1;
+    if (total <= 0)
+        return;
+
+    long page = (info.nPage > 0 ? (long)info.nPage : 1);
+    long max_pos = total - page;
+    if (max_pos <= 0)
         return;
 
     RECT rc;
@@ -2946,12 +2962,13 @@ void CTadsWinScroll::render_vscrollbar_imgui()
     if (track_h <= 0)
         return;
 
-    float page = (float)(info.nPage > 0 ? info.nPage : 1);
-    float thumb_h = track_h * (page / (float)(range + (long)page));
+    float thumb_h = track_h * ((float)page / (float)total);
     if (thumb_h < 20.0f) thumb_h = 20.0f;
     if (thumb_h > track_h) thumb_h = track_h;
     float avail = track_h - thumb_h;
-    float frac = (float)(info.nPos - info.nMin) / (float)range;
+    float frac = (float)(info.nPos - info.nMin) / (float)max_pos;
+    if (frac < 0.0f) frac = 0.0f;
+    if (frac > 1.0f) frac = 1.0f;
 
     /*
      *   The track/thumb itself needs real ImGui mouse handling (drag via
@@ -2981,7 +2998,7 @@ void CTadsWinScroll::render_vscrollbar_imgui()
         float f = avail > 0.0f ? my / avail : 0.0f;
         if (f < 0.0f) f = 0.0f;
         if (f > 1.0f) f = 1.0f;
-        long newpos = info.nMin + (long)(f * range + 0.5f);
+        long newpos = info.nMin + (long)(f * max_pos + 0.5f);
         do_scroll(TRUE, vscroll_, SB_THUMBPOSITION, newpos, TRUE);
         frac = f;
     }

@@ -1889,8 +1889,24 @@ public:
          *   its own geometric hover test (independent of ImGui's window
          *   capture) for wheel-scroll, so this content window itself no
          *   longer needs to accept input at all.
+         *
+         *   Also add NoScrollbar/NoScrollWithMouse: this content window is
+         *   fixed-size, not auto-resized (see get_content_child_flags()
+         *   above), so any transient overflow in ImGui's own cursor/content
+         *   extent tracking - e.g. a formatter draw call landing a pixel or
+         *   two past m_size - makes ImGui show *its own* native scrollbar
+         *   decoration on top of the one render_vscrollbar_imgui() draws.
+         *   Dear ImGui's default scrollbar thumb happens to be the same
+         *   rounded gray shape and roughly the same edge position as ours,
+         *   so the two silently overlap: ours still computes/animates the
+         *   correct proportional thumb underneath, but ImGui's own
+         *   full-track-looking one paints over it, which is what made the
+         *   bar look "stuck"/wrong once scrolled away from the very top or
+         *   bottom. Suppressing ImGui's native scrollbar entirely leaves
+         *   render_vscrollbar_imgui() as the only thing drawing here.
          */
-        return CTadsWin::get_content_window_flags();
+        return CTadsWin::get_content_window_flags()
+            | ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse;
     }
 
     /*
