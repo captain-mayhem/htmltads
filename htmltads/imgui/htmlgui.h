@@ -2422,9 +2422,6 @@ public:
      */
     void start_new_game();
 
-    /* if a game is underway, ask the player if it's okay to end it */
-    int query_end_game();
-
     /* flag that the current game has terminated */
     void end_current_game();
 
@@ -2463,14 +2460,26 @@ public:
                           char *profile_buf, size_t profile_buf_len);
     void set_profile_assoc(const char *fname, const char *profile);
 
-    /* 
+    /*
      *   load a new game file - prompt for a game file; if provided,
-     *   terminate the current game and start a new one 
+     *   terminate the current game and start a new one
      */
     void load_new_game();
 
     /* load a new game given the filename */
     void load_new_game(const textchar_t *fname);
+
+    /*
+     *   The rest of load_new_game()'s work (showing the native file-open
+     *   common dialog and loading the chosen file) - split out so it can
+     *   run either immediately (no game running) or after the player
+     *   confirms via render_new_game_confirm()'s ImGui modal (a game is
+     *   running).  The file-open dialog itself is left native - it's a
+     *   self-pumping modal common dialog, safe to call from an ImGui click
+     *   handler (see migration.md); only the "really end the current game?"
+     *   confirmation needed converting.
+     */
+    void do_load_new_game_prompt();
 
     /*
      *   Set the game pause flag; when this flag is true, it means that
@@ -2563,6 +2572,28 @@ public:
      *   string popup IDs against the current ID stack.
      */
     void render_context_menu();
+
+    /*
+     *   Render the "really end the current game and load a new one?" ImGui
+     *   confirmation modal, if pending_new_game_confirm_ is set.  Replaces
+     *   the native MessageBox() query_end_game() used to show, deferred to
+     *   this per-frame call (from do_render()) for the same reason
+     *   render_context_menu() is: the request comes from a menu click
+     *   handled mid-frame, so it can't block synchronously on its own
+     *   nested message pump the way tadswin_message_box() does elsewhere.
+     *   On confirmation, proceeds with whichever of
+     *   do_load_new_game_prompt()/do_load_recent_game() was requested.
+     */
+    void render_new_game_confirm();
+
+    /*
+     *   Render the "really quit?" ImGui confirmation modal, if
+     *   pending_quit_confirm_ is set.  Replaces the native MessageBox()
+     *   do_close() used to show for HTML_PREF_CLOSE_PROMPT; see that
+     *   function and quit_confirmed_ for how the deferred confirmation
+     *   re-enters do_close().
+     */
+    void render_quit_confirm();
 
     /* process creation event */
     void do_create();
@@ -3023,6 +3054,13 @@ private:
     /* load a game from the recent game list - 0 = most recent */
     void load_recent_game(int idx);
 
+    /*
+     *   The rest of load_recent_game()'s work, split out the same way as
+     *   do_load_new_game_prompt() above, so it can run immediately or after
+     *   the player confirms via render_new_game_confirm()'s ImGui modal.
+     */
+    void do_load_recent_game(int idx);
+
     /* 
      *   Prune the main window's parse tree, if we're using too much
      *   memory.  This should be called before getting user input; we'll
@@ -3312,11 +3350,60 @@ private:
      */
     int temp_show_links_ : 1;
 
-    /* 
+    /*
      *   Flag: we're running a Web UI game.  We set this after loading a T3
-     *   game if we detect that the tads-net function set is loaded.  
+     *   game if we detect that the tads-net function set is loaded.
      */
     int webui_game_ : 1;
+
+    /*
+     *   Flag: a game is currently running, and the player has asked to
+     *   start a new one (via File > Open New Game, or a recent-game menu
+     *   entry) - we need to show an ImGui "really end the current game?"
+     *   confirmation on the next frame before proceeding.  We defer this
+     *   rather than blocking synchronously (the way the native MessageBox()
+     *   used to) because these requests arrive from a menu click handled
+     *   mid-frame; see render_new_game_confirm().
+     */
+    unsigned int pending_new_game_confirm_ : 1;
+
+    /*
+     *   Flag: the pending new-game confirmation (above) is for a
+     *   recent-game menu entry (pending_new_game_recent_idx_) rather than
+     *   for File > Open New Game's file-picker prompt.
+     */
+    unsigned int pending_new_game_is_recent_ : 1;
+
+    /* which recent-game entry pending_new_game_is_recent_ refers to */
+    int pending_new_game_recent_idx_;
+
+    /*
+     *   Flag: render_new_game_confirm() has already called
+     *   ImGui::OpenPopup() for the current pending_new_game_confirm_
+     *   request - mirrors tadswin_message_box()'s (tadswin.cpp)
+     *   "popup_opened" guard, so we call OpenPopup() only on the first
+     *   frame of a given request rather than every frame it's pending.
+     */
+    unsigned int new_game_confirm_opened_ : 1;
+
+    /*
+     *   Flag: we're showing (or about to show) the ImGui "really quit?"
+     *   confirmation on the next frame, deferred from do_close() for the
+     *   same reason as pending_new_game_confirm_ above - do_close() runs
+     *   synchronously from the WM_CLOSE handler, outside of any ImGui
+     *   frame, so it can't render a modal itself.
+     */
+    unsigned int pending_quit_confirm_ : 1;
+
+    /* same OpenPopup() guard as new_game_confirm_opened_, for the quit confirm */
+    unsigned int quit_confirm_opened_ : 1;
+
+    /*
+     *   Flag: the player already confirmed the pending quit via the ImGui
+     *   modal - do_close() checks this to skip re-showing the prompt when
+     *   we re-post WM_CLOSE to actually finish closing.
+     */
+    unsigned int quit_confirmed_ : 1;
 };
 
 /*

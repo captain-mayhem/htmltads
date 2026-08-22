@@ -10475,6 +10475,15 @@ CHtmlSys_mainwin::CHtmlSys_mainwin(CHtmlFormatterInput *formatter,
     /* we don't have a Web UI game yet */
     webui_game_ = FALSE;
 
+    /* no pending new-game or quit confirmation dialogs yet */
+    pending_new_game_confirm_ = FALSE;
+    pending_new_game_is_recent_ = FALSE;
+    pending_new_game_recent_idx_ = 0;
+    new_game_confirm_opened_ = FALSE;
+    pending_quit_confirm_ = FALSE;
+    quit_confirm_opened_ = FALSE;
+    quit_confirmed_ = FALSE;
+
     /* we don't have an .exe resource hash table yet */
     exe_res_table_ = 0;
 
@@ -11610,6 +11619,10 @@ int CHtmlSys_mainwin::do_render() {
     /* draw the edit context menu on top, if it's open (see do_rightbtn_up()) */
     render_context_menu();
 
+    /* draw the new-game/quit confirmations on top, if either is pending */
+    render_new_game_confirm();
+    render_quit_confirm();
+
     return ret;
 }
 
@@ -11899,6 +11912,150 @@ void CHtmlSys_mainwin::render_context_menu()
     item(ID_EDIT_FINDNEXT, "Find Next");
 
     ImGui::EndPopup();
+}
+
+/*
+ *   Shared layout for the small Yes/No ImGui confirmation modals below -
+ *   mirrors tadswin_message_box()'s (tadswin.cpp) look (message text, then
+ *   a separator, then two centered buttons) so these read as the same kind
+ *   of dialog as the native MessageBox()es they replace, and as the popup
+ *   w32_msgbox() shows via that helper.  Unlike tadswin_message_box(), this
+ *   doesn't run its own nested glfwPollEvents/ImGui::NewFrame loop - it's
+ *   called once per frame from the normal do_render() cycle, since these
+ *   confirmations are requested from menu commands handled mid-frame (see
+ *   render_new_game_confirm()/render_quit_confirm()) and would hit an
+ *   ImGui assert if they tried to pump a second frame on top of the one
+ *   already in progress.  Returns IDYES/IDNO once a button is clicked, or
+ *   0 if neither button has been clicked yet this frame.  The second
+ *   button (No) is the default, matching the MB_DEFBUTTON2 the native
+ *   MessageBox() calls used - Enter activates No, not Yes, so an
+ *   incidental stray keystroke can't confirm ending a game or quitting.
+ */
+static int render_yesno_confirm_popup(const char *popup_id, const char *msg)
+{
+    int result = 0;
+
+    ImGuiViewport *vp = ImGui::GetMainViewport();
+    ImGui::SetNextWindowPos(
+        ImVec2(vp->Pos.x + vp->Size.x * 0.5f, vp->Pos.y + vp->Size.y * 0.5f),
+        ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
+    ImGui::SetNextWindowSize(ImVec2(420, 0), ImGuiCond_Appearing);
+
+    if (ImGui::BeginPopupModal(popup_id, nullptr,
+        ImGuiWindowFlags_NoResize | ImGuiWindowFlags_AlwaysAutoResize))
+    {
+        ImGui::PushTextWrapPos(400);
+        ImGui::TextUnformatted(msg);
+        ImGui::PopTextWrapPos();
+
+        ImGui::Spacing();
+        ImGui::Separator();
+        ImGui::Spacing();
+
+        const float btn_w = 90.0f;
+        float total_w = btn_w * 2 + ImGui::GetStyle().ItemSpacing.x;
+        ImGui::SetCursorPosX(ImGui::GetCursorPosX()
+            + (ImGui::GetContentRegionAvail().x - total_w) * 0.5f);
+
+        if (ImGui::Button("Yes", ImVec2(btn_w, 0)))
+            result = IDYES;
+        ImGui::SameLine();
+        if (ImGui::Button("No", ImVec2(btn_w, 0))
+            || ImGui::IsKeyPressed(ImGuiKey_Enter)
+            || ImGui::IsKeyPressed(ImGuiKey_Escape))
+            result = IDNO;
+
+        if (result != 0)
+            ImGui::CloseCurrentPopup();
+
+        ImGui::EndPopup();
+    }
+
+    return result;
+}
+
+/*
+ *   Render the "really end the current game?" confirmation, if pending -
+ *   see load_new_game()/load_recent_game() and pending_new_game_confirm_.
+ *   This is the ImGui-deferred replacement for the native MessageBox()
+ *   query_end_game() used to show synchronously.
+ */
+void CHtmlSys_mainwin::render_new_game_confirm()
+{
+    if (!pending_new_game_confirm_)
+    {
+        new_game_confirm_opened_ = FALSE;
+        return;
+    }
+
+    if (!new_game_confirm_opened_)
+    {
+        ImGui::OpenPopup("TADS###NewGameConfirm");
+        new_game_confirm_opened_ = TRUE;
+    }
+
+    char msg[256];
+    LoadString(CTadsApp::get_app()->get_instance(),
+               IDS_REALLY_NEW_GAME_MSG, msg, sizeof(msg));
+
+    int result = render_yesno_confirm_popup("TADS###NewGameConfirm", msg);
+    if (result == 0)
+        return;
+
+    /* the modal is answered - clear the pending flag either way */
+    pending_new_game_confirm_ = FALSE;
+    new_game_confirm_opened_ = FALSE;
+
+    if (result == IDYES)
+    {
+        if (pending_new_game_is_recent_)
+            do_load_recent_game(pending_new_game_recent_idx_);
+        else
+            do_load_new_game_prompt();
+    }
+}
+
+/*
+ *   Render the "really quit?" confirmation, if pending - see do_close()
+ *   and pending_quit_confirm_/quit_confirmed_.  This is the ImGui-deferred
+ *   replacement for the native MessageBox() do_close() used to show
+ *   synchronously for the HTML_PREF_CLOSE_PROMPT close-action setting.
+ */
+void CHtmlSys_mainwin::render_quit_confirm()
+{
+    if (!pending_quit_confirm_)
+    {
+        quit_confirm_opened_ = FALSE;
+        return;
+    }
+
+    if (!quit_confirm_opened_)
+    {
+        ImGui::OpenPopup("TADS###QuitConfirm");
+        quit_confirm_opened_ = TRUE;
+    }
+
+    char msg[256];
+    LoadString(CTadsApp::get_app()->get_instance(),
+               IDS_REALLY_QUIT_MSG, msg, sizeof(msg));
+
+    int result = render_yesno_confirm_popup("TADS###QuitConfirm", msg);
+    if (result == 0)
+        return;
+
+    pending_quit_confirm_ = FALSE;
+    quit_confirm_opened_ = FALSE;
+
+    if (result == IDYES)
+    {
+        /*
+         *   the player confirmed - re-post WM_CLOSE to finish the close;
+         *   quit_confirmed_ tells do_close() to skip the prompt this time
+         *   and proceed straight to actually closing
+         */
+        quit_confirmed_ = TRUE;
+        PostMessage(handle_, WM_CLOSE, 0, 0);
+    }
 }
 
 /*
@@ -12462,17 +12619,30 @@ done:
 }
 
 /*
- *   Load a game from the recently-played list 
+ *   Load a game from the recently-played list.  Same deferred-confirmation
+ *   split as load_new_game()/do_load_new_game_prompt() above, for the same
+ *   reason - see load_new_game().
  */
 void CHtmlSys_mainwin::load_recent_game(int idx)
+{
+    /* warn about ending any current game */
+    if (!main_panel_->get_eof_flag())
+    {
+        pending_new_game_confirm_ = TRUE;
+        pending_new_game_is_recent_ = TRUE;
+        pending_new_game_recent_idx_ = idx;
+        return;
+    }
+
+    do_load_recent_game(idx);
+}
+
+/* the rest of load_recent_game()'s work - see load_recent_game() */
+void CHtmlSys_mainwin::do_load_recent_game(int idx)
 {
     const textchar_t *order;
     const textchar_t *fname;
 
-    /* warn about ending any current game */
-    if (!query_end_game())
-        return;
-    
     /* get the order string */
     order = prefs_->get_recent_game_order();
 
@@ -12591,9 +12761,7 @@ int CHtmlSys_mainwin::do_close()
     /* send a QUIT command to the main command window, if possible */
     if (main_panel_ != 0)
     {
-        char buf[256];
-
-        /* 
+        /*
          *   if the main panel is awaiting a keystroke before exiting,
          *   treat this as equivalent - simply send a space key so that we
          *   can exit 
@@ -12662,21 +12830,25 @@ int CHtmlSys_mainwin::do_close()
             return FALSE;
 
         case HTML_PREF_CLOSE_PROMPT:
-            /* ask the user whether they really want to quit */
-            LoadString(CTadsApp::get_app()->get_instance(),
-                       IDS_REALLY_QUIT_MSG, buf, sizeof(buf));
-            switch(MessageBox(handle_, buf, "TADS",
-                              MB_YESNO | MB_ICONQUESTION | MB_DEFBUTTON2))
+            /*
+             *   Ask the user whether they really want to quit.  This used
+             *   to block here on a native MessageBox(), but we're running
+             *   synchronously inside the WM_CLOSE handler (outside of any
+             *   ImGui frame), so we can't render a modal directly - defer
+             *   to render_quit_confirm(), which shows an ImGui popup on the
+             *   next frame and re-posts WM_CLOSE (setting quit_confirmed_)
+             *   if the player clicks Yes.  Skip the prompt and proceed
+             *   straight to closing if we're re-entering here after that
+             *   confirmation.
+             */
+            if (quit_confirmed_)
             {
-            case IDYES:
-            case 0:
-                /* go close the window */
+                quit_confirmed_ = FALSE;
                 goto do_close_window;
-
-            default:
-                /* ignore the close request */
-                return FALSE;
             }
+
+            pending_quit_confirm_ = TRUE;
+            return FALSE;
 
         case HTML_PREF_CLOSE_NOW:
         do_close_window:
@@ -13857,17 +14029,40 @@ void CHtmlSys_mainwin::load_new_game(const textchar_t *fname)
 
 /*
  *   Load a new game, asking the player via a standard file dialog for the
- *   name of the new game 
+ *   name of the new game.  If a game is currently underway, we first need
+ *   to confirm that it's okay to end it; since that confirmation used to be
+ *   a blocking native MessageBox() (query_end_game()), and this is called
+ *   from a menu command handled mid-frame, we defer to an ImGui modal
+ *   rendered on the next frame instead (see render_new_game_confirm()) and
+ *   pick this back up in do_load_new_game_prompt() once the player
+ *   confirms.  If no game is underway, we proceed immediately.
  */
 void CHtmlSys_mainwin::load_new_game()
+{
+    if (!main_panel_->get_eof_flag())
+    {
+        pending_new_game_confirm_ = TRUE;
+        pending_new_game_is_recent_ = FALSE;
+        return;
+    }
+
+    do_load_new_game_prompt();
+}
+
+/*
+ *   Show the native file-open common dialog and load the chosen game.
+ *   Split out of load_new_game() so it can run either immediately or after
+ *   the player confirms ending the current game - see load_new_game().
+ *   GetOpenFileName() itself is left native: it's a self-pumping modal
+ *   common dialog, safe to invoke from an ImGui click handler (confirmed
+ *   working throughout the port - see migration.md), unlike the blocking
+ *   MessageBox() this replaces upstream of it.
+ */
+void CHtmlSys_mainwin::do_load_new_game_prompt()
 {
     OPENFILENAME5 info;
     char fullname[MAX_PATH];
     char prompt[256];
-
-    /* warn about ending any current game */
-    if (!query_end_game())
-        return;
 
     /* set up to get the filename */
     info.hwndOwner = handle_;
@@ -13900,38 +14095,6 @@ void CHtmlSys_mainwin::load_new_game()
 
     /* load the new game */
     load_new_game(fullname);
-}
-
-/*
- *   If a current game is underway, warn the player and ask if they want
- *   to end it.  Returns true if we can proceed with loading a new game,
- *   false if not.  If no game is underway, we'll simply return true. 
- */
-int CHtmlSys_mainwin::query_end_game()
-{
-    /* if a game is currently underway, warn about it */
-    if (!main_panel_->get_eof_flag())
-    {
-        char msg[256];
-
-        LoadString(CTadsApp::get_app()->get_instance(),
-                   IDS_REALLY_NEW_GAME_MSG, msg, sizeof(msg));
-        switch(MessageBox(handle_, msg, "TADS",
-                          MB_YESNO | MB_ICONQUESTION | MB_DEFBUTTON2))
-        {
-        case IDYES:
-        case 0:
-            /* it's okay; tell the caller to proceed */
-            return TRUE;
-
-        default:
-            /* tell the caller to cancel */
-            return FALSE;
-        }
-    }
-
-    /* there's no game underway, so there's no reason not to proceed */
-    return TRUE;
 }
 
 /*

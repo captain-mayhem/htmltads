@@ -1200,3 +1200,84 @@ relevant internal state as on-screen text via `ImGui::GetForegroundDrawList()->A
 call-counter or a capped event-trace string for anything event-driven) rather than guessing - this is
 what actually found layers 2 and 3 above, both of which were invisible from reading the code alone since
 the Win32 focus-message ping-pong they depend on isn't something you can spot by inspection.
+
+**File > Open New Game and File > Exit's confirmation prompts - converted from native MessageBox() to
+ImGui popups.** Reported as "when pressing Open New Game or Exit in the File menu, there are still
+native win32 popups." Two flows, both in `htmlgui.cpp`:
+
+- **File > Open New Game** (`ID_FILE_LOADGAME` → `load_new_game()`) and the recent-games menu entries
+  (`load_recent_game()`) both used to call `query_end_game()`, which blocked on a native `MessageBox()`
+  ("Starting a new game will quit the current game without saving...") whenever a game was already
+  running, before showing the (still-native, out of scope here - see below) `GetOpenFileName()` file
+  picker.
+- **File > Exit** (`ID_FILE_EXIT`) posts `WM_CLOSE` to `handle_`; `do_close()`'s `HTML_PREF_CLOSE_PROMPT`
+  case (the "Quitting" preference tab's "Prompt before closing window and exiting" option) used to block
+  on a native `MessageBox()` ("You are about to quit the game without saving...") before actually
+  closing.
+
+**Why these couldn't just call `tadswin_message_box()`** (the existing ImGui `MessageBox()` replacement,
+see the "Startup `MessageBox`" entry above): both fire synchronously from inside code that runs *outside*
+any ImGui frame - `do_close()` runs from the WM_CLOSE handler, dispatched during `glfwPollEvents()` at
+the top of `event_loop()`, before that frame's `ImGui::NewFrame()`; `load_new_game()`/`load_recent_game()`
+run from a menu click's `do_command()`, which *is* mid-frame but nested inside `render_menu_bar()`'s
+`BeginMainMenuBar()`. Calling `tadswin_message_box()` (which runs its own nested
+`glfwPollEvents`/`ImGui::NewFrame`/`Render` loop) from either spot would either have no frame to nest
+into or would nest one frame inside another and hit an ImGui assert - exactly the problem the "Scope
+note" in the earlier `MessageBox` entry predicted and deferred.
+
+**Fix - deferred confirmation, matching the pattern `render_options_dialog()`/`render_context_menu()`
+already established**: each flow now sets a pending-confirmation flag and returns immediately instead of
+blocking; a new per-frame render function (called from `CHtmlSys_mainwin::do_render()`, same root
+ID-stack depth as the other two) shows an ImGui `BeginPopupModal` and acts on the result once the player
+clicks a button:
+- `load_new_game()`/`load_recent_game()` check `main_panel_->get_eof_flag()` directly now (this is
+  exactly what `query_end_game()` used to check before deciding whether to prompt at all) and, if a game
+  is running, set `pending_new_game_confirm_` (plus `pending_new_game_is_recent_`/
+  `pending_new_game_recent_idx_` to remember which of the two callers to resume) instead of calling
+  `query_end_game()`, which is now gone. `render_new_game_confirm()` shows the modal and, on Yes, calls
+  whichever of the new `do_load_new_game_prompt()`/`do_load_recent_game()` helpers (the rest of the old
+  `load_new_game()`/`load_recent_game()` bodies, split out) applies.
+- `do_close()`'s `HTML_PREF_CLOSE_PROMPT` case sets `pending_quit_confirm_` and returns `FALSE` (don't
+  close yet) instead of blocking. `render_quit_confirm()` shows the modal and, on Yes, sets
+  `quit_confirmed_` and re-posts `WM_CLOSE` - `do_close()` checks `quit_confirmed_` at the top of the
+  `HTML_PREF_CLOSE_PROMPT` case and, if set, skips straight to `goto do_close_window` instead of
+  prompting again, so the second pass through actually closes.
+
+Both modals share a small `render_yesno_confirm_popup()` static helper (message text, separator, two
+centered buttons) styled to match `tadswin_message_box()`'s look, and both use an `..._opened_` bool to
+call `ImGui::OpenPopup()` only once per pending request (mirroring `tadswin_message_box()`'s
+`popup_opened` guard) rather than every frame. Enter/Escape both activate the second button (No) rather
+than the first, deliberately - both source `MessageBox()` calls used `MB_DEFBUTTON2`, and an accidental
+stray keystroke shouldn't be able to end a game or quit the app.
+
+**Deliberately left native, per an explicit scope decision**: the `GetOpenFileName()` file-picker dialog
+itself (shown after the new-game confirmation is answered Yes) is unchanged - it's a self-pumping modal
+common dialog, already established elsewhere in this file as safe to call from an ImGui click handler
+(see the "Startup `MessageBox`" entry's "Scope note"), and porting it to a custom ImGui file browser
+(directory navigation, filtering, etc.) is a materially larger, separate task than converting a Yes/No
+confirmation.
+
+**Verified** end-to-end by launching `guit3.exe tests/ditch3.t3`, starting the game, and driving the UI
+via simulated mouse clicks (`SetCursorPos`/`mouse_event`) plus screenshots of the real GLFW window
+(`EnumWindows` to find it, `GetWindowRect`+`CopyFromScreen` to capture it - same recipe as elsewhere in
+this section). Confirmed: (1) File > Open New Game while the game is running shows the ImGui "TADS"
+popup (not a native `#32770` window - the game text visibly stays part of the same captured window
+underneath it) with Yes/No; clicking Yes brings up the native "Choose a game to load" file dialog as a
+separate real OS window (confirming the file picker is still native, as intended), and Cancel returns
+cleanly with no leftover popup. (2) With the "Quitting" preference (Edit > Options > Quitting tab) left
+at its default "Send QUIT command to game", File > Exit correctly falls through to the game's own
+`quit`-command confirmation instead (unchanged, unrelated code path) - this default meant the very first
+Exit tests looked like nothing had changed until the close-action preference was switched to "Prompt
+before closing window and exiting" and re-tested. (3) With that preference set to Prompt, File > Exit
+shows the new ImGui "TADS" popup ("You are about to quit the game without saving. Do you really want to
+quit?"); clicking Yes closes the popup and the process actually exits (confirmed via `Get-Process`
+failing to find the PID moments later) - the deferred re-post-`WM_CLOSE` round trip does reach real
+termination, not just a UI-level dismiss. **Gotcha hit while testing**: the File menu's "Quit Game" item
+sits directly above "Exit" (separated only by the recent-games list) and sends `quit` straight to the
+game exactly like Exit's `HTML_PREF_CLOSE_CMD` default does - it's easy to misclick one for the other
+when driving the menu by fixed pixel offsets, and both produce the *same* visible "Do you really want to
+quit?" game-text prompt, so a wrong click can look like a successful test of the wrong thing. Also worth
+noting: the main window's saved screen position (`imgui.ini`) persists across separate launches, so a
+window-relative click offset computed for one run's `GetWindowRect()` silently stops matching after
+relaunching the app - always re-query `GetWindowRect()` per process rather than reusing a coordinate
+captured from an earlier run.
