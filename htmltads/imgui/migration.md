@@ -31,10 +31,10 @@ Progress so far (25+ commits): GLFW/ImGui window creation, keyboard input, FreeT
 and metrics, text display, child-window handling, coloring, resizing, link coloring, positioning,
 character-encoding fixes, image rendering via GL textures, text selection, mouse hover, and text
 highlighting. This is genuinely useful progress, and now the application chrome has its first
-ImGui-native pieces too: the menu bar, toolbar, and status bar (§3.1, §3.2) are all done, and the first
-dialog - Options (§3.3) - is done too. Window creation itself, the remaining chrome
-(banners/scrollbars), and the rest of the dialogs (find/replace, folder picker, Customize Theme) are
-still 100% Win32.
+ImGui-native pieces too: the menu bar, toolbar, and status bar (§3.1, §3.2) are all done, and two
+dialogs - Options and Customize Theme (§3.3) - are done too. Window creation itself, the remaining
+chrome (banners/scrollbars), and the rest of the dialogs (find/replace, folder picker) are still 100%
+Win32.
 
 ## 2. Root cause: "both windows open"
 
@@ -648,15 +648,54 @@ per-field setters (`set_emacs_ctrl_v()` etc.) only ever mutate the in-memory pro
 button never persisted anything to disk either; it just committed the dialog's pending edits into the
 same in-memory object the ImGui version now writes to directly.
 
-**What's still native, deliberately.** A few sub-flows reachable from the Options dialog remain
-Win32 for now: "Customize Theme..." (Appearance tab; opens `run_appearance_dlg()`'s own
-Fonts/Colors/More/Media property sheet - a comparably large second dialog, out of scope for this pass),
-the Starting tab's folder-browse button (`CTadsDialogFolderSel2::run_select_folder()`), and the Game
-Chest tab's two file-browse buttons (`GetOpenFileName()`). The "New Theme" name-entry prompt, which
-*was* a small custom native dialog (`CTadsDialogNewProfile`, `DLG_NEW_PROFILE`), was reimplemented as a
-small ImGui popup instead of kept native, since its only dependency on Win32 was a real `HWND` combo box
-handle passed in purely for a duplicate-name check - easier to redo as a plain loop over the ImGui
-dialog's own already-in-memory profile list than to keep threading a native control handle through.
+**"Customize Theme..." (the Fonts/Colors/More/Media property sheet) is now ImGui-native too - done.**
+Same approach and same file as Options:
+`CHtmlPreferences::open_customize_theme_dialog()`/`render_customize_theme_dialog()`
+([htmlpref.cpp](htmlpref.cpp)/[htmlpref.h](htmlpref.h)) draw all four former property pages
+(Font/Colors/More/Media) as one `ImGui::BeginPopupModal()` with a `BeginTabBar()`, called from
+`CHtmlSys_mainwin::do_render()` right after `render_options_dialog()`. Both call sites that used to
+invoke the blocking `run_appearance_dlg()` - the Options dialog's "Customize Theme..." button and the
+`ID_APPEARANCE_OPTIONS`/`ID_THEMES_DROPDOWN` menu handlers in [htmlgui.cpp](htmlgui.cpp) - now call
+`open_customize_theme_dialog()` instead; `run_appearance_dlg()` and the four
+`CHtmlDialog{Fonts,Color,More,Media}` property-page classes are left in place unused, same "harmless
+dead code" reasoning as elsewhere in this port. Same no-Apply-step, immediate-write convention as
+Options too.
+
+The one genuinely new piece of work here (nothing in the Options dialog needed it) was the **Font
+tab's font-name enumeration**: the native version's `CTadsDialog::init_font_popup()` enumerates via
+`EnumFontFamiliesEx()` straight into a combo box `HWND`'s item list, which doesn't exist in the ImGui
+world. The replacement, `CHtmlPreferences::cust_refresh_font_lists()`, enumerates into plain fixed-size
+name arrays (`cust_fonts_all_`/`_fixed_`/`_serif_`/`_sans_`/`_script_`/`_typewriter_`, each capped at
+`CUST_MAX_FONTS` entries) once when the dialog opens, de-duplicating names as it goes (a single face
+gets reported once per style/script by `EnumFontFamiliesEx`). The family-selector callbacks
+(`cust_font_select_serif/sans/script/typewriter`) are verbatim ports of the original
+`CHtmlDialogFonts::font_select_*` filtering logic (checking `lfPitchAndFamily` bits), just retargeted at
+the plain-array enumeration instead of a combo. `CUST_MAX_FONTS`/`CUST_FONT_NAME_LEN` had to move to the
+class's `public:` section (unlike the rest of the `cust_`-prefixed dialog state, which is private)
+because the file-scope `EnumFontFamiliesEx` callback needs them and isn't a class member.
+
+Color swatches use `ImGui::ColorEdit3(..., ImGuiColorEditFlags_NoAlpha | ImGuiColorEditFlags_NoInputs)`
+- `NoInputs` matters here: without it the swatch expands into inline R/G/B text fields that get crushed
+against whatever's next on the same line (found by actually looking at a screenshot, not just reading
+the code - the input-color swatch next to the command-font size combo rendered as a squeezed, unreadable
+"0" field before this flag was added). `HTML_color_t`/`ImVec4` conversion reuses the existing
+`HTML_color_to_ImVec4()`/`ImVec4_to_HTML_color()` helpers in [tadswin.h](tadswin.h) (already used
+elsewhere for input/selection coloring), so no new conversion code was needed there.
+
+The More tab's radio-button labels are the other lesson worth recording: `ImGui::RadioButton()` labels
+do **not** wrap, so the native dialog's full one-sentence labels ("Show a MORE prompt in the game
+window, and halt scrolling until you press a key") rendered past the popup's right edge and bled into
+the main window behind it. Fix was to shorten each label to a short phrase and move the rest of the
+sentence to an indented `ImGui::TextWrapped()` line below the radio button - not a one-off workaround,
+worth remembering for any future dialog port that carries long native radio/checkbox label text.
+
+A few sub-flows reachable from the Options dialog remain Win32, deliberately: the Starting tab's
+folder-browse button (`CTadsDialogFolderSel2::run_select_folder()`), and the Game Chest tab's two
+file-browse buttons (`GetOpenFileName()`). The "New Theme" name-entry prompt, which *was* a small custom
+native dialog (`CTadsDialogNewProfile`, `DLG_NEW_PROFILE`), was reimplemented as a small ImGui popup
+instead of kept native, since its only dependency on Win32 was a real `HWND` combo box handle passed in
+purely for a duplicate-name check - easier to redo as a plain loop over the ImGui dialog's own
+already-in-memory profile list than to keep threading a native control handle through.
 Deleting/resetting a theme reuses plain `MessageBox()` confirmation prompts, same as the original.
 
 These remaining pieces are safe to leave native, and were verified (not just assumed) to still work
@@ -681,13 +720,27 @@ local-only, i.e. genuinely read from the preferences object, not just placeholde
 Close to confirm the popup dismisses cleanly without disturbing the main window underneath (command
 input line still live immediately after).
 
-**Not yet ported**: find/replace (`w32fndlg.cpp`), the folder-picker dialog itself
-(`CTadsDialogFolderSel2`/`foldsel2.cpp`, still only *called* from ImGui code, not rewritten), and
-`run_appearance_dlg()`'s Fonts/Colors/More/Media "Customize Theme" property sheet. The general
+For Customize Theme specifically: opened it via Themes > Customize "Multimedia" Theme..., confirmed the
+title reads `Customize "Multimedia" Theme` (the same `sprintf("Customize \"%s\" Theme", ...)` format the
+native version used, just fed into an ImGui popup ID via the `"%s###CustomizeTheme"` trick so the popup
+ID stays stable across profiles while the visible title still changes per-theme); the Font tab showed
+real, family-correct system font names (Times New Roman for Main/Serif, Courier New for Fixed-Width,
+Arial for Sans-Serif, Comic Sans MS for Script - not placeholder text, genuinely filtered by family);
+switched to Colors and confirmed Text/Background color pickers were correctly disabled (grayed) while
+"Use Windows colors" was checked, and the Show Links combo/underline/hover controls all rendered with
+real color swatches; clicked through More (radio buttons + wrapped explanation text, no overflow) and
+Media (three checkboxes, all checked by default) tabs; Close dismissed cleanly. The squeezed
+input-color-swatch bug and the More-tab label-overflow bug above were both *found* this way - by
+rendering each tab and looking at the screenshot, not by reading the code a second time - which is the
+whole reason this dialog's writeup insists on describing what a screenshot actually showed.
+
+**Not yet ported**: find/replace (`w32fndlg.cpp`) and the folder-picker dialog itself
+(`CTadsDialogFolderSel2`/`foldsel2.cpp`, still only *called* from ImGui code, not rewritten). The general
 `CTadsDialog`-mirroring base class this section used to recommend turned out not to be necessary for
-the Options dialog - whether it's worth building depends on whether the remaining dialogs turn out to
-share enough structure to benefit from one; worth revisiting once find/replace or Customize Theme is
-tackled rather than building it speculatively now.
+either the Options or Customize Theme dialogs - whether it's worth building for find/replace or the
+folder picker depends on whether those turn out to share enough structure with each other to benefit
+from one; worth revisiting once one of them is actually tackled rather than building it speculatively
+now.
 
 ### 3.4 Child "windows" (banners, scrollbars, tooltips, size-grip)
 `CTadsWin` treats banners, scrollbars, and the resize grip as real child `HWND`s
@@ -779,11 +832,11 @@ Windows-locked.
 3. **Child windows** (§3.4): scrollbars/banners/size-grip — needed so the top-level HWND can actually
    be deleted, not just hidden. Skip MDI-frame/MDI-client child-window paths entirely (§4) — the client
    doesn't need them.
-4. **Dialogs** (§3.3): biggest chunk by file count. The Options dialog (Edit > Options) is **done** -
-   ImGui modal with a tab bar, no separate framework needed. Still remaining: find/replace
-   (`w32fndlg.cpp`), the folder-picker dialog (`foldsel2.cpp`, only called from ImGui code so far, not
-   itself rewritten), and the "Customize Theme" Fonts/Colors/More/Media property sheet
-   (`run_appearance_dlg()`).
+4. **Dialogs** (§3.3): biggest chunk by file count. The Options dialog (Edit > Options) and the
+   "Customize Theme" Fonts/Colors/More/Media property sheet (`run_appearance_dlg()`) are both **done** -
+   each an ImGui modal with a tab bar, no separate framework needed. Still remaining: find/replace
+   (`w32fndlg.cpp`) and the folder-picker dialog (`foldsel2.cpp`, only called from ImGui code so far, not
+   itself rewritten).
 5. **Font/image cleanup** (§3.5, §3.6): remove now-dead GDI code paths once nothing still calls them.
 6. **Gate the Web UI behind `#ifdef`s** (§3.8/§4): get `tadswebctl.*`/`w32webui.h` and their
    COM/ActiveX calls compiling out cleanly for `guit3` rather than porting them now.

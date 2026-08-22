@@ -225,6 +225,22 @@ public:
      */
     void render_options_dialog();
 
+    /*
+     *   Open the ImGui-native "Customize Theme" dialog (the guit3
+     *   replacement for run_appearance_dlg()'s native Fonts/Colors/More/
+     *   Media property sheet).  Same pending-open/snapshot pattern as
+     *   open_options_dialog(): this just captures the current preference
+     *   values into the dialog's working state; render_customize_theme_
+     *   dialog(), called from CHtmlSys_mainwin::do_render(), draws it.
+     */
+    void open_customize_theme_dialog(HWND owner, class CHtmlWinWithPrefs *win);
+
+    /*
+     *   Draw the Customize Theme dialog for the current ImGui frame, if
+     *   it's open.  Safe to call unconditionally every frame.
+     */
+    void render_customize_theme_dialog();
+
     /* run the profiles dialog */
     void run_profiles_dlg(HWND owner, class CHtmlWinWithPrefs *win);
 
@@ -911,6 +927,14 @@ public:
      */
     static const int font_pt_sizes[];
 
+    /*
+     *   Sizing for the Customize Theme dialog's cached font name lists
+     *   (see cust_refresh_font_lists() and the cust_fonts_*_ arrays below).
+     *   Public because the file-scope font-enumeration callback in
+     *   htmlpref.cpp needs them too.
+     */
+    enum { CUST_MAX_FONTS = 300, CUST_FONT_NAME_LEN = 64 };
+
     /* get/set the active profile name in the registry */
     const textchar_t *get_active_profile_name() const;
     void set_active_profile_name(const char *profile);
@@ -1054,6 +1078,105 @@ private:
     void opt_render_start_tab();
     void opt_render_quit_tab();
     void opt_render_gamechest_tab();
+
+    /* ------------------------------------------------------------------ */
+    /*
+     *   ImGui "Customize Theme" dialog state (see
+     *   open_customize_theme_dialog()/render_customize_theme_dialog() in
+     *   htmlpref.cpp).  Replaces the native Fonts/Colors/More/Media
+     *   property sheet run_appearance_dlg() shows; same immediate-write,
+     *   no-Apply-step convention as the Options dialog above - every
+     *   control writes straight through to the preferences object (and
+     *   fires the same schedule_reformat()/notify_*_pref_change() side
+     *   effects the native PSN_APPLY handlers used to) the instant it
+     *   changes.  These fields are just the dialog's working copy of
+     *   on-screen state.
+     */
+    bool cust_dlg_open_ = false;
+    bool cust_dlg_want_open_ = false;
+    HWND cust_owner_hwnd_ = 0;
+
+    /* cached font name lists, gathered fresh each time the dialog opens */
+    char cust_fonts_all_[CUST_MAX_FONTS][CUST_FONT_NAME_LEN];
+    int cust_fonts_all_count_ = 0;
+    char cust_fonts_fixed_[CUST_MAX_FONTS][CUST_FONT_NAME_LEN];
+    int cust_fonts_fixed_count_ = 0;
+    char cust_fonts_serif_[CUST_MAX_FONTS][CUST_FONT_NAME_LEN];
+    int cust_fonts_serif_count_ = 0;
+    char cust_fonts_sans_[CUST_MAX_FONTS][CUST_FONT_NAME_LEN];
+    int cust_fonts_sans_count_ = 0;
+    char cust_fonts_script_[CUST_MAX_FONTS][CUST_FONT_NAME_LEN];
+    int cust_fonts_script_count_ = 0;
+    char cust_fonts_typewriter_[CUST_MAX_FONTS][CUST_FONT_NAME_LEN];
+    int cust_fonts_typewriter_count_ = 0;
+
+    /* Font tab working state */
+    char cust_font_prop_[CUST_FONT_NAME_LEN] = "";
+    int cust_fontsz_prop_ = 0;
+    char cust_font_mono_[CUST_FONT_NAME_LEN] = "";
+    int cust_fontsz_mono_ = 0;
+    char cust_font_serif_[CUST_FONT_NAME_LEN] = "";
+    int cust_fontsz_serif_ = 0;
+    char cust_font_sans_[CUST_FONT_NAME_LEN] = "";
+    int cust_fontsz_sans_ = 0;
+    char cust_font_script_[CUST_FONT_NAME_LEN] = "";
+    int cust_fontsz_script_ = 0;
+    char cust_font_typewriter_[CUST_FONT_NAME_LEN] = "";
+    int cust_fontsz_typewriter_ = 0;
+    char cust_font_input_[CUST_FONT_NAME_LEN] = "";
+    int cust_fontsz_input_ = 0;
+    HTML_color_t cust_input_color_ = 0;
+    bool cust_input_bold_ = false;
+    bool cust_input_italic_ = false;
+
+    /* Colors tab working state */
+    HTML_color_t cust_bg_color_ = 0;
+    HTML_color_t cust_text_color_ = 0;
+    HTML_color_t cust_link_color_ = 0;
+    HTML_color_t cust_vlink_color_ = 0;
+    HTML_color_t cust_hlink_color_ = 0;
+    HTML_color_t cust_alink_color_ = 0;
+    HTML_color_t cust_stat_text_color_ = 0;
+    HTML_color_t cust_stat_bg_color_ = 0;
+    bool cust_use_win_colors_ = false;
+    bool cust_override_colors_ = false;
+    bool cust_underline_links_ = false;
+    bool cust_hover_hilite_ = false;
+    int cust_show_links_sel_ = 0;          /* 0=Always, 1=Ctrl, 2=Never */
+    bool cust_warned_link_change_ = false;
+
+    /* More tab working state */
+    int cust_alt_more_style_ = 0;
+
+    /* Media tab working state */
+    bool cust_graphics_on_ = false;
+    bool cust_sounds_on_ = false;
+    bool cust_music_on_ = false;
+
+    /* re-gather the cust_fonts_*_ lists for the given character set */
+    void cust_refresh_font_lists(unsigned int charset_id);
+
+    /* font family selector callbacks, for cust_refresh_font_lists() */
+    static int cust_font_select_serif(ENUMLOGFONTEX *elf, NEWTEXTMETRIC *tm);
+    static int cust_font_select_sans(ENUMLOGFONTEX *elf, NEWTEXTMETRIC *tm);
+    static int cust_font_select_script(ENUMLOGFONTEX *elf, NEWTEXTMETRIC *tm);
+    static int cust_font_select_typewriter(ENUMLOGFONTEX *elf,
+                                          NEWTEXTMETRIC *tm);
+
+    /* individual tab renderers, called from render_customize_theme_dialog() */
+    void cust_render_font_tab();
+    void cust_render_colors_tab();
+    void cust_render_more_tab();
+    void cust_render_media_tab();
+
+    /* combo-box helpers shared by the Font tab's rows */
+    bool cust_font_combo(const char *imgui_id,
+                        char (*list)[CUST_FONT_NAME_LEN], int count,
+                        char *cur);
+    bool cust_fontsz_combo(const char *imgui_id, int *cur);
+
+    /* color-swatch helper shared by the Colors tab's rows */
+    bool cust_color_edit(const char *label, HTML_color_t *color);
 };
 
 #endif /* HTMLPREF_H */

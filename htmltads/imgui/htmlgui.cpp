@@ -2844,9 +2844,9 @@ int CHtmlSysWin_win32::do_command(int notify_code,
 
     case ID_APPEARANCE_OPTIONS:
     case ID_THEMES_DROPDOWN:
-        /* run the visual settings dialog */
-        prefs_->run_appearance_dlg(owner_->get_owner_frame_handle(),
-                                   this, TRUE);
+        /* open the visual settings (Customize Theme) dialog */
+        prefs_->open_customize_theme_dialog(owner_->get_owner_frame_handle(),
+                                            this);
 
         /* handled */
         return TRUE;
@@ -11615,6 +11615,9 @@ int CHtmlSys_mainwin::do_render() {
 
     /* draw the Options dialog on top, if it's open (see htmlpref.cpp) */
     prefs_->render_options_dialog();
+
+    /* draw the Customize Theme dialog on top, if it's open */
+    prefs_->render_customize_theme_dialog();
 
     /* draw the edit context menu on top, if it's open (see do_rightbtn_up()) */
     render_context_menu();

@@ -3787,7 +3787,7 @@ void CHtmlPreferences::opt_render_appearance_tab()
 
     ImGui::Spacing();
     if (ImGui::Button("Customize Theme...", ImVec2(140, 0)))
-        run_appearance_dlg(opt_owner_hwnd_, win_, FALSE);
+        open_customize_theme_dialog(opt_owner_hwnd_, win_);
     ImGui::SameLine();
     ImGui::TextWrapped("This lets you customize the fonts, colors, and "
                         "other visual settings of the selected theme.");
@@ -4290,6 +4290,695 @@ void CHtmlPreferences::opt_render_gamechest_tab()
     {
         strcpy(opt_gc_bkg_, "exe:gamechest/bkg.png");
         set_gc_bkg(opt_gc_bkg_);
+    }
+}
+
+
+/* ------------------------------------------------------------------------ */
+/*
+ *   ImGui-native "Customize Theme" dialog (guit3).  Replaces the native
+ *   Fonts/Colors/More/Media property sheet run_appearance_dlg() shows (that
+ *   function, and the CHtmlDialog{Fonts,Color,More,Media} property-page
+ *   classes above, are left in place unused rather than removed, same as
+ *   the rest of the never-removed native code elsewhere in the port).
+ *
+ *   Same immediate-write, no-Apply-step convention as the Options dialog:
+ *   every control writes straight through to the preferences object the
+ *   instant it changes, firing the same schedule_reformat()/notify_*_pref_
+ *   change() side effects the native PSN_APPLY handlers used to fire only
+ *   on Apply/OK.
+ */
+
+/*
+ *   Font-family selector callbacks - identical filtering rules to
+ *   CHtmlDialogFonts::font_select_serif/sans/script/typewriter above.
+ */
+int CHtmlPreferences::cust_font_select_serif(ENUMLOGFONTEX *elf,
+                                             NEWTEXTMETRIC *tm)
+{
+    return (tm->tmCharSet != SYMBOL_CHARSET
+            && (elf->elfLogFont.lfPitchAndFamily & 0xf0) == FF_ROMAN);
+}
+
+int CHtmlPreferences::cust_font_select_sans(ENUMLOGFONTEX *elf,
+                                            NEWTEXTMETRIC *tm)
+{
+    return (tm->tmCharSet != SYMBOL_CHARSET
+            && (elf->elfLogFont.lfPitchAndFamily & 0xf0) == FF_SWISS);
+}
+
+int CHtmlPreferences::cust_font_select_script(ENUMLOGFONTEX *elf,
+                                              NEWTEXTMETRIC *tm)
+{
+    return (tm->tmCharSet != SYMBOL_CHARSET
+            && ((elf->elfLogFont.lfPitchAndFamily & 0xf0) == FF_SCRIPT
+                || (elf->elfLogFont.lfPitchAndFamily & 0xf0) == FF_ROMAN));
+}
+
+int CHtmlPreferences::cust_font_select_typewriter(ENUMLOGFONTEX *elf,
+                                                  NEWTEXTMETRIC *tm)
+{
+    return (tm->tmCharSet != SYMBOL_CHARSET
+            && (elf->elfLogFont.lfPitchAndFamily & 0xf0) == FF_MODERN);
+}
+
+/*
+ *   Context for cust_font_enum_cb() - unlike CTadsDialog::init_font_popup(),
+ *   which enumerates straight into a combo box's list, this enumerates into
+ *   a plain fixed-size name array for use by an ImGui combo.
+ */
+struct cust_font_enum_info_t
+{
+    char (*list)[CHtmlPreferences::CUST_FONT_NAME_LEN];
+    int count;
+    int max;
+    int include_proportional;
+    int include_fixed;
+    int (*selector_func)(ENUMLOGFONTEX *, NEWTEXTMETRIC *);
+};
+
+static int CALLBACK cust_font_enum_cb(ENUMLOGFONTEX *elf, NEWTEXTMETRIC *tm,
+                                      DWORD, LPARAM lpar)
+{
+    cust_font_enum_info_t *info = (cust_font_enum_info_t *)lpar;
+    int proportional, fixed, include_font;
+
+    include_font = FALSE;
+    if (info->selector_func != 0)
+    {
+        include_font = (*info->selector_func)(elf, tm);
+    }
+    else
+    {
+        proportional = ((tm->tmPitchAndFamily & TMPF_FIXED_PITCH) != 0);
+        fixed = !proportional;
+        if (((proportional && info->include_proportional)
+             || (fixed && info->include_fixed))
+            && tm->tmCharSet != SYMBOL_CHARSET
+            && (elf->elfLogFont.lfPitchAndFamily & 0xf0) != FF_DECORATIVE)
+            include_font = TRUE;
+    }
+
+    if (include_font && info->count < info->max)
+    {
+        const char *name = (const char *)elf->elfLogFont.lfFaceName;
+        int i;
+
+        /* EnumFontFamiliesEx reports each face once per style/script, so
+         * skip names we've already added */
+        for (i = 0 ; i < info->count ; ++i)
+        {
+            if (strcmp(info->list[i], name) == 0)
+                return TRUE;
+        }
+
+        strncpy(info->list[info->count], name,
+                CHtmlPreferences::CUST_FONT_NAME_LEN - 1);
+        info->list[info->count][CHtmlPreferences::CUST_FONT_NAME_LEN - 1]
+            = '\0';
+        ++info->count;
+    }
+
+    return TRUE;
+}
+
+/*
+ *   Re-gather the cust_fonts_*_ name lists for the given character set.
+ *   Mirrors what CTadsDialog::init_font_popup() did per-combo, but fills
+ *   plain arrays instead of populating combo box controls, since there are
+ *   no HWNDs to enumerate into here.
+ */
+void CHtmlPreferences::cust_refresh_font_lists(unsigned int charset_id)
+{
+    struct { char (*list)[CUST_FONT_NAME_LEN]; int *count;
+             int prop; int fixed;
+             int (*sel)(ENUMLOGFONTEX *, NEWTEXTMETRIC *); } jobs[] =
+    {
+        { cust_fonts_all_, &cust_fonts_all_count_, TRUE, TRUE, 0 },
+        { cust_fonts_fixed_, &cust_fonts_fixed_count_, FALSE, TRUE, 0 },
+        { cust_fonts_serif_, &cust_fonts_serif_count_, 0, 0,
+          &cust_font_select_serif },
+        { cust_fonts_sans_, &cust_fonts_sans_count_, 0, 0,
+          &cust_font_select_sans },
+        { cust_fonts_script_, &cust_fonts_script_count_, 0, 0,
+          &cust_font_select_script },
+        { cust_fonts_typewriter_, &cust_fonts_typewriter_count_, 0, 0,
+          &cust_font_select_typewriter },
+    };
+
+    HDC dc = GetDC(0);
+    for (size_t i = 0 ; i < sizeof(jobs)/sizeof(jobs[0]) ; ++i)
+    {
+        cust_font_enum_info_t info;
+        LOGFONT lf;
+
+        info.list = jobs[i].list;
+        info.count = 0;
+        info.max = CUST_MAX_FONTS;
+        info.include_proportional = jobs[i].prop;
+        info.include_fixed = jobs[i].fixed;
+        info.selector_func = jobs[i].sel;
+
+        lf.lfFaceName[0] = '\0';
+        lf.lfPitchAndFamily = 0;
+        lf.lfCharSet = (BYTE)charset_id;
+
+        EnumFontFamiliesEx(dc, &lf, (FONTENUMPROC)cust_font_enum_cb,
+                           (LPARAM)&info, 0);
+
+        *jobs[i].count = info.count;
+    }
+    ReleaseDC(0, dc);
+}
+
+/*
+ *   Open the Customize Theme dialog: snapshot all the current preference
+ *   values into the dialog's working state, gather the font name lists,
+ *   and mark it pending-open.
+ */
+void CHtmlPreferences::open_customize_theme_dialog(HWND owner,
+                                                    CHtmlWinWithPrefs *win)
+{
+    win_ = win;
+    cust_owner_hwnd_ = owner;
+
+    cust_refresh_font_lists(win->get_default_charset());
+
+    strncpy(cust_font_prop_, get_prop_font(), CUST_FONT_NAME_LEN - 1);
+    cust_font_prop_[CUST_FONT_NAME_LEN - 1] = '\0';
+    cust_fontsz_prop_ = get_prop_fontsz();
+
+    strncpy(cust_font_mono_, get_mono_font(), CUST_FONT_NAME_LEN - 1);
+    cust_font_mono_[CUST_FONT_NAME_LEN - 1] = '\0';
+    cust_fontsz_mono_ = get_mono_fontsz();
+
+    strncpy(cust_font_serif_, get_font_serif(), CUST_FONT_NAME_LEN - 1);
+    cust_font_serif_[CUST_FONT_NAME_LEN - 1] = '\0';
+    cust_fontsz_serif_ = get_serif_fontsz();
+
+    strncpy(cust_font_sans_, get_font_sans(), CUST_FONT_NAME_LEN - 1);
+    cust_font_sans_[CUST_FONT_NAME_LEN - 1] = '\0';
+    cust_fontsz_sans_ = get_sans_fontsz();
+
+    strncpy(cust_font_script_, get_font_script(), CUST_FONT_NAME_LEN - 1);
+    cust_font_script_[CUST_FONT_NAME_LEN - 1] = '\0';
+    cust_fontsz_script_ = get_script_fontsz();
+
+    strncpy(cust_font_typewriter_, get_font_typewriter(),
+            CUST_FONT_NAME_LEN - 1);
+    cust_font_typewriter_[CUST_FONT_NAME_LEN - 1] = '\0';
+    cust_fontsz_typewriter_ = get_typewriter_fontsz();
+
+    /* the input font defaults to "follow the main game font" when blank */
+    {
+        const char *inp = get_inpfont_name();
+        if (inp == 0 || inp[0] == '\0')
+            strcpy(cust_font_input_, "(Main Game Font)");
+        else
+        {
+            strncpy(cust_font_input_, inp, CUST_FONT_NAME_LEN - 1);
+            cust_font_input_[CUST_FONT_NAME_LEN - 1] = '\0';
+        }
+    }
+    cust_fontsz_input_ = get_inpfont_size();
+    cust_input_color_ = get_inpfont_color();
+    cust_input_bold_ = (get_inpfont_bold() != 0);
+    cust_input_italic_ = (get_inpfont_italic() != 0);
+
+    cust_bg_color_ = get_bg_color();
+    cust_text_color_ = get_text_color();
+    cust_link_color_ = get_link_color();
+    cust_vlink_color_ = get_vlink_color();
+    cust_hlink_color_ = get_hlink_color();
+    cust_alink_color_ = get_alink_color();
+    cust_stat_text_color_ = get_color_status_text();
+    cust_stat_bg_color_ = get_color_status_bg();
+    cust_use_win_colors_ = (get_use_win_colors() != 0);
+    cust_override_colors_ = (get_override_colors() != 0);
+    cust_underline_links_ = (get_underline_links() != 0);
+    cust_hover_hilite_ = (get_hover_hilite() != 0);
+    cust_show_links_sel_ =
+        (get_links_on() ? 0 : get_links_ctrl() ? 1 : 2);
+    cust_warned_link_change_ = false;
+
+    cust_alt_more_style_ = (get_alt_more_style() ? 1 : 0);
+
+    cust_graphics_on_ = (get_graphics_on() != 0);
+    cust_sounds_on_ = (get_sounds_on() != 0);
+    cust_music_on_ = (get_music_on() != 0);
+
+    cust_dlg_open_ = true;
+    cust_dlg_want_open_ = true;
+}
+
+/*
+ *   Draw the Customize Theme dialog for the current ImGui frame.  Safe to
+ *   call unconditionally every frame; it's a no-op once the dialog is
+ *   closed.
+ */
+void CHtmlPreferences::render_customize_theme_dialog()
+{
+    if (!cust_dlg_open_)
+        return;
+
+    if (cust_dlg_want_open_)
+    {
+        ImGui::OpenPopup("CustomizeTheme");
+        cust_dlg_want_open_ = false;
+    }
+
+    char title[128 + 50];
+    sprintf(title, "Customize \"%s\" Theme###CustomizeTheme",
+            get_active_profile_name());
+
+    ImGui::SetNextWindowSize(ImVec2(520, 480), ImGuiCond_FirstUseEver);
+    if (ImGui::BeginPopupModal(title, &cust_dlg_open_,
+                               ImGuiWindowFlags_NoSavedSettings))
+    {
+        if (ImGui::BeginTabBar("CustomizeThemeTabs"))
+        {
+            if (ImGui::BeginTabItem("Font"))
+            {
+                cust_render_font_tab();
+                ImGui::EndTabItem();
+            }
+            if (ImGui::BeginTabItem("Colors"))
+            {
+                cust_render_colors_tab();
+                ImGui::EndTabItem();
+            }
+            if (ImGui::BeginTabItem("More"))
+            {
+                cust_render_more_tab();
+                ImGui::EndTabItem();
+            }
+            if (ImGui::BeginTabItem("Media"))
+            {
+                cust_render_media_tab();
+                ImGui::EndTabItem();
+            }
+            ImGui::EndTabBar();
+        }
+
+        ImGui::Separator();
+        if (ImGui::Button("Close", ImVec2(80, 0)))
+        {
+            cust_dlg_open_ = false;
+            ImGui::CloseCurrentPopup();
+        }
+
+        ImGui::EndPopup();
+    }
+}
+
+/*
+ *   Font-name combo helper shared by the Font tab's rows.  Returns true if
+ *   the selection changed (and updates 'cur' in place).
+ */
+bool CHtmlPreferences::cust_font_combo(const char *imgui_id,
+                                       char (*list)[CUST_FONT_NAME_LEN],
+                                       int count, char *cur)
+{
+    bool changed = false;
+
+    ImGui::SetNextItemWidth(200);
+    if (ImGui::BeginCombo(imgui_id, cur))
+    {
+        for (int i = 0 ; i < count ; ++i)
+        {
+            bool sel = (strcmp(list[i], cur) == 0);
+            if (ImGui::Selectable(list[i], sel))
+            {
+                strncpy(cur, list[i], CUST_FONT_NAME_LEN - 1);
+                cur[CUST_FONT_NAME_LEN - 1] = '\0';
+                changed = true;
+            }
+            if (sel)
+                ImGui::SetItemDefaultFocus();
+        }
+        ImGui::EndCombo();
+    }
+
+    return changed;
+}
+
+/*
+ *   Font point-size combo helper shared by the Font tab's rows.
+ */
+bool CHtmlPreferences::cust_fontsz_combo(const char *imgui_id, int *cur)
+{
+    bool changed = false;
+    char preview[20];
+
+    sprintf(preview, "%d pt", *cur);
+    ImGui::SetNextItemWidth(70);
+    if (ImGui::BeginCombo(imgui_id, preview))
+    {
+        for (const int *p = font_pt_sizes ; *p != 0 ; ++p)
+        {
+            bool sel = (*p == *cur);
+            char buf[20];
+
+            sprintf(buf, "%d pt", *p);
+            if (ImGui::Selectable(buf, sel))
+            {
+                *cur = *p;
+                changed = true;
+            }
+            if (sel)
+                ImGui::SetItemDefaultFocus();
+        }
+        ImGui::EndCombo();
+    }
+
+    return changed;
+}
+
+/*
+ *   Font tab: main/fixed-width/serif/sans/script/typewriter font pickers,
+ *   plus the command (input) font and its color/bold/italic style.
+ *   Mirrors CHtmlDialogFonts.
+ */
+void CHtmlPreferences::cust_render_font_tab()
+{
+    struct { const char *label; const char *combo_id;
+             char (*list)[CUST_FONT_NAME_LEN]; int count;
+             char *cur; const char *sz_id; int *sz; } rows[] =
+    {
+        { "Main Game Font", "##MainFont", cust_fonts_all_,
+          cust_fonts_all_count_, cust_font_prop_,
+          "##MainFontSz", &cust_fontsz_prop_ },
+        { "Fixed-Width Font", "##MonoFont", cust_fonts_fixed_,
+          cust_fonts_fixed_count_, cust_font_mono_,
+          "##MonoFontSz", &cust_fontsz_mono_ },
+        { "Serif Font", "##SerifFont", cust_fonts_serif_,
+          cust_fonts_serif_count_, cust_font_serif_,
+          "##SerifFontSz", &cust_fontsz_serif_ },
+        { "Sans-Serif Font", "##SansFont", cust_fonts_sans_,
+          cust_fonts_sans_count_, cust_font_sans_,
+          "##SansFontSz", &cust_fontsz_sans_ },
+        { "Script Font", "##ScriptFont", cust_fonts_script_,
+          cust_fonts_script_count_, cust_font_script_,
+          "##ScriptFontSz", &cust_fontsz_script_ },
+        { "Typewriter Font", "##TypewriterFont", cust_fonts_typewriter_,
+          cust_fonts_typewriter_count_, cust_font_typewriter_,
+          "##TypewriterFontSz", &cust_fontsz_typewriter_ },
+    };
+
+    typedef void (CHtmlPreferences::*setter_t)(const char *);
+    static const setter_t name_setters[] =
+    {
+        &CHtmlPreferences::set_prop_font, &CHtmlPreferences::set_mono_font,
+        &CHtmlPreferences::set_font_serif, &CHtmlPreferences::set_font_sans,
+        &CHtmlPreferences::set_font_script,
+        &CHtmlPreferences::set_font_typewriter,
+    };
+    typedef void (CHtmlPreferences::*szsetter_t)(int);
+    static const szsetter_t sz_setters[] =
+    {
+        &CHtmlPreferences::set_prop_fontsz, &CHtmlPreferences::set_mono_fontsz,
+        &CHtmlPreferences::set_serif_fontsz, &CHtmlPreferences::set_sans_fontsz,
+        &CHtmlPreferences::set_script_fontsz,
+        &CHtmlPreferences::set_typewriter_fontsz,
+    };
+
+    for (size_t i = 0 ; i < sizeof(rows)/sizeof(rows[0]) ; ++i)
+    {
+        ImGui::TextUnformatted(rows[i].label);
+        ImGui::SameLine(160);
+        if (cust_font_combo(rows[i].combo_id, rows[i].list, rows[i].count,
+                            rows[i].cur))
+        {
+            (this->*name_setters[i])(rows[i].cur);
+            schedule_reformat(FALSE);
+        }
+        ImGui::SameLine();
+        if (cust_fontsz_combo(rows[i].sz_id, rows[i].sz))
+        {
+            (this->*sz_setters[i])(*rows[i].sz);
+            schedule_reformat(FALSE);
+        }
+    }
+
+    ImGui::Spacing();
+    ImGui::SeparatorText("Command Font");
+    ImGui::TextUnformatted("Font");
+    ImGui::SameLine(160);
+    {
+        /* the input font list is "(Main Game Font)" plus the general list */
+        static char input_list[CUST_MAX_FONTS + 1][CUST_FONT_NAME_LEN];
+        int input_count = 0;
+        strcpy(input_list[input_count++], "(Main Game Font)");
+        for (int i = 0 ; i < cust_fonts_all_count_
+                         && input_count < CUST_MAX_FONTS + 1 ; ++i)
+        {
+            strncpy(input_list[input_count], cust_fonts_all_[i],
+                    CUST_FONT_NAME_LEN - 1);
+            input_list[input_count][CUST_FONT_NAME_LEN - 1] = '\0';
+            ++input_count;
+        }
+
+        if (cust_font_combo("##InputFont", input_list, input_count,
+                            cust_font_input_))
+        {
+            if (strcmp(cust_font_input_, "(Main Game Font)") == 0)
+                set_inpfont_name("");
+            else
+                set_inpfont_name(cust_font_input_);
+            schedule_reformat(FALSE);
+        }
+    }
+    ImGui::SameLine();
+    if (cust_fontsz_combo("##InputFontSz", &cust_fontsz_input_))
+    {
+        set_inpfont_size(cust_fontsz_input_);
+        schedule_reformat(FALSE);
+    }
+
+    ImGui::SameLine();
+    if (cust_color_edit("##InputColor", &cust_input_color_))
+    {
+        set_inpfont_color(cust_input_color_);
+        schedule_reformat(FALSE);
+    }
+
+    if (ImGui::Checkbox("Bold##InputBold", &cust_input_bold_))
+    {
+        set_inpfont_bold(cust_input_bold_);
+        schedule_reformat(FALSE);
+    }
+    ImGui::SameLine();
+    if (ImGui::Checkbox("Italic##InputItalic", &cust_input_italic_))
+    {
+        set_inpfont_italic(cust_input_italic_);
+        schedule_reformat(FALSE);
+    }
+}
+
+/*
+ *   Color-swatch helper shared by the Colors tab's rows.  Returns true if
+ *   the color changed (and updates '*color' in place).
+ */
+bool CHtmlPreferences::cust_color_edit(const char *label,
+                                       HTML_color_t *color)
+{
+    ImVec4 c = HTML_color_to_ImVec4(*color);
+    if (ImGui::ColorEdit3(label, (float *)&c,
+                          ImGuiColorEditFlags_NoAlpha
+                          | ImGuiColorEditFlags_NoInputs))
+    {
+        *color = ImVec4_to_HTML_color(c);
+        return true;
+    }
+    return false;
+}
+
+/*
+ *   Colors tab: main text/background, status line, and hyperlink colors.
+ *   Mirrors CHtmlDialogColor.
+ */
+void CHtmlPreferences::cust_render_colors_tab()
+{
+    ImGui::SeparatorText("Main Text");
+    if (ImGui::Checkbox("Use Windows colors", &cust_use_win_colors_))
+    {
+        set_use_win_colors(cust_use_win_colors_);
+        schedule_reformat(FALSE);
+    }
+    ImGui::BeginDisabled(cust_use_win_colors_);
+    if (cust_color_edit("Text Color", &cust_text_color_))
+    {
+        set_text_color(cust_text_color_);
+        schedule_reformat(FALSE);
+    }
+    if (cust_color_edit("Background Color", &cust_bg_color_))
+    {
+        set_bg_color(cust_bg_color_);
+        schedule_reformat(FALSE);
+    }
+    ImGui::EndDisabled();
+
+    ImGui::Spacing();
+    ImGui::SeparatorText("Status Line");
+    if (ImGui::Checkbox("Let games override these colors",
+                        &cust_override_colors_))
+    {
+        set_override_colors(cust_override_colors_);
+        schedule_reformat(FALSE);
+    }
+    ImGui::BeginDisabled(cust_override_colors_);
+    if (cust_color_edit("Status Text Color", &cust_stat_text_color_))
+    {
+        set_color_status_text(cust_stat_text_color_);
+        schedule_reformat(FALSE);
+    }
+    if (cust_color_edit("Status Background Color", &cust_stat_bg_color_))
+    {
+        set_color_status_bg(cust_stat_bg_color_);
+        schedule_reformat(FALSE);
+    }
+    ImGui::EndDisabled();
+
+    ImGui::Spacing();
+    ImGui::SeparatorText("Hyperlinks");
+    static const char *show_link_opts[] =
+        { "Always", "Only when Ctrl is held down", "Never" };
+    ImGui::SetNextItemWidth(260);
+    if (ImGui::BeginCombo("Show Links", show_link_opts[cust_show_links_sel_]))
+    {
+        for (int i = 0 ; i < 3 ; ++i)
+        {
+            bool sel = (cust_show_links_sel_ == i);
+            if (ImGui::Selectable(show_link_opts[i], sel))
+            {
+                int old_sel = cust_show_links_sel_;
+                cust_show_links_sel_ = i;
+
+                bool links_on = (i == 0), links_ctrl = (i == 1);
+                bool ch = (old_sel != i);
+                set_links_on(links_on);
+                set_links_ctrl(links_ctrl);
+
+                if (ch && !cust_warned_link_change_)
+                {
+                    notify_link_pref_change();
+                    cust_warned_link_change_ = true;
+                }
+                schedule_reformat(FALSE);
+            }
+            if (sel)
+                ImGui::SetItemDefaultFocus();
+        }
+        ImGui::EndCombo();
+    }
+
+    bool links_on = (cust_show_links_sel_ != 2);
+    ImGui::BeginDisabled(!links_on);
+    if (ImGui::Checkbox("Underline links", &cust_underline_links_))
+    {
+        set_underline_links(cust_underline_links_);
+        schedule_reformat(FALSE);
+    }
+    if (ImGui::Checkbox("Highlight link when the mouse hovers over it",
+                        &cust_hover_hilite_))
+    {
+        set_hover_hilite(cust_hover_hilite_);
+        schedule_reformat(FALSE);
+    }
+    if (cust_color_edit("Unvisited Link Color", &cust_link_color_))
+    {
+        set_link_color(cust_link_color_);
+        schedule_reformat(FALSE);
+    }
+    ImGui::BeginDisabled(!cust_hover_hilite_);
+    if (cust_color_edit("Hovering Link Color", &cust_hlink_color_))
+    {
+        set_hlink_color(cust_hlink_color_);
+        schedule_reformat(FALSE);
+    }
+    ImGui::EndDisabled();
+    if (cust_color_edit("Clicked Link Color", &cust_alink_color_))
+    {
+        set_alink_color(cust_alink_color_);
+        schedule_reformat(FALSE);
+    }
+    ImGui::EndDisabled();
+
+    if (cust_color_edit("Visited Link Color", &cust_vlink_color_))
+    {
+        set_vlink_color(cust_vlink_color_);
+        schedule_reformat(FALSE);
+    }
+
+    ImGui::Spacing();
+    ImGui::TextWrapped(
+        "Note: some games override these colors with their own visual "
+        "style, regardless of this setting.");
+}
+
+/*
+ *   More tab: how the game handles the MORE prompt.  Mirrors
+ *   CHtmlDialogMore.
+ */
+void CHtmlPreferences::cust_render_more_tab()
+{
+    ImGui::TextWrapped(
+        "When there's more text than fits on the screen, TADS pauses and "
+        "shows a MORE prompt.  Choose how you'd like this to work:");
+    ImGui::Spacing();
+
+    if (ImGui::RadioButton("Show a MORE prompt in the game window",
+                           cust_alt_more_style_ == 0))
+    {
+        cust_alt_more_style_ = 0;
+        set_alt_more_style(FALSE);
+        schedule_reformat(TRUE);
+    }
+    ImGui::Indent();
+    ImGui::TextWrapped(
+        "Halts scrolling until you press a key to see more text.");
+    ImGui::Unindent();
+
+    ImGui::Spacing();
+    if (ImGui::RadioButton("Show \"MORE\" on the status line",
+                           cust_alt_more_style_ == 1))
+    {
+        cust_alt_more_style_ = 1;
+        set_alt_more_style(TRUE);
+        schedule_reformat(TRUE);
+    }
+    ImGui::Indent();
+    ImGui::TextWrapped(
+        "Shows all of the text without stopping to wait for a key press.");
+    ImGui::Unindent();
+}
+
+/*
+ *   Media tab: graphics/sound effects/music enabling.  Mirrors
+ *   CHtmlDialogMedia.
+ */
+void CHtmlPreferences::cust_render_media_tab()
+{
+    ImGui::TextWrapped(
+        "These options control what kinds of multimedia content the game "
+        "is allowed to show.");
+    ImGui::Spacing();
+
+    if (ImGui::Checkbox("Allow Graphics", &cust_graphics_on_))
+    {
+        set_graphics_on(cust_graphics_on_);
+        notify_sound_pref_change();
+        schedule_reformat(FALSE);
+    }
+    if (ImGui::Checkbox("Allow Sound Effects", &cust_sounds_on_))
+    {
+        set_sounds_on(cust_sounds_on_);
+        notify_sound_pref_change();
+    }
+    if (ImGui::Checkbox("Allow Background Music", &cust_music_on_))
+    {
+        set_music_on(cust_music_on_);
+        notify_sound_pref_change();
     }
 }
 
