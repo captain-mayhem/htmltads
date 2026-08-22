@@ -11638,6 +11638,9 @@ int CHtmlSys_mainwin::do_render() {
     /* draw the edit context menu on top, if it's open (see do_rightbtn_up()) */
     render_context_menu();
 
+    /* draw the status bar's context menu on top, if it's open (see do_rightbtn_up()) */
+    render_statusbar_context_menu();
+
     /* draw the new-game/quit confirmations on top, if either is pending */
     render_new_game_confirm();
     render_quit_confirm();
@@ -11935,6 +11938,131 @@ void CHtmlSys_mainwin::render_context_menu()
     ImGui::Separator();
     item(ID_EDIT_FIND, "Find Text...");
     item(ID_EDIT_FINDNEXT, "Find Next");
+
+    ImGui::EndPopup();
+}
+
+/*
+ *   Is (x, y) - in the same absolute coordinates event_loop() passes to
+ *   do_rightbtn_down()/_up() - over the status bar's current on-screen rect?
+ *   The status bar isn't a CTadsWin child at all - it's drawn directly via
+ *   CTadsStatusline::render()'s foreground-draw-list calls right after
+ *   CTadsWin::do_render() in our own do_render() (see §3.2 in migration.md) -
+ *   so this is a plain geometric test against the same rect that render()
+ *   call computes, the same technique event_loop() already uses for
+ *   mouse_over_dbgwin.
+ */
+bool CHtmlSys_mainwin::over_statusbar(int x, int y) const
+{
+    if (statusline_ == 0)
+        return false;
+
+    const ImGuiViewport *vp = ImGui::GetMainViewport();
+    float stat_ht = statusline_->get_height();
+    float top = vp->WorkPos.y + vp->WorkSize.y - stat_ht;
+    return x >= vp->WorkPos.x && x < vp->WorkPos.x + vp->WorkSize.x
+        && y >= top && y < vp->WorkPos.y + vp->WorkSize.y;
+}
+
+/*
+ *   Handle a right-click press.  See the declaration in htmlgui.h: a click
+ *   over the status bar has to be claimed here, before it reaches
+ *   CTadsWin::do_rightbtn_down()'s recursive child dispatch, because
+ *   main_panel_/hist_panel_ (via CHtmlSysWin_win32::do_leftbtn_down(), which
+ *   do_rightbtn_down() forwards to) don't bounds-check the click against
+ *   their own rect and would otherwise unconditionally grab mouse capture
+ *   for it - verified by testing: without this override, a right-click
+ *   squarely inside the status bar's on-screen band still opened the game
+ *   text's "EditContextMenu" instead.
+ */
+int CHtmlSys_mainwin::do_rightbtn_down(int keys, int x, int y, int clicks)
+{
+    if (over_statusbar(x, y))
+        return TRUE;
+
+    return CHtmlSys_framewin::do_rightbtn_down(keys, x, y, clicks);
+}
+
+/*
+ *   Handle a right-click release.  If it landed on the status bar, open its
+ *   context menu (see render_statusbar_context_menu()) instead of falling
+ *   through to the inherited no-op.  do_rightbtn_down() above already made
+ *   sure no child claimed mouse capture for a status-bar click, so
+ *   event_loop() dispatches this button-up straight to us (the uncaptured
+ *   target) rather than to some captured child.
+ */
+int CHtmlSys_mainwin::do_rightbtn_up(int keys, int x, int y)
+{
+    if (over_statusbar(x, y))
+    {
+        ImGui::OpenPopup("StatusBarContextMenu");
+        return TRUE;
+    }
+
+    return CHtmlSys_framewin::do_rightbtn_up(keys, x, y);
+}
+
+/*
+ *   Render the status bar's right-click context menu as an ImGui popup -
+ *   see the declaration in htmlgui.h and do_rightbtn_up() above.  Same
+ *   command set/order as the old win32/htmlcmn.rc IDR_STATUSBAR_POPUP
+ *   resource (Pause Timer/Reset Timer/Show Timer/Timer Format), and the
+ *   exact same content render_menu_bar()'s View > Timer submenu already
+ *   shows - duplicated here (rather than factored into a shared helper like
+ *   render_themes_menu_items()) since it's only four items and the two call
+ *   sites open from different popup IDs.
+ *
+ *   Anchored explicitly to sit just above the status bar's own band, rather
+ *   than left to grow from the click point (which is inside that band, by
+ *   construction - see over_statusbar()).  The status bar draws via
+ *   ImGui::GetForegroundDrawList() (CTadsStatusline::render()), which always
+ *   composites on top of every ordinary window/popup regardless of call
+ *   order within the frame - so without this, any part of the popup that
+ *   overlapped the status bar's rect got silently painted over by its
+ *   opaque background every frame.  Verified by testing: before this fix,
+ *   the popup's bottom-most rows (however many happened to land inside the
+ *   status bar's height) never appeared on screen, no matter which commands
+ *   occupied those rows or what order they were submitted in - confirming
+ *   it was a paint-order/overlap issue, not a sizing or content bug.
+ */
+void CHtmlSys_mainwin::render_statusbar_context_menu()
+{
+    if (statusline_ != 0)
+    {
+        const ImGuiViewport *vp = ImGui::GetMainViewport();
+        float top = vp->WorkPos.y + vp->WorkSize.y - statusline_->get_height();
+        ImGui::SetNextWindowPos(ImVec2(ImGui::GetMousePos().x, top),
+                                 ImGuiCond_Appearing, ImVec2(0.0f, 1.0f));
+    }
+
+    if (!ImGui::BeginPopup("StatusBarContextMenu"))
+        return;
+
+    auto item = [this](int id, const char *label)
+    {
+        check_cmd_info ci(id);
+        TadsCmdStat_t stat = check_command(&ci);
+        bool enabled = (stat != TADSCMD_DISABLED
+                        && stat != TADSCMD_DISABLED_CHECKED
+                        && stat != TADSCMD_DISABLED_INDETERMINATE
+                        && stat != TADSCMD_UNKNOWN);
+        bool checked = (stat == TADSCMD_CHECKED
+                        || stat == TADSCMD_DISABLED_CHECKED);
+        if (ImGui::MenuItem(label, nullptr, checked, enabled))
+            do_command(0, id, 0);
+    };
+
+    item(ID_TIMER_PAUSE, "Pause Timer");
+    item(ID_TIMER_RESET, "Reset Timer");
+    ImGui::Separator();
+    item(ID_VIEW_TIMER, "Show Timer");
+
+    if (ImGui::BeginMenu("Timer Format"))
+    {
+        item(ID_VIEW_TIMER_HHMMSS, "Hours:Minutes:Seconds");
+        item(ID_VIEW_TIMER_HHMM, "Hours:Minutes");
+        ImGui::EndMenu();
+    }
 
     ImGui::EndPopup();
 }

@@ -2611,6 +2611,55 @@ public:
      */
     void render_quit_confirm();
 
+    /*
+     *   Render the status bar's right-click context menu (Pause/Reset Timer,
+     *   Show Timer, Timer Format) as an ImGui popup - the ImGui-native
+     *   replacement for the native IDR_STATUSBAR_POPUP HMENU that
+     *   do_notify()'s NM_RCLICK case used to track_context_menu() against a
+     *   real status-bar control HWND.  That control no longer exists (see
+     *   migration.md §3.2 - the status bar is drawn directly via
+     *   CTadsStatusline::render()'s foreground-draw-list calls, not a
+     *   CTadsWin child), so do_rightbtn_down()/do_rightbtn_up() below open
+     *   this popup directly via a plain rect test against the status bar's
+     *   on-screen area, rather than relying on CTadsWin's child-dispatch
+     *   (which has nothing to find there).  Same command IDs/order as the
+     *   old resource, and the same do_command()/check_command() dispatch as
+     *   render_menu_bar()'s View > Timer submenu, which shows identical
+     *   content.  Must be called every frame at the same (root) ID-stack
+     *   depth do_rightbtn_up() opens it from, same reasoning as
+     *   render_context_menu().
+     */
+    void render_statusbar_context_menu();
+
+    /* is (x, y), in the same absolute coordinates event_loop() passes to
+     * do_rightbtn_down()/_up(), over the status bar's current on-screen
+     * rect?  Shared by both of those below. */
+    bool over_statusbar(int x, int y) const;
+
+    /*
+     *   Handle a right-click press.  If it landed on the status bar, claim
+     *   it here (returning TRUE without recursing into our children) rather
+     *   than falling through to CTadsWin::do_rightbtn_down()'s child
+     *   dispatch - main_panel_/hist_panel_ (CHtmlSysWin_win32::do_leftbtn_down(),
+     *   which do_rightbtn_down() forwards to) don't bounds-check the click
+     *   against their own rect, so left unclaimed here they'd unconditionally
+     *   grab mouse capture for any right-click anywhere in the window,
+     *   including over the status bar, and do_rightbtn_up() below would then
+     *   never see it (event_loop() routes button-up to whichever window has
+     *   capture, not to us).
+     */
+    int do_rightbtn_down(int keys, int x, int y, int clicks);
+
+    /*
+     *   Handle a right-click release.  If it landed on the status bar, open
+     *   its context menu (see render_statusbar_context_menu()) instead of
+     *   falling through to the inherited no-op.  By the time this fires, no
+     *   child has mouse capture for a status-bar click - do_rightbtn_down()
+     *   above already made sure of that - so event_loop() dispatches
+     *   button-up straight to us.
+     */
+    int do_rightbtn_up(int keys, int x, int y);
+
     /* process creation event */
     void do_create();
 

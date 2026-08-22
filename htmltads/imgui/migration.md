@@ -429,10 +429,16 @@ today for the same "no `WM_MEASUREITEM`/`WM_DRAWITEM`" reason — the toolbar's 
 below, is the pattern to follow if menu icons are wanted later, rather than reviving this Win32
 owner-draw path). The game-text right-click context/edit popup menu (from `IDR_EDIT_POPUP_MENU`) is now
 ported — see §3.1a below. The debug-log window's `IDR_DEBUGWIN_MENU` is now ported too — see the
-"`-debugwin` still showed a real, blank second OS window" entry further down. The debug-log window's own
-right-click popup (`IDR_DEBUGLOG_POPUP`, loaded via the same `load_context_popup()`) and the status bar's
-right-click popup (`IDR_STATUSBAR_POPUP`, `statusline_popup_`) are structurally identical to §3.1a's
-right-click menu but still unported.
+"`-debugwin` still showed a real, blank second OS window" entry further down. The status bar's right-click
+popup (`IDR_STATUSBAR_POPUP`, `statusline_popup_`) is now ported too — see §3.2. The debug-log window's own
+right-click popup (`IDR_DEBUGLOG_POPUP`, loaded via the same `load_context_popup()`) is the one exception
+left genuinely unported, and it's a deliberate non-issue rather than a gap: `CHtmlSysWin_win32_dbglog`'s
+constructor only calls `load_context_popup(IDR_DEBUGLOG_POPUP)` when `debugger_ifc_ != 0`
+([htmlgui.cpp](htmlgui.cpp), `CHtmlSysWin_win32_dbglog::CHtmlSysWin_win32_dbglog`), and — per the
+"synchronous virtual interface had to become callback-based" entry in §3.3 — `w32main.cpp`'s only call site
+in `guit3` always constructs the debug window with a null `debugger_ifc_` (that interface belongs to the
+out-of-scope Workbench debugger/editor, see the "MDI" decision in §4). So this popup is unreachable in the
+client build regardless of porting effort; porting it would be dead code from the moment it landed.
 
 **Toolbar**: `CHtmlSys_mainwin::render_toolbar()` (`htmlgui.cpp`, defined right after
 `load_toolbar_texture()`, called from `do_render()` right after `render_menu_bar()`) replaces the
@@ -615,6 +621,69 @@ directly into the always-on-top foreground list sidesteps window z-order and any
 push/pop imbalance elsewhere entirely, which seems like the more robust default for fixed chrome
 like this (and likely the pattern to reach for again for the menu bar next, if it runs into the same
 issue).
+
+**Right-click context menu — done.** The status bar's own right-click popup (`IDR_STATUSBAR_POPUP`:
+Pause Timer/Reset Timer/Show Timer/Timer Format submenu) was the one piece of §3.1's "not ported in this
+pass" list that was still actually reachable in `guit3` (unlike the debug-log window's equivalent, see
+§3.1's writeup) - the bar itself was ImGui-native from the start of this section, but nothing ever routed
+a right-click on it anywhere. `CHtmlSys_mainwin::render_statusbar_context_menu()`
+([htmlgui.cpp](htmlgui.cpp), declared in [htmlgui.h](htmlgui.h) next to `render_context_menu()`) draws it
+as an `ImGui::BeginPopup()`, dispatched through `check_command()`/`do_command()` exactly like
+`render_menu_bar()`'s View > Timer submenu - which shows identical content, since both come from the same
+underlying preferences/timer state.
+
+**Claiming the click needed two overrides, not one, because of an ordering trap.** The natural first
+attempt - override just `CHtmlSys_mainwin::do_rightbtn_up()` to rect-test the click and call
+`ImGui::OpenPopup()`, mirroring how `CHtmlSysWin_win32::do_rightbtn_up()` opens `"EditContextMenu"` for the
+game text window - compiled fine but never fired: a right-click squarely inside the status bar's own band
+still opened the *game text's* context menu instead. Root cause: `do_rightbtn_up()` only runs (per
+`event_loop()`'s mouse routing) when no window currently has mouse capture; but capture gets set on
+button-*down*, and `CTadsWin::do_rightbtn_down()`'s recursive child dispatch (added for §3.1a) reaches
+`main_panel_`/`hist_panel_` (via `CHtmlSysWin_win32::do_leftbtn_down()`, which `do_rightbtn_down()`
+forwards to) regardless of where in the window the click landed - that leaf handler doesn't bounds-check
+the click against its own rect (it only checks the vertical-scrollbar strip), so it unconditionally claims
+capture for *any* right-click anywhere in the window, including over the status bar sitting below it. By
+the time button-up fires, `event_loop()` routes it to the captured child, never to `CHtmlSys_mainwin`'s own
+`do_rightbtn_up()` override at all. **Fix**: added a matching `do_rightbtn_down()` override that rect-tests
+first and returns `TRUE` *without* recursing into `CTadsWin::do_rightbtn_down()`'s child dispatch when the
+click is over the status bar - so no child ever gets a chance to claim capture for it, and the existing
+`do_rightbtn_up()` override then correctly receives the uncaptured button-up. Both overrides share the rect
+test via a new `CHtmlSys_mainwin::over_statusbar(x, y)` helper. Worth remembering for any other
+chrome-that-isn't-a-`CTadsWin`-child needing its own click handling: claim it on button-*down*, not just
+button-up, or a bounds-unchecked leaf window elsewhere in the tree will silently steal it first.
+
+**Second bug, found only by actually looking at a screenshot: the popup's bottom rows never appeared,
+regardless of their content.** After the capture fix above, right-clicking the status bar correctly opened
+*a* popup, but it only ever showed the first ~4 text rows (e.g. "Pause Timer"/"Reset Timer"/"Show Timer"
+plus one more) before cutting off - the "Timer Format" submenu row was simply missing. Swapping which
+command occupied the last visible slot (confirmed via a temporary debug build) showed the *content* didn't
+matter - whatever landed in that row-position vanished, which ruled out anything specific to
+`ImGui::BeginMenu()` or to any one command ID. Also ruled out a leaked `ImGuiWindowSizeConstraint` (a real
+prior-art bug class in this codebase, e.g. from an unclosed `BeginCombo()`) by dumping
+`g.NextWindowData.HasFlags` as on-screen text right before `BeginPopup()` - it read `0`, clean. **Actual
+root cause**: the status bar draws via `ImGui::GetForegroundDrawList()` (see above), which - being the
+foreground list - always composites on top of *every* ordinary window/popup at the end of the frame,
+regardless of the order draw calls were issued in during that frame. The popup naturally opens anchored at
+the click point, which is *inside* the status bar's own rect by construction (that's where the user
+right-clicked it) - so however the popup grew from there, its rows nearest the status bar ended up
+geometrically underneath the bar's opaque background, which then painted over them every single frame.
+Not a sizing or content bug at all - the rows were rendering correctly, just getting silently covered up a
+moment later in the same frame. **Fix**: `render_statusbar_context_menu()` now calls
+`ImGui::SetNextWindowPos()` with pivot `(0, 1)` (bottom-left) anchored at `(mouse_x, status_bar_top)` before
+`BeginPopup()`, so the whole popup is pinned to grow *upward* from just above the bar instead of outward
+from the click point - guaranteeing no overlap with the always-on-top band underneath it. **Worth reusing
+this diagnostic sequence for any future "some rows/content mysteriously don't appear" report near a
+foreground-draw-list element (currently just the status bar, but potentially the caret or scrollbar too,
+see §4 in this file)**: don't assume it's a sizing/constraint bug just because it looks like one - check
+whether the missing content's *screen position* overlaps something drawn on the foreground list, since that
+list always wins the paint order regardless of submission order.
+
+**Verified** by screenshot and simulated clicks (`SetCursorPos`/`mouse_event`, per the recipe in §6):
+right-clicking the status bar shows all four rows plus the "Timer Format" flyout (hovering it opens
+"Hours:Minutes:Seconds"/"Hours:Minutes" with the correct one checked); clicking "Pause Timer" dispatches
+correctly and closes the popup cleanly, leaving the main window's command line focused and responsive; a
+follow-up right-click on the game text area still opens the unrelated `"EditContextMenu"` correctly (no
+regression from the new `do_rightbtn_down()` override intercepting clicks it shouldn't).
 
 ### 3.3 Dialogs (preferences, find/replace, folder picker, generic app dialogs)
 All dialog infrastructure (`tadsdlg.cpp`/`tadsdlg2.cpp`, `htmlpref.cpp`, `foldsel2.cpp`,
