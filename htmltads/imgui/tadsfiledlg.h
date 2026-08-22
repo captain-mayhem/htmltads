@@ -91,11 +91,28 @@ public:
      *   back to the native GetOpenFileName()/GetSaveFileName() common
      *   dialog, mirroring tadswin_message_box()'s fallback for the same
      *   situation.
+     *
+     *   'render_background', if given, is called once per frame (after
+     *   NewFrame(), before the dialog itself is drawn) to draw whatever
+     *   should appear behind/around the dialog - e.g. the main window's own
+     *   do_render(), so an already-running game stays visible and the
+     *   dialog looks like a floating modal instead of covering the whole
+     *   screen.  If 'render_background' itself calls CTadsFileDialog::
+     *   render() as part of its own per-frame rendering (as
+     *   CHtmlSys_mainwin::do_render() does), that call draws this dialog,
+     *   so open_blocking() will *not* separately call draw_frame() in that
+     *   case - only one of the two ever draws the dialog for a given frame.
+     *   If 'render_background' is omitted, the loop just clears the screen
+     *   and draws the dialog by itself, as before (fine when there's
+     *   nothing behind it yet, e.g. the very first "choose a game" prompt
+     *   at startup).
      */
     static bool open_blocking(GLFWwindow *window, TadsFileDlgMode mode,
                               const char *title, const char *filter,
                               const char *initial_path, bool must_exist,
-                              char *result_buf, size_t result_buf_size);
+                              char *result_buf, size_t result_buf_size,
+                              std::function<void()> render_background
+                                  = std::function<void()>());
 };
 
 #endif /* TADSFILEDLG_H */

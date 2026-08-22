@@ -103,7 +103,74 @@ extern "C" { HINSTANCE oss_G_hinstance; }
 
 /* ------------------------------------------------------------------------ */
 /*
- *   Flag: get-game-name callback has been invoked 
+ *   Hook for os_askfile()'s native file dialog (see oswin.h/oswin.c) - shows
+ *   our ImGui-native CTadsFileDialog instead of the Win32
+ *   GetOpenFileName()/GetSaveFileName() common dialog.  os_askfile() builds
+ *   the filter string, initial directory, and default filename exactly as
+ *   it would for the native dialog, then calls this instead of showing it.
+ *
+ *   This runs from deep within the VM's synchronous command processing (for
+ *   example, the "restore" command sent by File > Restore Position...), not
+ *   from an ImGui frame's own click handler, so - like get_game_name_cb()
+ *   below - it uses CTadsFileDialog::open_blocking() rather than the
+ *   deferred open()/render() pair.  Unlike get_game_name_cb() (which runs
+ *   before there's any game content to show), this can fire mid-game, so it
+ *   passes open_blocking() a render_background callback that runs the main
+ *   window's normal per-frame do_render() - the same call the ordinary
+ *   event_loop() makes - so the running game stays visible behind the
+ *   dialog instead of being replaced by a blank cleared screen.
+ */
+static int askfile_hook(const char *prompt, const char *filter,
+                        const char *initial_dir, char *fname_buf,
+                        int fname_buf_len, int is_save)
+{
+    char initial_path[OSFNMAX];
+    size_t len;
+
+    /* combine the initial directory and default filename into one path */
+    initial_path[0] = '\0';
+    if (initial_dir != 0 && initial_dir[0] != '\0')
+    {
+        strncpy(initial_path, initial_dir, sizeof(initial_path) - 1);
+        initial_path[sizeof(initial_path) - 1] = '\0';
+
+        len = strlen(initial_path);
+        if (fname_buf[0] != '\0' && len > 0 && len < sizeof(initial_path) - 1
+            && initial_path[len - 1] != '\\')
+        {
+            initial_path[len++] = '\\';
+            initial_path[len] = '\0';
+        }
+        strncat(initial_path, fname_buf, sizeof(initial_path) - len - 1);
+    }
+    else
+    {
+        strncpy(initial_path, fname_buf, sizeof(initial_path) - 1);
+        initial_path[sizeof(initial_path) - 1] = '\0';
+    }
+
+    CHtmlSys_mainwin *win = CHtmlSys_mainwin::get_main_win();
+    std::function<void()> render_background;
+    if (win != 0)
+    {
+        render_background = [win]()
+        {
+            win->do_render();
+            if (win->get_debug_win() != 0)
+                win->get_debug_win()->do_render();
+        };
+    }
+
+    return CTadsFileDialog::open_blocking(
+        win != 0 ? win->get_glfw_window() : 0,
+        is_save ? TADSFILEDLG_SAVE : TADSFILEDLG_OPEN,
+        prompt, filter, initial_path, !is_save,
+        fname_buf, fname_buf_len, render_background) ? 1 : 0;
+}
+
+/* ------------------------------------------------------------------------ */
+/*
+ *   Flag: get-game-name callback has been invoked
  */
 static int S_get_game_cb_invoked;
 
@@ -412,6 +479,10 @@ static void run_game(int argc, char** argv,
     /* set up our own callback for getting the game name */
     appctx.get_game_name = get_game_name_cb;
     appctx.get_game_name_ctx = win;
+
+    /* show our ImGui-native file dialog for save/restore/etc., rather than
+       the native Win32 common dialog */
+    oss_set_askfile_hook(askfile_hook);
 
     /* no resource path yet */
     appctx.ext_res_path = 0;

@@ -1074,6 +1074,72 @@ previous frame regardless of whether the new popup actually stacked correctly or
 parent. The only way to tell the difference is to actually click the child popup's own Cancel/Close button
 and confirm the parent survives, or to trace `g.BeginPopupStack`/`g.OpenPopupStack` directly.
 
+**Restore/Save Position dialog - done.** File > Restore Position... (and TADS 3's `inputFile()`/
+`restoreGame()`/`saveGame()` in general - `os_askfile()` is the single portable choke point all of them
+go through) used to pop the native `GetOpenFileName()`/`GetSaveFileName()` common dialog. This one isn't
+an `imgui/`-side call site at all - `os_askfile()` itself lives outside `imgui/` entirely, in
+`../../tads-runner/tads2/msdos/oswin.c`, the shared TADS 2 OS layer that `tr32h`/`trd32h` compile
+**once** and that four different executables link against: `guit3`, plus three still-native-Win32
+targets from `htmltads/CMakeLists.txt` (`htmlt3_tmp`, `htmltdb3_tmp`, `tadsweb`). Because it's one
+static library built without per-consumer flags, an `#ifdef IMGUI` inside `oswin.c` wouldn't work -
+`IMGUI` is only defined on the `guit3` target, not on the `oswin.c` translation unit, which is compiled
+once for whichever executable happens to link `tr32h` first.
+
+**Fix: a runtime hook, not a compile-time branch** - the same shape `oss_set_open_file_dir()` already
+uses in this exact file to let a host app influence `os_askfile()`'s behavior from outside. Added
+`oss_set_askfile_hook()`/`os_askfile_hook_t` to `oswin.h`/`oswin.c`: `os_askfile()` still builds the
+filter string, initial directory, and default filename exactly as before (all of that logic - the
+saved-game filter construction, the last-used-filename memory - stays in `oswin.c`, not duplicated), but
+if a hook is registered it calls that instead of `GetOpenFileName()`/`GetSaveFileName()` for the actual
+dialog. Left unregistered (the three native-Win32 targets never call `oss_set_askfile_hook()`), it's
+byte-for-byte the same native dialog as before - verified by rebuilding `tr32h`/`trd32h` standalone after
+the change with no source changes needed on their end. `guit3` registers `askfile_hook()`
+([w32main.cpp](w32main.cpp), right next to the `appctx.get_game_name` setup) at startup.
+
+The hook signature deliberately uses only plain C types (`const char *filter`, not `OPENFILENAME *`) -
+`oswin.h` has a standing house rule (see the `HINSTANCE`/`oss_G_hinstance` comment right above it) to stay
+buildable without pulling in `<windows.h>`, and `OPENFILENAME` would have broken that.
+
+`askfile_hook()`'s implementation reuses `CTadsFileDialog::open_blocking()` - not the deferred
+`open()`/`render()` pair - for the same reason `get_game_name_cb()` does (see the "File open/save dialog"
+entry above): `os_askfile()` is called synchronously from deep inside the VM's command processing (e.g.
+while handling the "restore" text command sent by the menu's `do_command()`), not from an ImGui click
+handler with a frame already in progress, so there's no `render()` call site to defer into - the dialog
+has to pump its own frame loop and block until the user picks a file, exactly like the early-startup
+"choose a game" dialog does.
+
+**Verification**: rebuilt `guit3` clean after the change (`cmake --build --preset default --target
+guit3`) - compiles and links with no new warnings. Separately rebuilt `tr32h`/`trd32h` standalone to
+confirm the shared `oswin.c` edit doesn't affect the three targets that don't register the hook. Not yet
+click-tested end-to-end in a real restore/save flow (same sandbox screenshot/input limitations noted
+throughout §6) - a future session with working input injection should drive `guit3.exe tests/ditch3.t3`
+through `save`/`restore` commands and confirm the ImGui file browser appears and round-trips a `.t3v`
+file correctly.
+
+**Follow-up: the dialog was covering the whole screen instead of floating over the running game -
+fixed.** Reported after actually clicking Restore Position mid-game: the dialog appeared, but the game
+text behind it was gone, replaced by a flat fill color, making the (correctly small, 560x440) popup look
+like it had taken over the entire window. Root cause: `open_blocking()`'s self-pumped frame loop only
+ever called `draw_frame()` (just the file dialog) each frame, then `glClear()`'d everything else to a
+flat color - it never called `CHtmlSys_mainwin::do_render()` (the same per-frame call the normal
+`event_loop()` makes to draw the menu bar, the game's own text panel, the status line, etc.). That was
+invisible for `get_game_name_cb()`'s use of the same function, since that call happens before any game is
+loaded - there's nothing behind the dialog yet to hide.
+
+**Fix**: added an optional `render_background` parameter (`std::function<void()>`) to
+`open_blocking()` ([tadsfiledlg.h](tadsfiledlg.h)/[tadsfiledlg.cpp](tadsfiledlg.cpp)). When given, the
+loop calls it instead of `draw_frame()` - it's expected to do its own full per-frame rendering *and* draw
+the dialog itself, since `CHtmlSys_mainwin::do_render()` already calls `CTadsFileDialog::render()` as
+part of its normal top-level-popup sequence (see the "File open/save dialog" entry above); calling both
+`render_background()` and `draw_frame()` in the same frame would draw the dialog twice. `askfile_hook()`
+([w32main.cpp](w32main.cpp)) now passes a lambda that calls `win->do_render()` (plus the debug log
+window's `do_render()`, if one is open, matching what `event_loop()` itself does) as the background
+renderer, so the running game - text, menu bar, status line, any open Options/context-menu popups -
+keeps rendering normally underneath, and the file dialog now reads as a floating modal on top of it,
+same as the native Win32 common dialog did. `get_game_name_cb()`'s call site is unchanged (omits the new
+parameter, so it keeps the old clear-and-draw-only behavior, which is still correct there).
+Rebuilt `guit3` clean after the change.
+
 ### 3.4 Child "windows" (banners, scrollbars, tooltips, size-grip)
 `CTadsWin` treats banners, scrollbars, and the resize grip as real child `HWND`s
 (`tadswin.cpp:2535,2550,2573,2633`, `htmlgui.cpp:3736` for banners, `htmlgui.cpp:5360` for tooltips).

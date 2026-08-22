@@ -502,7 +502,8 @@ void CTadsFileDialog::render()
 
 bool CTadsFileDialog::open_blocking(GLFWwindow *window, TadsFileDlgMode mode,
     const char *title, const char *filter, const char *initial_path,
-    bool must_exist, char *result_buf, size_t result_buf_size)
+    bool must_exist, char *result_buf, size_t result_buf_size,
+    std::function<void()> render_background)
 {
     /* with no GLFW window yet, fall back to the native common dialog */
     if (window == 0)
@@ -565,7 +566,20 @@ bool CTadsFileDialog::open_blocking(GLFWwindow *window, TadsFileDlgMode mode,
         ImGui_ImplGlfw_NewFrame();
         ImGui::NewFrame();
 
-        draw_frame();
+        if (render_background)
+        {
+            /*
+             *   the caller's own per-frame rendering - this is expected to
+             *   draw this dialog itself (via its own CTadsFileDialog::
+             *   render() call), so don't also call draw_frame() below
+             */
+            render_background();
+        }
+        else
+        {
+            /* nothing behind the dialog - just draw the dialog itself */
+            draw_frame();
+        }
 
         ImGui::Render();
         int display_w, display_h;
