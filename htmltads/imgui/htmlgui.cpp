@@ -109,9 +109,6 @@ Modified
 #ifndef W32MAIN_H
 #include "w32main.h"
 #endif
-#ifndef W32FNDLG_H
-#include "w32fndlg.h"
-#endif
 #ifndef TADSREG_H
 #include "tadsreg.h"
 #endif
@@ -2971,27 +2968,33 @@ void CHtmlSysWin_win32::unregister_active_sound(CTadsAudioPlayer *s)
  */
 void CHtmlSysWin_win32::do_find(int command_id)
 {
-    const textchar_t *findstr;
-    int exact_case;
-    int start_at_top;
-    int wrap;
-    int dir;
-
-    /* get the text to find */
-    findstr = owner_->get_find_text(command_id, &exact_case,
-                                    &start_at_top, &wrap, &dir);
-
-    /* if they canceled, there's nothing more to do */
-    if (findstr == 0)
-        return;
-
-    /* run the find */
-    if (!execute_find(findstr, exact_case, start_at_top, wrap, dir,
-                      FALSE, 0, 0))
+    /*
+     *   Get the text to find.  This may show the Find dialog, so the
+     *   result isn't necessarily available synchronously - owner_ reports
+     *   it via this callback instead, invoked either immediately (if no
+     *   dialog is needed, e.g. a Find Next with existing search text) or
+     *   on a later frame (once the ImGui Find dialog closes; see
+     *   CTadsFindDialog in tadsfinddlg.h).
+     */
+    this->AddRef();
+    owner_->get_find_text(command_id,
+        [this](const char *findstr, int exact_case, int start_at_top,
+               int wrap, int dir)
     {
-        /* display a message box telling the user that we failed */
-        find_not_found();
-    }
+        /* if they canceled, there's nothing more to do */
+        if (findstr != 0)
+        {
+            /* run the find */
+            if (!execute_find(findstr, exact_case, start_at_top, wrap, dir,
+                              FALSE, 0, 0))
+            {
+                /* display a message box telling the user that we failed */
+                find_not_found();
+            }
+        }
+
+        this->Release();
+    });
 }
 
 /*
@@ -10454,8 +10457,8 @@ CHtmlSys_mainwin::CHtmlSys_mainwin(CHtmlFormatterInput *formatter,
     toolbar_tex_ = 0;
     toolbar_tex_w_ = toolbar_tex_h_ = 0;
 
-    /* create the "find" dialog */
-    find_dlg_ = new CTadsDialogFind();
+    /* no find text yet */
+    find_text_[0] = '\0';
 
     /* no popup menu handles yet */
     popup_container_ = 0;
@@ -10593,9 +10596,6 @@ CHtmlSys_mainwin::~CHtmlSys_mainwin()
     /* release our DirectSound interface */
     if (directsound_ != 0)
         directsound_->Release();
-
-    /* delete the 'find' dialog */
-    delete find_dlg_;
 
     /* delete the popup menu, if we loaded one */
     if (popup_container_ != 0)
@@ -10779,43 +10779,59 @@ int CHtmlSys_mainwin::wait_for_new_game(int quitting)
 /*
  *   get the text for a 'find' command 
  */
-const char *CHtmlSys_mainwin::get_find_text(int command_id, int *exact_case,
-                                            int *start_at_top, int *wrap,
-                                            int *dir)
+void CHtmlSys_mainwin::get_find_text(
+    int command_id,
+    std::function<void(const char *findstr, int exact_case,
+                       int start_at_top, int wrap, int dir)> callback)
 {
     /*
      *   If this is a Find command, or if we don't have any text from the
-     *   last "Find" command, run the dialog.  
+     *   last "Find" command, show the dialog (CTadsFindDialog, see
+     *   tadsfinddlg.h) and report the result via 'callback' once it
+     *   closes, rather than blocking - we're most likely being called
+     *   from a menu click or keyboard shortcut handled mid-frame, so we
+     *   can't pump a nested modal loop here (see the CTadsFileDialog
+     *   open()/render() precedent in tadsfiledlg.h for the same
+     *   reasoning).
      */
     if (command_id == ID_EDIT_FIND || find_text_[0] == '\0')
     {
-        /* run the dialog - if they cancel, return null */
-        if (!find_dlg_->run_find_dlg(get_handle(), DLG_FIND,
-                                     find_text_, sizeof(find_text_)))
-            return 0;
+        this->AddRef();
+        CTadsFindDialog::open(find_text_, find_exact_case_,
+            find_start_at_top_, find_wrap_, find_dir_,
+            [this, callback](const char *findstr, int exact_case,
+                             int start_at_top, int wrap, int dir)
+        {
+            if (findstr != 0)
+            {
+                /* remember the text and options for next time */
+                safe_strcpy(find_text_, sizeof(find_text_), findstr);
+                find_exact_case_ = exact_case;
+                find_start_at_top_ = start_at_top;
+                find_wrap_ = wrap;
+                find_dir_ = dir;
 
-        /* use the search-from-top setting from the dialog */
-        *start_at_top = find_dlg_->start_at_top;
+                callback(find_text_, exact_case, start_at_top, wrap, dir);
+            }
+            else
+            {
+                /* they canceled the dialog */
+                callback(0, 0, 0, 0, 0);
+            }
+
+            this->Release();
+        });
     }
     else
     {
-        /* 
+        /*
          *   continuing an old search, so don't start over at the top,
-         *   regardless of the last dialog settings 
+         *   regardless of the last dialog settings; the other flags carry
+         *   over from the last dialog run
          */
-        *start_at_top = FALSE;
+        callback(find_text_, find_exact_case_, FALSE, find_wrap_,
+                find_dir_);
     }
-
-    /* 
-     *   fill in the flags from the last dialog settings, whether this is a
-     *   new search or a continued search 
-     */
-    *exact_case = find_dlg_->exact_case;
-    *wrap = find_dlg_->wrap_around;
-    *dir = find_dlg_->direction;
-
-    /* return the text to find */
-    return find_text_;
 }
 
 
@@ -11628,6 +11644,9 @@ int CHtmlSys_mainwin::do_render() {
 
     /* draw the file open/save dialog on top, if one is pending or open */
     CTadsFileDialog::render();
+
+    /* draw the Find dialog on top, if one is pending or open */
+    CTadsFindDialog::render();
 
     return ret;
 }
@@ -15358,12 +15377,24 @@ int CHtmlSys_mainwin::event_loop(int* flag) {
         ImGui_ImplGlfw_NewFrame();
         ImGui::NewFrame();
 
-        for (int i = 0; i < io.InputQueueCharacters.size(); ++i) {
-            ImWchar ch = io.InputQueueCharacters[i];
-            do_char(ch, 0);
-        }
-        if (ImGui::IsKeyPressed(ImGuiKey_Enter)) {
-            do_char('\r', 0);
+        /*
+         *   Only forward typed characters to the game's own command line
+         *   when no ImGui widget (an open dialog's text field, etc.) wants
+         *   them instead - otherwise, e.g., typing into the Find dialog's
+         *   "Find what" field would simultaneously leak into the game
+         *   command line, since nothing else in this loop checks
+         *   io.WantTextInput before consuming io.InputQueueCharacters (see
+         *   the io.WantCaptureKeyboard/WantCaptureMouse comment above).
+         */
+        if (!io.WantTextInput)
+        {
+            for (int i = 0; i < io.InputQueueCharacters.size(); ++i) {
+                ImWchar ch = io.InputQueueCharacters[i];
+                do_char(ch, 0);
+            }
+            if (ImGui::IsKeyPressed(ImGuiKey_Enter)) {
+                do_char('\r', 0);
+            }
         }
 
         /*
@@ -17164,16 +17195,28 @@ void CHtmlSys_dbglogwin::init_parser()
 /*
  *   get text for a FIND command 
  */
-const textchar_t *CHtmlSys_dbglogwin::get_find_text(
-    int command_id, int *exact_case, int *start_at_top, int *wrap, int *dir)
+void CHtmlSys_dbglogwin::get_find_text(
+    int command_id,
+    std::function<void(const char *findstr, int exact_case,
+                       int start_at_top, int wrap, int dir)> callback)
 {
+    /*
+     *   The debug host interface's Find dialog is a separate, synchronous
+     *   API (unrelated to CTadsFindDialog/ID_EDIT_FIND on the main game
+     *   window) that isn't part of the guit3 client port - the Workbench
+     *   debugger UI is out of scope (see the MDI decision in
+     *   migration.md).  Report its result through the callback immediately
+     *   so this still satisfies the CHtmlSysWin_win32_owner interface.
+     */
+    int exact_case = 0, start_at_top = 0, wrap = 0, dir = 0;
+    const textchar_t *findstr = 0;
+
     /* if we have a debug host interface, ask it to get the text */
     if (debugger_ifc_ != 0)
-        return debugger_ifc_->dbghostifc_get_find_text(
-            command_id, exact_case, start_at_top, wrap, dir);
+        findstr = debugger_ifc_->dbghostifc_get_find_text(
+            command_id, &exact_case, &start_at_top, &wrap, &dir);
 
-    /* no debug host interface - we can't ask for Find text */
-    return 0;
+    callback(findstr, exact_case, start_at_top, wrap, dir);
 }
 
 /* 

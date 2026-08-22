@@ -55,6 +55,8 @@ add_executable(guit3
 	tadsdlg2.cpp
 	tadsfiledlg.h
 	tadsfiledlg.cpp
+	tadsfinddlg.h
+	tadsfinddlg.cpp
 	tadscbtn.cpp
 	tadsreg.cpp
 	tadsjpeg.cpp

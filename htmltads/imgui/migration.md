@@ -32,9 +32,9 @@ and metrics, text display, child-window handling, coloring, resizing, link color
 character-encoding fixes, image rendering via GL textures, text selection, mouse hover, and text
 highlighting. This is genuinely useful progress, and now the application chrome has its first
 ImGui-native pieces too: the menu bar, toolbar, and status bar (§3.1, §3.2) are all done, and so are
-three dialogs - Options, Customize Theme, and the file open/save dialog (§3.3). Window creation itself,
-the remaining chrome (banners/scrollbars), and the rest of the dialogs (find/replace, folder picker) are
-still 100% Win32.
+four dialogs - Options, Customize Theme, the file open/save dialog, and the Find dialog (§3.3). Window
+creation itself, the remaining chrome (banners/scrollbars), and one dialog (the folder picker) are still
+100% Win32.
 
 ## 2. Root cause: "both windows open"
 
@@ -338,7 +338,7 @@ to help prioritize:
 | `tadswebctl.h` | 17 | COM/OLE ActiveX browser control embedding (`exdisp.h`) for the in-game Web UI feature. Legacy IE technology — **recommend dropping**, not porting, unless the Web UI feature is still required (see §4). |
 | `tadsapp.cpp` / `.h` | 13 / 8 | App-level message routing, accelerators, modeless dialog list, MDI handling — tied to the Win32 message pump; needs redesign once there's no HWND to pump. |
 | `foldsel.h` / `foldsel2.cpp` | 11 / 10 | Custom folder-picker dialog. Has its own `WinMain` guarded by `#ifdef BUILD_TEST_PROG` (dead code in the `guit3` build) but the real dialog logic is still Win32. |
-| `w32fndlg.h` / `.cpp` | 6 / 10 | Find/Replace dialog (`FINDREPLACE`) — **not started**. |
+| `w32fndlg.h` / `.cpp` | 6 / 10 | Find dialog (`CTadsDialogFind`) — **ported** (see §3.3's `CTadsFindDialog` entry); this file itself is left compiled but unused. Its `CTadsDialogFindReplace`/`CTadsDialogFindRegex` classes belong to the out-of-scope Workbench debugger and were never ported. |
 | `tadscbtn.h`, `w32webui.h`, `w32snd.h`, `tadsstat.h`, `htmlpref.h` | 6, 5, 4, 4, 4 | Custom button control, web-UI glue, sound glue, status line, prefs header — all **not started**. |
 
 Everything else (tadswav/tadsvorb/tadsmidi/tadssnd/tadsreg/tadsimg/tadsjpeg/tadspng/tadscar/tadscsnd/
@@ -740,13 +740,123 @@ input-color-swatch bug and the More-tab label-overflow bug above were both *foun
 rendering each tab and looking at the screenshot, not by reading the code a second time - which is the
 whole reason this dialog's writeup insists on describing what a screenshot actually showed.
 
-**Not yet ported**: find/replace (`w32fndlg.cpp`) and the folder-picker dialog itself
-(`CTadsDialogFolderSel2`/`foldsel2.cpp`, still only *called* from ImGui code, not rewritten). The general
-`CTadsDialog`-mirroring base class this section used to recommend turned out not to be necessary for
-the Options, Customize Theme, or file open/save dialogs - whether it's worth building for find/replace or
-the folder picker depends on whether those turn out to share enough structure with each other to benefit
-from one; worth revisiting once one of them is actually tackled rather than building it speculatively
-now.
+**The "Find" dialog (Edit > Find Text on Current Page..., Ctrl+F/F3) is now ImGui-native - done.**
+`CTadsFindDialog::open()`/`render()` (new, in [tadsfinddlg.h](tadsfinddlg.h)/[tadsfinddlg.cpp](tadsfinddlg.cpp))
+follow the exact same deferred pending-flag + completion-callback pattern as `CTadsFileDialog` - `open()`
+is safe to call from a menu click handled mid-frame, `render()` (called from `CHtmlSys_mainwin::do_render()`,
+right after `CTadsFileDialog::render()`) draws the popup and invokes the callback once it closes. Only the
+plain Find dialog (`CTadsDialogFind`, `DLG_FIND`) was ported: `w32fndlg.h`/`.cpp` also defines
+`CTadsDialogFindReplace`/`CTadsDialogFindRegex` (regex search, whole-word, project-wide scope, an actual
+Replace button) for `DLG_REPLACE`/`DLG_REGEXFIND`, but grepping the whole `imgui/` tree confirmed neither
+class nor either resource ID is ever referenced outside `w32fndlg.cpp` itself - they belong to the
+Workbench debugger/editor (`CHtmlSys_dbglogwin`), which is out of scope for the guit3 client port (see the
+"MDI" decision in §4). `w32fndlg.cpp`/`.h` are left compiled but unused, same "harmless dead code"
+reasoning as the old Options property-sheet code.
+
+The old `find_dlg_` member on `CHtmlSys_mainwin` (a persistent `CTadsDialogFind*`, `new`'d in the
+constructor) is gone; its four persisted option fields (case-sensitivity, wrap, start-at-top, direction)
+became four plain `int` members (`find_exact_case_`/`find_wrap_`/`find_start_at_top_`/`find_dir_`), and
+its search-history combo box became a small vector of strings owned by `CTadsFindDialog`'s own
+file-local state (same "only one instance can ever be showing" reasoning `CTadsFileDialog` uses for its
+own statics).
+
+**The synchronous virtual interface had to become callback-based.** `CHtmlSysWin_win32::do_find()` used
+to call `owner_->get_find_text(...)` and use its *return value* immediately - fine for a blocking
+`DialogBoxParam()` modal, impossible for a dialog that has to defer to a later frame. `get_find_text()`
+(declared on the `CHtmlSysWin_win32_owner` interface, overridden by both `CHtmlSys_mainwin` and the
+debugger's `CHtmlSys_dbglogwin`) changed from `const char *get_find_text(...)` to
+`void get_find_text(..., std::function<void(const char *findstr, int exact_case, int start_at_top,
+int wrap, int dir)> callback)`. `CHtmlSys_mainwin`'s implementation now opens `CTadsFindDialog` and
+forwards its completion callback's result to the caller's callback (or calls straight through
+synchronously, un-changed in effect, for the Find-Next-with-existing-text case that never showed a dialog
+to begin with). `CHtmlSys_dbglogwin`'s override - which forwards to a separate, synchronous
+`dbghostifc_get_find_text()` on yet another interface (`CHtmlSys_dbglogwin_hostifc`, implemented outside
+this repo entirely, by whatever debugger host embeds it) - just wraps its unchanged synchronous call in an
+immediate callback invocation to satisfy the new signature; this path is additionally dead in practice
+since `w32main.cpp`'s only call site constructs the debug window with a null `debugger_ifc_`, so it always
+returns "no text" regardless. `do_find()` itself now passes a lambda to `get_find_text()` and does its
+`execute_find()`/`find_not_found()` work from inside that lambda instead of after a returned value; it
+also takes an `AddRef()`/`Release()` pair around the whole call (mirroring the existing
+`CHtmlSys_mainwin::wait_for_new_game()` precedent for the same "this object must survive an operation that
+might outlive the current call frame" concern), since the callback can now fire on a later frame than the
+one that requested it.
+
+**Two bugs found and fixed along the way, both worth remembering for any future ImGui dialog work in this
+codebase, not just this one:**
+- `CHtmlSys_mainwin::find_text_` (the `textchar_t[512]` buffer holding the current/last search string)
+  was never zero-initialized in the constructor - `find_text_[0] == '\0'` (the "no previous search yet"
+  check `get_find_text()` relies on) worked by accident as long as fresh heap pages happened to come back
+  zeroed, which is common but not guaranteed. It became reliably visible once this buffer's contents were
+  fed straight into an ImGui `InputText()` on first use: MSVC's debug-heap fill pattern (`0xCD`) has no
+  glyph in the app's font, so the field rendered as a solid row of `?` characters instead of showing
+  empty - a good general tell for "reading uninitialized memory" the next time an ImGui text field shows
+  unexpected filler characters on first open. Fixed with a one-line `find_text_[0] = '\0';` in the
+  constructor.
+- **`CHtmlSys_mainwin::event_loop()` forwards every typed character straight to the game's own command
+  line, with no check for whether an ImGui widget wants it instead.** `io.InputQueueCharacters` is read
+  and passed to `do_char()` unconditionally right after `ImGui::NewFrame()`, ignoring `io.WantTextInput`
+  (the flag Dear ImGui updates at the end of each frame specifically so integrations can make this
+  decision - and which the very next comment in the same function already describes, for
+  `WantCaptureMouse`/`WantCaptureKeyboard`, without it actually being applied anywhere). Practical effect:
+  typing into the new Find dialog's text field also typed the same characters into the game's command
+  line at the same time, invisible until actually watched via screenshot, since the ImGui field itself
+  looked fine when nothing had focus (see the next bug). This is a **pre-existing, general gap that
+  affects every ImGui text field in the app**, not something specific to the Find dialog - it just hadn't
+  been caught yet because it's easiest to notice with the keyboard-driven flow this dialog needed. Fixed
+  by wrapping the `do_char()` forwarding loop (and the `Enter`-key one right after it) in
+  `if (!io.WantTextInput)`. **Worth re-checking this fix is still in place before trusting keyboard input
+  in any future dialog**, and worth considering whether `io.WantCaptureMouse` deserves the same treatment
+  for whatever raw mouse-forwarding path this file has, by analogy.
+- Related: a freshly opened ImGui popup does **not** automatically grab keyboard focus for its first
+  widget the way a native Win32 dialog does for its first tab-stop control - without an explicit
+  `ImGui::SetKeyboardFocusHere()` call on the frame the popup opens (guarded by a `just_opened` flag
+  computed from the same pending→open transition `CTadsFileDialog` already tracks), keyboard focus simply
+  stays wherever it was before (typically the game's own command line), and the two bugs above compound:
+  the dialog's field never becomes the active widget, so `io.WantTextInput` never goes true, so the
+  `event_loop()` fix above never engages for it. `CTadsFindDialog::open()`'s `just_opened` +
+  `SetKeyboardFocusHere()` pairing is the pattern to copy for the folder-picker dialog or any other future
+  ImGui dialog with a primary text field.
+- **A freshly-opened `ImGuiWindowFlags_AlwaysAutoResize` popup visibly grows for a frame or two before
+  settling at its real size** - reported as "the dialog animates when opened, it should be fixed size."
+  Root cause: an auto-resize window's size each frame is computed from `ContentSizeIdeal`, which reflects
+  the *previous* frame's submitted content - for a window that didn't exist last frame, that starts at
+  (near) zero, so the first frame or two under-measure before the size catches up, producing a visible
+  small→full "pop" that reads as an animation next to a native dialog's instant appearance. The first fix
+  attempt (capture the size once on the very frame the popup opens, then pin the window to that forever
+  via `SetNextWindowSize(..., ImGuiCond_Always)` and drop `AlwaysAutoResize`) made the size *stable* but
+  locked in the wrong, too-small first-frame measurement permanently, clipping every widget below the text
+  field - worth remembering that "stable" and "correct" are separate properties to verify (this was caught
+  by looking at a screenshot, not by only checking that the size stopped changing). **Fix**: let the window
+  auto-fit (and keep recapturing the measured size) for a handful of frames after opening
+  (`FindDlgState::settle_frames`, currently 4) before switching to pinning it at the last captured size -
+  `CTadsFindDialog::draw_frame()` in [tadsfinddlg.cpp](tadsfinddlg.cpp). At normal frame rates this settle
+  window is a handful of milliseconds, invisible in practice, while still measuring off real, fully laid-
+  out content rather than a guess. Verified by screenshotting as little as 20ms after the click that opens
+  the dialog (well within the settle window) alongside a screenshot ~800ms later, confirming pixel-identical
+  bounds both times with all widgets visible and correctly laid out in both. **Worth reusing this
+  settle-then-pin pattern (not the simpler capture-once version) for the folder-picker dialog or any other
+  future `AlwaysAutoResize` popup that needs a fixed size** - `tadswin.cpp`'s `tadswin_message_box()` and
+  the Save-mode overwrite confirmation in `tadsfiledlg.cpp` both still use plain
+  `AlwaysAutoResize` + `ImGuiCond_Appearing` with no pinning, so they likely show the same brief pop; not
+  fixed here since neither was reported as an issue, but the same technique would apply.
+
+**Verification**: built `guit3` and drove it via the PowerShell screenshot + `SendKeys`/synthetic-click
+recipe in §6 against `tests/ditch3.t3` - this session's sandbox *did* have a working interactive desktop
+(unlike the one noted in the file open/save dialog's verification section below), so this was actual
+pixel-level and input verification, not just log tracing. Confirmed: Edit > Find Text on Current
+Page... opens the popup with an empty (not garbage-filled) text field already focused; typing "Ditch"
+lands only in the field, not the game's command line; clicking "Find Next" closes the popup and
+highlights the matching text in the game window; pressing F3 afterward (`ID_EDIT_FINDNEXT`) re-runs the
+search using the persisted text/options without reopening the dialog, with no crash and no stray popup.
+The general `CTadsDialog`-mirroring base class this section used to recommend turned out not to be
+necessary here either, same as Options/Customize Theme/file dialog - `CTadsFindDialog` just follows the
+existing `CTadsFileDialog` shape directly.
+
+**Not yet ported**: the folder-picker dialog itself (`CTadsDialogFolderSel2`/`foldsel2.cpp`, still only
+*called* from ImGui code, not rewritten) - it's the last dialog standing. Whether it's worth building a
+shared base class for it depends on how much structure it turns out to share with the now-two deferred-
+popup dialogs (`CTadsFileDialog`, `CTadsFindDialog`); worth revisiting once it's actually tackled rather
+than building one speculatively now.
 
 **File open/save dialog - done.** Every live `GetOpenFileName()` call site in `imgui/` (there was no
 `GetSaveFileName()` call site anywhere in the tree) is now backed by a new, reusable ImGui-native file
@@ -911,11 +1021,10 @@ Windows-locked.
 3. **Child windows** (§3.4): scrollbars/banners/size-grip — needed so the top-level HWND can actually
    be deleted, not just hidden. Skip MDI-frame/MDI-client child-window paths entirely (§4) — the client
    doesn't need them.
-4. **Dialogs** (§3.3): biggest chunk by file count. The Options dialog (Edit > Options) and the
-   "Customize Theme" Fonts/Colors/More/Media property sheet (`run_appearance_dlg()`) are both **done** -
-   each an ImGui modal with a tab bar, no separate framework needed. Still remaining: find/replace
-   (`w32fndlg.cpp`) and the folder-picker dialog (`foldsel2.cpp`, only called from ImGui code so far, not
-   itself rewritten).
+4. **Dialogs** (§3.3): biggest chunk by file count. The Options dialog (Edit > Options), the
+   "Customize Theme" Fonts/Colors/More/Media property sheet (`run_appearance_dlg()`), the file open/save
+   dialog, and the Find dialog (Edit > Find Text on Current Page...) are all **done**. Still remaining:
+   the folder-picker dialog (`foldsel2.cpp`, only called from ImGui code so far, not itself rewritten).
 5. **Font/image cleanup** (§3.5, §3.6): remove now-dead GDI code paths once nothing still calls them.
 6. **Gate the Web UI behind `#ifdef`s** (§3.8/§4): get `tadswebctl.*`/`w32webui.h` and their
    COM/ActiveX calls compiling out cleanly for `guit3` rather than porting them now.

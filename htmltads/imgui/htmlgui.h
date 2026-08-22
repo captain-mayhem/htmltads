@@ -59,6 +59,9 @@ Modified
 #ifndef TADSFILEDLG_H
 #include "tadsfiledlg.h"
 #endif
+#ifndef TADSFINDDLG_H
+#include "tadsfinddlg.h"
+#endif
 #ifndef TADSAPP_H
 #include "tadsapp.h"
 #endif
@@ -2222,10 +2225,20 @@ public:
     /* determine if the game has ended */
     virtual int get_game_over() const { return FALSE; }
 
-    /* get the text for a find or find-next command */
-    virtual const char *get_find_text(int command_id, int *exact_case,
-                                      int *start_at_top, int *wrap, int *dir)
-        { return 0; }
+    /*
+     *   Get the text for a find or find-next command.  This may show a
+     *   dialog to ask the user, so the result isn't necessarily available
+     *   right away - we report it via 'callback' instead of a return
+     *   value, so that a caller mid-frame (e.g. an ImGui menu click) can
+     *   defer to the dialog's own on-close callback rather than blocking.
+     *   If the user cancels (or there's no text to find), the callback is
+     *   invoked with a null findstr and the other arguments zeroed.
+     */
+    virtual void get_find_text(
+        int command_id,
+        std::function<void(const char *findstr, int exact_case,
+                           int start_at_top, int wrap, int dir)> callback)
+        { callback(0, 0, 0, 0, 0); }
 
     /* reload the game chest data if necessary */
     virtual void owner_maybe_reload_game_chest() { }
@@ -2983,8 +2996,10 @@ public:
     int wait_for_new_game(int quitting);
 
     /* get the text for a find or find-next command */
-    const char *get_find_text(int command_id, int *exact_case,
-                              int *start_at_top, int *wrap, int *dir);
+    void get_find_text(
+        int command_id,
+        std::function<void(const char *findstr, int exact_case,
+                           int start_at_top, int wrap, int dir)> callback);
 
     /* reload the game chest data if necessary */
     void owner_maybe_reload_game_chest();
@@ -3272,11 +3287,20 @@ private:
      */
     DWORD pause_starting_ticks_;
 
-    /* the "Find" dialog object */
-    class CTadsDialogFind *find_dlg_;
-
     /* text of current/last find */
     textchar_t find_text_[512];
+
+    /*
+     *   Persisted Find dialog option settings (CTadsFindDialog, see
+     *   tadsfinddlg.h) - carried over from one search to the next, same as
+     *   the corresponding member variables on the old native
+     *   CTadsDialogFind object.  Defaults match CTadsDialogFind's
+     *   constructor: case-insensitive, no wrap, forward.
+     */
+    int find_exact_case_ = FALSE;
+    int find_wrap_ = FALSE;
+    int find_start_at_top_ = FALSE;
+    int find_dir_ = 1;
 
     /* menu containing the context menus */
     HMENU popup_container_;
@@ -3828,8 +3852,10 @@ public:
     virtual void init_parser();
 
     /* get the text for a 'find' command */
-    const textchar_t *get_find_text(int command_id, int *exact_case,
-                                    int *start_at_top, int *wrap, int *dir);
+    void get_find_text(
+        int command_id,
+        std::function<void(const char *findstr, int exact_case,
+                           int start_at_top, int wrap, int dir)> callback);
 
     /* -------------------------------------------------------------------- */
     /*
