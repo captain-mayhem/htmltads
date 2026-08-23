@@ -5241,6 +5241,27 @@ void CHtmlSysWin_win32::adjust_for_reformat()
         content_height_ = formatter_->get_max_y_pos();
     adjust_scrollbar_ranges();
 
+    /*
+     *   Refresh the caret's rendered size (caret_ht_/caret_ascent_) from
+     *   whatever font is now current in the formatter.  A visual
+     *   preference change - e.g. changing the Command Font's point size in
+     *   Customize Theme while a "&gt;" prompt is up - reaches us through a
+     *   full reformat, which re-lays-out the (still-open) input tag with
+     *   the new font, but set_caret_size() is otherwise only ever called
+     *   once, when an input session first begins (get_input_begin()); the
+     *   caret's drawn size was left stale for the rest of that session
+     *   without this.  When there's an active, unfinished input tag, the
+     *   input tag is the last thing formatting reaches, so get_font() here
+     *   returns the same command font get_input_begin()'s one-shot call
+     *   would have used; for a window with no input in progress, this just
+     *   tracks the current body font, which is harmless since a
+     *   non-input window's caret is never actually shown
+     *   (show_caret()/caret_enabled_).
+     */
+    CHtmlSysFont *font = formatter_->get_font();
+    if (font != 0)
+        set_caret_size(font);
+
     /* figure the new caret position */
     update_caret_pos(FALSE, FALSE);
 }
@@ -5815,16 +5836,8 @@ long CHtmlSysWin_win32::get_disp_height()
  */
 long CHtmlSysWin_win32::get_pix_per_inch()
 {
-    HDC deskdc;
-    long ret;
-
-    /* get the system horizontal pixels per inch for the desktop window */
-    deskdc = GetDC(GetDesktopWindow());
-    ret = GetDeviceCaps(deskdc, LOGPIXELSX);
-    ReleaseDC(GetDesktopWindow(), deskdc);
-
-    /* return the value we got from the system */
-    return ret;
+    /* same GLFW content-scale-based DPI query CTadsFont uses */
+    return (long)CTadsFont::get_screen_dpi();
 }
 
 /*

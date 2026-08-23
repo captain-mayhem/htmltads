@@ -21,6 +21,8 @@ Modified
 */
 
 #include <Windows.h>
+#include <memory.h>
+#include <imgui/imgui.h>
 #ifndef TADSHTML_H
 #include "tadshtml.h"
 #endif
@@ -34,26 +36,23 @@ Modified
 
 /* ------------------------------------------------------------------------ */
 /*
- *   Font implementation 
+ *   Font implementation
  */
 
 CHtmlSysFont_win32::CHtmlSysFont_win32(const CTadsLOGFONT *lf)
     : CTadsFont(lf)
 {
-    TEXTMETRIC tm;
+    ImFontBaked *baked = get_baked();
 
-    /* get my metrics */
-    get_win_font_metrics(&tm);
-
-    /* 
-     *   if the FIXED_PITCH flag is set, the font is variable pitch (yes,
-     *   someone at MS defined this name to be the opposite of its apparent
-     *   meaning) 
+    /*
+     *   A font is fixed-pitch (monospaced) if every glyph has the same
+     *   advance width; comparing two glyphs that differ widely in a
+     *   proportional font ('i' vs 'M') is enough to tell.
      */
-    is_fixed_pitch_ = !(tm.tmPitchAndFamily & TMPF_FIXED_PITCH);
+    is_fixed_pitch_ = (baked->GetCharAdvance('i') == baked->GetCharAdvance('M'));
 
     /* remember the 'em' size as the ascender height of the font */
-    em_size_ = tm.tmAscent;
+    em_size_ = (int)baked->Ascent;
 }
 
 CHtmlSysFont_win32::~CHtmlSysFont_win32()
@@ -62,34 +61,93 @@ CHtmlSysFont_win32::~CHtmlSysFont_win32()
 
 void CHtmlSysFont_win32::get_font_metrics(CHtmlFontMetrics *metrics)
 {
-    TEXTMETRIC tm;
+    ImFontBaked *baked = get_baked();
 
-    /* get my metrics */
-    get_win_font_metrics(&tm);
-    
     /* return the required information */
-    metrics->ascender_height = tm.tmAscent;
-    metrics->descender_height = tm.tmDescent;
-    metrics->total_height = tm.tmHeight;
+    metrics->ascender_height = (int)baked->Ascent;
+    metrics->descender_height = (int)-baked->Descent;
+    metrics->total_height = (int)(baked->Ascent - baked->Descent);
 }
 
 /*
- *   Get my Windows font metrics 
+ *   Get my FreeType-baked glyph metrics, replacing the old
+ *   GetDC/SelectObject/GetTextMetrics GDI query - FreeType already
+ *   computed the same ascent/descent/advance data while loading this
+ *   font for rendering (see CTadsFont's constructor), so there's no need
+ *   to ask GDI for it again.  Falls back to the atlas's default font when
+ *   this font has no loaded ImFont (see CTadsFont::select()'s matching
+ *   fallback and the comment there) so metrics stay consistent with what
+ *   actually gets rendered, and callers never have to handle a null
+ *   result.
  */
-void CHtmlSysFont_win32::get_win_font_metrics(TEXTMETRIC *tm)
+ImFontBaked *CHtmlSysFont_win32::get_baked()
 {
-    HDC dc;
-    HGDIOBJ oldfont;
+    ImFont *font = (m_font != nullptr) ? m_font : ImGui::GetIO().Fonts->Fonts[0];
+    return font->GetFontBaked(-logfont_.lf.lfHeight);
+}
 
-    /* select the font into the display */
-    dc = GetDC(GetDesktopWindow());
-    oldfont = (HFONT)SelectObject(dc, handle_);
 
-    /* get the metrics for the font */
-    GetTextMetrics(dc, tm);
+/* ------------------------------------------------------------------------ */
+/*
+ *   Win32 implementation of the os_font_family_is_present() platform hook
+ *   declared in tadsfont.h.  A future non-Windows port supplies its own
+ *   implementation of this same function (e.g. via fontconfig or
+ *   CoreText) in its own platform file; CTadsFont::font_is_present()
+ *   (tadsfont.cpp) is the OS-agnostic entry point everything else calls.
+ */
 
-    /* done with the font and the desktop device context */
-    SelectObject(dc, oldfont);
-    ReleaseDC(GetDesktopWindow(), dc);
+namespace {
+
+class enum_proc_ctx_t
+{
+public:
+    enum_proc_ctx_t() { count = 0; }
+
+    /* count of number of fonts of the family that were enumerated */
+    int count;
+};
+
+int CALLBACK font_enum_proc(ENUMLOGFONTEX *, NEWTEXTMETRIC *,
+                             DWORD, LPARAM lpar)
+{
+    enum_proc_ctx_t *ctx = (enum_proc_ctx_t *)lpar;
+
+    /* increase the count of fonts found */
+    ctx->count++;
+
+    /* return non-zero to continue enumeration */
+    return 1;
+}
+
+} // namespace
+
+int os_font_family_is_present(const char *fontname, size_t len)
+{
+    HDC deskdc;
+    enum_proc_ctx_t enum_proc_ctx;
+    LOGFONT lf;
+
+    /* make a null-terminated version of the font name */
+    if (len > sizeof(lf.lfFaceName) - 1)
+        len = sizeof(lf.lfFaceName) - 1;
+    memcpy(lf.lfFaceName, fontname, len);
+    lf.lfFaceName[len] = '\0';
+
+    /* get the desktop window device context */
+    deskdc = GetDC(GetDesktopWindow());
+
+    /* set up the LOGFONT to describe the font families were interested in */
+    lf.lfCharSet = DEFAULT_CHARSET;
+    lf.lfPitchAndFamily = 0;
+
+    /* enumerate fonts matching the given name */
+    EnumFontFamiliesEx(deskdc, &lf, (FONTENUMPROC)font_enum_proc,
+                       (LPARAM)&enum_proc_ctx, 0);
+
+    /* done with the desktop dc */
+    ReleaseDC(GetDesktopWindow(), deskdc);
+
+    /* if we enumerated any fonts, this face name exists */
+    return enum_proc_ctx.count != 0;
 }
 

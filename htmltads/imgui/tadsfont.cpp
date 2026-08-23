@@ -24,6 +24,8 @@ Modified
 #include <stdlib.h>
 #include <stdio.h>
 #include <memory.h>
+#include <GLFW/glfw3.h>
+#include <imgui/imgui_impl_glfw.h>
 #include <imgui/misc/freetype/imgui_freetype.h>
 
 #ifndef TADSFONT_H
@@ -37,29 +39,47 @@ CTadsFont::CTadsFont(const CTadsLOGFONT *logfont)
 {
     /* store a canonical copy of the LOGFONT for later comparison */
     copy_canonical_logfont(&logfont_, logfont);
-    
+
     /* create the system font */
     handle_ = CreateFontIndirect(&logfont->lf);
+    m_font = nullptr;
 
-    /* Get the font data as blob and put it into imgui */
+    /*
+     *   Extract the raw font file bytes for the system font we just
+     *   created, so FreeType can rasterize it.  There's no FreeType (or
+     *   other OS-agnostic) equivalent for resolving a font *name* to its
+     *   underlying file data - GDI's font-matching is what finds the
+     *   right font file here, via the desktop DC's currently selected
+     *   font.
+     */
     ImGuiIO& io = ImGui::GetIO();
-    logfont->lf.lfFaceName;
     HDC deskdc = GetDC(GetDesktopWindow());
     SelectObject(deskdc, handle_);
-    auto pixperinch = GetDeviceCaps(deskdc, LOGPIXELSY);
-    float ptsize = -logfont->lf.lfHeight * 72 / (float)pixperinch;
 
-    const size_t size = ::GetFontData(deskdc, 0, 0, NULL, 0);
-    char* buffer = (char*)ImGui::MemAlloc(size);
-    if (GetFontData(deskdc, 0, 0, buffer, size) == size) {
-        ImFontConfig font_cfg;
-        strncpy(font_cfg.Name, logfont->lf.lfFaceName, 40);
-        font_cfg.FontLoaderFlags = ImGuiFreeTypeLoaderFlags_Bitmap;
-        m_font = io.Fonts->AddFontFromMemoryTTF(buffer, size, -logfont->lf.lfHeight, &font_cfg, 0);
+    const DWORD size = ::GetFontData(deskdc, 0, 0, NULL, 0);
+    if (size != GDI_ERROR) {
+        char* buffer = (char*)ImGui::MemAlloc(size);
+        if (GetFontData(deskdc, 0, 0, buffer, size) == size) {
+            ImFontConfig font_cfg;
+            strncpy(font_cfg.Name, logfont->lf.lfFaceName, 40);
+            font_cfg.FontLoaderFlags = ImGuiFreeTypeLoaderFlags_Bitmap;
+            m_font = io.Fonts->AddFontFromMemoryTTF(buffer, (int)size, -logfont->lf.lfHeight, &font_cfg, 0);
+        }
+        else {
+            ImGui::MemFree(buffer);
+        }
     }
-    else {
-        ImGui::MemFree(buffer);
-    }
+    /*
+     *   else: this font has no scalable outline data for GetFontData() to
+     *   extract - notably the "System" pseudo-font (a legacy bitmap/raster
+     *   font, not a real TrueType/OpenType face), which is exactly what
+     *   CreateFontIndirect() selects for the literal face name "System"
+     *   (e.g. from the Customize Theme dialog's font dropdown).  Leave
+     *   m_font null rather than feeding GDI_ERROR's bit pattern through as
+     *   a bogus size - select()'s ImGui::PushFont(nullptr) is a documented
+     *   no-op that keeps whatever font is already active, so this just
+     *   falls back gracefully instead of asserting/crashing.
+     */
     ReleaseDC(GetDesktopWindow(), deskdc);
 }
 
@@ -79,11 +99,25 @@ CTadsFont::~CTadsFont()
 
 /*
  *   select the font into a device context, returning the previously
- *   selected font's handle 
+ *   selected font's handle
  */
 HGDIOBJ CTadsFont::select(HDC dc)
 {
-    ImGui::PushFont(m_font);
+    /*
+     *   If this font has no loaded ImFont (its underlying system font -
+     *   e.g. the "System" pseudo-font - had no scalable outline data for
+     *   FreeType to use; see the constructor), fall back to the atlas's
+     *   default font rather than pushing null.  ImGui::PushFont(nullptr)
+     *   doesn't mean "use the default font" - it means "keep whatever
+     *   font is currently on the context's font stack," which can itself
+     *   still be null this early (e.g. during the very first HTML layout
+     *   pass at startup, before any ImGui::NewFrame() has pushed
+     *   anything), and it asserts rather than tolerating that.
+     *   io.Fonts->Fonts[0] is always valid once past htmlgui.cpp's
+     *   do_create(), which calls AddFontDefault() immediately after
+     *   creating the ImGui context, long before any CTadsFont exists.
+     */
+    ImGui::PushFont(m_font != nullptr ? m_font : ImGui::GetIO().Fonts->Fonts[0]);
     return SelectObject(dc, handle_);
 }
 
@@ -97,44 +131,39 @@ void CTadsFont::unselect(HDC dc, HGDIOBJ oldfont)
 
 
 /*
- *   Calculate a setting for LOGFONT.lfHeight, given a point size 
+ *   Get the screen's logical DPI.  See the declaration in tadsfont.h for
+ *   why 96 is the right baseline here: it's the same convention
+ *   CTadsSyswin::syswin_create_system_window() already uses
+ *   (ImGui_ImplGlfw_GetContentScaleForMonitor() returns 1.0 at "100%"
+ *   scaling, which GDI would have reported as 96 DPI).
+ */
+float CTadsFont::get_screen_dpi()
+{
+    return 96.0f * ImGui_ImplGlfw_GetContentScaleForMonitor(glfwGetPrimaryMonitor());
+}
+
+/*
+ *   Calculate a setting for LOGFONT.lfHeight, given a point size
  */
 long CTadsFont::calc_lfHeight(int pointsize)
 {
-    HDC deskdc;
-    long sz;
-    long pixperinch;
-    
-    /* get the system vertical pixels per inch for the desktop window */
-    deskdc = GetDC(GetDesktopWindow());
-    pixperinch = GetDeviceCaps(deskdc, LOGPIXELSY);
-    ReleaseDC(GetDesktopWindow(), deskdc);
-
     /* one inch is 72 points - calculate how many pixels that is */
-    sz = (pointsize * pixperinch)/72;
+    long sz = (long)(pointsize * get_screen_dpi()) / 72;
 
     /* return a negative value to tell Windows to use character size */
     return -sz;
 }
 
 /*
- *   Calculate a point size for a given pixel height 
+ *   Calculate a point size for a given pixel height
  */
 int CTadsFont::calc_pointsize(int pix_height)
 {
-    HDC deskdc;
-    long pixperinch;
-
-    /* get the system vertical pixels per inch for the desktop window */
-    deskdc = GetDC(GetDesktopWindow());
-    pixperinch = GetDeviceCaps(deskdc, LOGPIXELSY);
-    ReleaseDC(GetDesktopWindow(), deskdc);
-
-    /* 
+    /*
      *   there are 72 points in an inch, so calculate our pixel height in
-     *   inches and multiply the result by 72 
+     *   inches and multiply the result by 72
      */
-    return (int)(((long)pix_height * 72L) / pixperinch);
+    return (int)(((long)pix_height * 72L) / (long)get_screen_dpi());
 }
 
 /*
@@ -155,60 +184,14 @@ int CTadsFont::matches(const CTadsLOGFONT *lf)
 }
 
 /*
- *   Enumeration procedure for font_is_present 
- */
-class enum_proc_ctx_t
-{
-public:
-    enum_proc_ctx_t() { count = 0; }
-    
-    /* count of number of fonts of the family that were enumerated */
-    int count;
-};
-
-static int CALLBACK font_enum_proc(ENUMLOGFONTEX *, NEWTEXTMETRIC *,
-                                   DWORD, LPARAM lpar)
-{
-    enum_proc_ctx_t *ctx = (enum_proc_ctx_t *)lpar;
-
-    /* increase the count of fonts found */
-    ctx->count++;
-
-    /* return non-zero to continue enumeration */
-    return 1;
-}
-   
-/*
- *   Determine if a font is present on the system. 
+ *   Determine if a font is present on the system.  The actual system
+ *   font-enumeration work is OS-specific - see the os_font_family_is_present()
+ *   declaration in tadsfont.h for why - so this just forwards to whichever
+ *   platform backend is linked in.
  */
 int CTadsFont::font_is_present(const char *fontname, size_t len)
 {
-    HDC deskdc;
-    enum_proc_ctx_t enum_proc_ctx;
-    LOGFONT lf;
-
-    /* make a null-terminated version of the font name */
-    if (len > sizeof(lf.lfFaceName) - 1)
-        len = sizeof(lf.lfFaceName) - 1;
-    memcpy(lf.lfFaceName, fontname, len);
-    lf.lfFaceName[len] = '\0';
-
-    /* get the desktop window device context */
-    deskdc = GetDC(GetDesktopWindow());
-
-    /* set up the LOGFONT to describe the font families were interested in */
-    lf.lfCharSet = DEFAULT_CHARSET;
-    lf.lfPitchAndFamily = 0;
-
-    /* enumerate fonts matching the given name */
-    EnumFontFamiliesEx(deskdc, &lf, (FONTENUMPROC)font_enum_proc,
-                       (LPARAM)&enum_proc_ctx, 0);
-
-    /* done with the desktop dc */
-    ReleaseDC(GetDesktopWindow(), deskdc);
-
-    /* if we enumerated any fonts, this face name exists */
-    return enum_proc_ctx.count != 0;
+    return os_font_family_is_present(fontname, len);
 }
 
 /*

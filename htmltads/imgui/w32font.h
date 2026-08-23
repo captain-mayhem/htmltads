@@ -61,8 +61,8 @@ public:
     }
 
 private:
-    /* get my Windows-specific metrics */
-    void get_win_font_metrics(TEXTMETRIC *tm);
+    /* get my FreeType-baked glyph metrics at my configured pixel size */
+    struct ImFontBaked *get_baked();
 
     /* am I a fixed-pitch (monospaced) font? */
     int is_fixed_pitch_;

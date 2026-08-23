@@ -24,6 +24,19 @@ Modified
 #include <windows.h>
 
 /*
+ *   Platform hook: determine whether a font family with the given name is
+ *   installed on the system.  This is the one piece of font handling that
+ *   can't be done through FreeType/ImGui - system font enumeration is
+ *   inherently OS-specific (GDI on Windows, fontconfig on Linux, CoreText
+ *   on macOS) - so it's factored out behind this narrow interface instead
+ *   of being inlined into CTadsFont.  One implementation is expected per
+ *   OS/GUI backend; today only the Win32 one exists (w32font.cpp, backed
+ *   by EnumFontFamiliesEx). CTadsFont::font_is_present() is the stable,
+ *   OS-agnostic entry point callers should use - it just forwards here.
+ */
+int os_font_family_is_present(const char *fontname, size_t len);
+
+/*
  *   Extended logical font.  We include attributes that we use for rendering,
  *   such as color and superscript, that aren't in a standard windows LOGFONT
  *   structure.  This ensures that we create a unique system font handle for
@@ -84,6 +97,15 @@ public:
 
     /* calculate the point size for a given pixel height */
     static int calc_pointsize(int pix_height);
+
+    /*
+     *   Get the screen's logical DPI (pixels per inch), for converting
+     *   between point sizes and pixel sizes.  This is the GLFW/ImGui
+     *   equivalent of querying LOGPIXELSY from the desktop DC: ImGui
+     *   renders at a fixed baseline of 96 DPI ("100% scaling"), with the
+     *   primary monitor's content scale factor accounting for the rest.
+     */
+    static float get_screen_dpi();
 
     /* determine if a font is present on the system */
     static int font_is_present(const char *fontname, size_t namelen);

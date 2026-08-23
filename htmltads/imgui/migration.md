@@ -1232,13 +1232,152 @@ storage swap - confirming `win_get_scroll_info()`/`win_set_scroll_info()`'s clam
 API's behavior closely enough that the thumb math from §4 (which depends on exact `SCROLLINFO`
 semantics) still holds.
 
-### 3.5 Fonts
-Real progress here: `tadsfont.cpp` already uses `imgui/misc/freetype/imgui_freetype.h` for glyph
-rendering (cross-platform). However it still has ~9 references to GDI (`HDC` etc.), likely leftover
-metrics/enumeration code (e.g. font-family enumeration, `GetTextMetrics`) that hasn't been replaced by
-a FreeType/OS-agnostic equivalent yet, plus `w32font.cpp`/`w32font.h` (2 refs) which may be entirely
-dead now that `tadsfont.cpp` exists — worth checking if `w32font.cpp` is still called from anywhere
-before deleting.
+### 3.5 Fonts — GDI metrics/DPI queries replaced, font-loading and enumeration deliberately left
+`tadsfont.cpp` already used `imgui/misc/freetype/imgui_freetype.h` for glyph rendering (cross-platform).
+Its remaining ~9 GDI references turned out to split into three different buckets, only one of which was
+actually dead:
+
+- **Genuinely dead code, removed**: the constructor computed a `pixperinch`/`ptsize` pair via
+  `GetDeviceCaps(deskdc, LOGPIXELSY)` that was never used for anything (the resulting `ptsize` was
+  computed and immediately discarded), plus an orphan `logfont->lf.lfFaceName;` expression-statement
+  that did nothing at all. Also fixed while touching this constructor: `m_font` was left uninitialized
+  when `GetFontData()` failed, so the destructor's `if (m_font != nullptr ...)` check could read garbage
+  — now explicitly initialized to `nullptr` up front.
+- **DPI queries, replaced with the GLFW/ImGui equivalent already used elsewhere in the port**:
+  `calc_lfHeight()`/`calc_pointsize()` used `GetDC(GetDesktopWindow())` +
+  `GetDeviceCaps(..., LOGPIXELSY)` to convert between point sizes and pixel sizes. Replaced with a new
+  `CTadsFont::get_screen_dpi()` (`tadsfont.h`/`.cpp`) that returns `96.0f *
+  ImGui_ImplGlfw_GetContentScaleForMonitor(glfwGetPrimaryMonitor())` — the same content-scale API
+  `CTadsSyswin::syswin_create_system_window()` (tadswin.cpp:3558) already uses to size new windows for
+  the current monitor's DPI, so this isn't a new pattern for the codebase. `CHtmlSysWin_win32::
+  get_pix_per_inch()` (`htmlgui.cpp`) had the exact same `GetDC`/`GetDeviceCaps(LOGPIXELSX)`/`ReleaseDC`
+  pattern duplicated for the same purpose (feeding the wider HTML layout engine's own point↔pixel math,
+  not just this file) — folded into a call to the same `get_screen_dpi()` helper rather than leaving a
+  second, inconsistent DPI source in the tree.
+- **Left as GDI, deliberately — no FreeType/OS-agnostic equivalent exists**: the constructor's
+  `CreateFontIndirect()` + `GetFontData()` trick, which resolves a font *name* to its actual TTF/OTF
+  file bytes (by asking GDI to font-match the name, selecting the result into a DC, then reading the
+  raw font data back out) so FreeType has something to parse. FreeType itself has no system font
+  matching/lookup capability — it only rasterizes bytes you hand it — so this is inherently an
+  OS-integration concern, not a rendering one. This is fine for now since `guit3` is Windows-only
+  (`CMakeLists.txt`'s `if (NOT WIN32) return()` gate), but is one of the pieces that will need a real
+  per-OS design (fontconfig on Linux, CoreText on macOS) whenever that gate comes down — see the
+  `font_is_present()` note below, which is the same underlying problem.
+
+`w32font.cpp`/`w32font.h` turned out **not** to be dead code — the doc's earlier "worth checking before
+deleting" note was answered: `CHtmlSysFont_win32` (`w32font.h:35`) is the concrete font class used
+throughout `htmlgui.cpp` for actual HTML text rendering, and it `: public CTadsFont`, so it's very much
+alive. Its own GDI use (`get_win_font_metrics()`, a `GetDC`/`SelectObject`/`GetTextMetrics`/`ReleaseDC`
+call for ascent/descent/height and the fixed-pitch flag) was real but redundant: FreeType already
+computes the same metrics while loading the font for rendering (in `CTadsFont`'s constructor, via
+`AddFontFromMemoryTTF`), so asking GDI for them again via a second, separate query was unnecessary work
+duplicating data already sitting in the `ImFont`. Replaced with a new private `get_baked()` helper
+(`w32font.h`/`.cpp`) that calls `m_font->GetFontBaked(-logfont_.lf.lfHeight)` (the same pixel size the
+font was loaded at) and reads `ImFontBaked::Ascent`/`Descent` directly — `descender_height` is
+`-Descent` since FreeType's `Descent` is negative (distance below the baseline) while the old
+`TEXTMETRIC::tmDescent` this replaces is a positive magnitude. Fixed-pitch detection (`TMPF_FIXED_PITCH`
+in the old code) has no ImGui equivalent, so it's now inferred the standard way: a font is fixed-pitch
+if two glyphs of very different width in a proportional font (`'i'` vs `'M'`) advance by the same
+amount, via `ImFontBaked::GetCharAdvance()`.
+
+Verified by building `guit3` clean and launching it against `tests/ditch3.t3` (recipe in §6): the title
+banner (large bold serif), body text, and hyperlinks all render with correct sizing and baseline
+alignment — no vertical drift or clipping that would indicate an ascent/descent regression from the
+`get_baked()` swap — and the window opens at the correct DPI-scaled size, confirming `get_screen_dpi()`
+is a working stand-in for the old `GetDeviceCaps` calls.
+
+**Two follow-up crashes/bugs found via manual testing after the above landed, both fixed.**
+
+1. **Crash: picking "System" as a font in Customize Theme asserted in `AddFontFromMemoryTTF` with
+   `font_data_size == -1`.** Root cause: `GetFontData()` returns `GDI_ERROR` (`0xFFFFFFFF`) when the
+   selected font has no scalable outline data to extract - exactly what happens for the literal face
+   name `"System"`, a legacy bitmap/raster pseudo-font, not a real TrueType/OpenType face. The
+   constructor stored that `GDI_ERROR` into a `size_t` (silently becoming a huge ~4GB value on 64-bit
+   rather than staying recognizable as an error), asked `ImGui::MemAlloc()` for that much memory, then a
+   second `GetFontData()` call *also* failed and coincidentally compared equal to the first failure - so
+   the "success" branch ran anyway, handing the corrupted size through to `AddFontFromMemoryTTF`
+   (truncated to `int`, landing on exactly `-1`). **Fix** (`tadsfont.cpp`,
+   `CTadsFont::CTadsFont`): check `size != GDI_ERROR` right after the first probe call and skip loading
+   entirely on failure, leaving `m_font` as `nullptr`.
+2. **Second crash: with a `nullptr` `m_font` now possible (from fix #1) and persisted via a saved theme,
+   the app crashed at startup instead**, in `ImGui::PushFont()` itself. This was a wrong assumption in
+   fix #1: `ImGui::PushFont(nullptr)` does not mean "use the default font" - it means "keep whatever font
+   is currently active on the context's font stack" (`g.Font`), and asserts if *that's* also null.
+   `g.Font` is genuinely still null during the very first HTML layout/formatting pass at startup, which
+   runs before any `ImGui::NewFrame()` has ever pushed a font onto the stack - exactly the code path a
+   persisted "System" choice hits on every subsequent launch. **Fix**: `CTadsFont::select()`
+   (`tadsfont.cpp`) now falls back to `ImGui::GetIO().Fonts->Fonts[0]` - the default font added once in
+   `htmlgui.cpp`'s `do_create()` via `AddFontDefault()`, immediately after creating the ImGui context and
+   long before any `CTadsFont` exists, so it's always valid regardless of frame timing - instead of
+   pushing `nullptr`. `CHtmlSysFont_win32::get_baked()` (`w32font.cpp`) got the same fallback, so a font
+   that can't load its real system data still reports metrics consistent with what's actually rendered
+   (the default font's metrics) rather than degenerate zero-height text, and its two callers
+   (the constructor and `get_font_metrics()`) no longer need to special-case a null result.
+
+Both verified by rebuilding clean; the second one specifically by the user confirming "System" no longer
+crashes at startup after being saved as a theme's Command Font.
+
+**Bug: the blinking caret didn't rescale or reposition when the Command Font's size changed via
+Customize Theme mid-session — fixed.** The caret's rendered *position* (`caret_pos_`, via
+`update_caret_pos()`) was already being refreshed on every reformat via `adjust_for_reformat()`
+(`htmlgui.cpp`), but its rendered *size* (`caret_ht_`/`caret_ascent_`, used by `draw_caret_imgui()` to
+size the drawn caret rectangle) is set only by `set_caret_size()`, which turned out to be called from
+exactly one place that mattered here: once, when an input session first begins
+(`CHtmlSysWin_win32_Input::get_input_begin()`). Changing the Command Font's point size while a prompt was
+already up posted a reformat (`schedule_reformat()`/`HTMLM_REFORMAT`) that correctly re-laid-out the
+still-open input tag with the new font/size, but nothing told the caret to re-measure itself against
+that new font, so it kept drawing at the old size anchored to a position computed from the new layout -
+which reads as "wrong size AND floating in the wrong place relative to the text" even though the
+position math itself was fine. **Fix**: `CHtmlSysWin_win32::adjust_for_reformat()` (`htmlgui.cpp`) now
+also calls `set_caret_size(formatter_->get_font())` (guarded against a null font) right before
+recomputing the caret position. This is safe for every window type, not just the active input window:
+when there's an unfinished input tag, it's the last thing formatting reaches, so `formatter_->get_font()`
+returns the same command font the original one-shot call in `get_input_begin()` would have used; for a
+window with no input in progress, this just tracks the current body font, which has no visible effect
+since a non-input window's caret is never actually shown (`show_caret()` gates on `caret_enabled_`, which
+only input windows set). Verified by rebuilding clean; not re-verified visually in-session (see the
+"automated UI testing abandoned" note below).
+
+**Automated UI-driven testing was abandoned partway through this work.** Screenshot-based verification
+(the recipe in §6) requires bringing the `guit3` window to the real OS foreground first. One attempt to
+do that with `SetForegroundWindow()` silently failed (a common OS restriction when the calling process
+isn't already foreground) without any error, and the subsequent `CopyFromScreen()` call captured whatever
+actually was in the foreground instead - which turned out to be an unrelated Outlook dialog showing the
+user's real email account list. That screenshot was deleted immediately and never shared anywhere, but a
+follow-up attempt at a more reliable focus-forcing technique (`AttachThreadInput` +
+`SetForegroundWindow`) got blocked outright by the user's antivirus software as "malicious script
+content" before it could even run - a known false-positive pattern for that particular Win32 API
+combination, not anything specific to this codebase. Given both the near-miss and the AV blocking, further
+fixes in this session were verified by code review and a clean rebuild only, with the user doing the
+actual in-app confirmation. **Worth solving properly before the next session needs visual verification**:
+either a more innocuous focus-forcing approach that doesn't trip AV heuristics (e.g. simulating a taskbar
+click via `SendInput` rather than direct `SetForegroundWindow`/`AttachThreadInput` API calls), or
+confirming the target window is truly focused (e.g. comparing `GetForegroundWindow()` against the known
+`hwnd` before ever calling `CopyFromScreen()`) so a focus failure aborts instead of silently screenshotting
+whatever else is on screen.
+
+**Font enumeration — factored out behind a platform hook, Windows-only implementation.**
+`CTadsFont::font_is_present()` (`tadsfont.cpp`) answers "is a font with this name installed?", used for
+two real things: choosing whether to render bullets in Wingdings (`htmlgui.cpp:293`) and resolving an
+HTML `font-face` fallback list (e.g. `"Arial, Helvetica, sans-serif"`) to the first name actually
+present on the system (`htmlgui.cpp:1020`). This is genuine system font *enumeration*, the same category
+of problem as the constructor's `GetFontData` trick above - FreeType has no system font lookup
+capability, so this is inherently an OS-integration concern - and it was scoped as a decision before
+touching it (`guit3` is Windows-only today, so the existing `EnumFontFamiliesEx()` code had no bug to
+fix). Chosen approach: introduce the interface now, with only the Windows backend behind it, rather than
+leaving the abstraction for whenever a second platform actually shows up.
+
+`os_font_family_is_present(const char *fontname, size_t len)` (declared in `tadsfont.h`) is the new
+platform hook - one implementation expected per OS/GUI backend. `CTadsFont::font_is_present()` is now a
+one-line forwarder to it, so every existing call site (`htmlgui.cpp`) is untouched. The
+`EnumFontFamiliesEx()`-based implementation itself moved out of `tadsfont.cpp` into `w32font.cpp` (the
+file that was already the Windows-specific companion to `tadsfont.cpp`'s more OS-neutral core) with no
+logic changes, just a rename and relocation; `font_enum_proc()`/`enum_proc_ctx_t` moved with it into an
+anonymous namespace (they're implementation details of this one backend, not shared). A future
+Linux/macOS port adds its own file (e.g. `fcfont.cpp` for fontconfig, `ctfont.cpp` for CoreText)
+implementing the same `os_font_family_is_present()` signature; per-platform file selection for that will
+live in `CMakeLists.txt`, at the same `if (NOT WIN32) return()` gate mentioned in §1 that currently
+blocks the whole target on non-Windows.
 
 ### 3.6 Images
 Also good progress: `tadsimg.cpp` uploads to a GL texture and renders with `ImGui::Image()`
