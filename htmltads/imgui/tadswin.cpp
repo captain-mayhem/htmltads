@@ -2674,8 +2674,9 @@ CTadsWinScroll::CTadsWinScroll(int has_vscroll, int has_hscroll)
     vscroll_ = 0;
     ext_hscroll_ = FALSE;
     ext_vscroll_ = FALSE;
-    graybox_ = 0;
-    sizebox_ = 0;
+    memset(&vscroll_info_, 0, sizeof(vscroll_info_));
+    memset(&hscroll_info_, 0, sizeof(hscroll_info_));
+    vscroll_info_.cbSize = hscroll_info_.cbSize = sizeof(SCROLLINFO);
     vscroll_vis_ = TRUE;
     hscroll_vis_ = TRUE;
 
@@ -2706,73 +2707,30 @@ CTadsWinScroll::~CTadsWinScroll()
  */
 void CTadsWinScroll::do_create()
 {
-    RECT rc;
-    int sbwid, sbht;
-
     /* inherit default */
     CTadsWin::do_create();
 
-    /* get my area */
-    GetClientRect(handle_, &rc);
-
-    /* get the scrollbar sizes */
-    sbwid = GetSystemMetrics(SM_CXVSCROLL);
-    sbht = GetSystemMetrics(SM_CYHSCROLL);
-
-    /* create the vertical scrollbar, if one was requested at construction */
+    /*
+     *   We used to create real child SCROLLBAR/STATIC controls here
+     *   (vscroll_/hscroll_, plus a sizebox_/graybox_ pair for the corner
+     *   gap) - see migration.md §3.4.  Like every other control nested
+     *   under our permanently-hidden handle_, they were created but never
+     *   actually painted or reachable by input (no message pump - see
+     *   "root cause: both windows open"); render_vscrollbar_imgui() is
+     *   what actually draws and drives the scrollbar now.  The sizebox/
+     *   graybox pair had no ImGui-native replacement (live resize is
+     *   still off - see render_vscrollbar_imgui()'s neighbor comments),
+     *   so it's just gone.
+     *
+     *   vscroll_/hscroll_ still need distinct non-null values: they're
+     *   used as opaque identifiers (do_scroll(), win_get_scroll_info(),
+     *   etc. compare a handle against them to tell the two apart), just
+     *   no longer as real window handles.
+     */
     if (has_vscroll_)
-    {
-        /* create the scrollbar */
-        vscroll_ = CreateWindow("SCROLLBAR", "",
-                                WS_CHILD | WS_VISIBLE
-                                | SBS_VERT | SBS_RIGHTALIGN,
-                                0, 0, rc.right, rc.bottom - sbht,
-                                handle_, 0,
-                                CTadsApp::get_app()->get_instance(), 0);
-
-        /* display it */
-        ShowWindow(vscroll_, SW_SHOW);
-    }
-
-    /* create the horizontal scrollbar, if one was requested */
+        vscroll_ = (HWND)this;
     if (has_hscroll_)
-    {
-        /* create the scrollbar */
-        hscroll_ = CreateWindow("SCROLLBAR", "",
-                                WS_CHILD | WS_VISIBLE
-                                | SBS_HORZ | SBS_BOTTOMALIGN,
-                                0, 0, rc.right - sbwid, rc.bottom,
-                                handle_, 0,
-                                CTadsApp::get_app()->get_instance(), 0);
-
-        /* display it */
-        ShowWindow(hscroll_, SW_SHOW);
-    }
-
-    /* create a sizebox control if required */
-    if (has_sizebox_)
-        init_sizebox();
-
-    /* create gray box for the bottom corner if both are present */
-    if (has_vscroll_ && has_hscroll_)
-    {
-        /* 
-         *   Create a gray box for the corner gap.  We create this even if
-         *   we have a size box, since in the maximized state we want to
-         *   hide the size box and show an insert gray box instead. 
-         */
-        graybox_ = CreateWindowEx(WS_EX_WINDOWEDGE, "STATIC", "", WS_CHILD,
-                                  rc.right - sbwid, rc.bottom - sbht,
-                                  rc.right, rc.bottom,
-                                  handle_, 0,
-                                  CTadsApp::get_app()->get_instance(), 0);
-    }
-
-    /* show the appropriate corner control */
-    if (sizebox_ != 0)
-        ShowWindow(sizebox_, SW_SHOW);
-    else if (graybox_ != 0)
-        ShowWindow(graybox_, SW_HIDE);
+        hscroll_ = (HWND)((char *)this + 1);
 
     /* adjust initial scrollbar positions */
     adjust_scrollbar_ranges();
@@ -2784,53 +2742,30 @@ void CTadsWinScroll::do_create()
  */
 void CTadsWinScroll::set_has_sizebox(int f)
 {
-    /* if the setting isn't changing, there's nothing to do */
-    if ((f != 0) == (has_sizebox_ != 0))
-        return;
-    
-    /* note the new setting */
-    has_sizebox_ = f;
-
-    /* create or delete the sizebox */
-    if (has_sizebox_ && sizebox_ == 0)
-    {
-        /* we need to create a sizebox */
-        init_sizebox();
-    }
-    else if (!has_sizebox_ && sizebox_ != 0)
-    {
-        /* we need to destroy the existing sizebox */
-        DestroyWindow(sizebox_);
-        sizebox_ = 0;
-    }
-
-    /* 
-     *   refigure the scrollbar positions so that we set up the sizebox in
-     *   the right place, or hide it, as appropriate 
+    /*
+     *   Just track the flag - we no longer back this with a real sizebox
+     *   control (see do_create()'s comment). There's no ImGui-native
+     *   size-grip yet to show/hide in its place; live resize of these
+     *   windows is still off regardless (see render_vscrollbar_imgui()'s
+     *   neighbor comments), so this is bookkeeping for future resize
+     *   support rather than something with a visible effect today.
      */
-    adjust_scrollbar_positions();
+    has_sizebox_ = (f != 0);
 }
 
 /*
- *   Initialize the sizebox 
- */
-void CTadsWinScroll::init_sizebox()
-{
-    /* if we already have a sizebox control, ignore this */
-    if (sizebox_ != 0)
-        return;
-
-    /* create the sizebox control */
-    sizebox_ = CreateWindow("SCROLLBAR", "",
-                            WS_CHILD | SBS_SIZEBOX | SBS_SIZEGRIP
-                            | SBS_SIZEBOXBOTTOMRIGHTALIGN,
-                            0, 0, 1, 1,
-                            handle_, 0,
-                            CTadsApp::get_app()->get_instance(), 0);
-}
-
-/*
- *   set external scrollbars 
+ *   set external scrollbars
+ *
+ *   Note: unlike our own vscroll_/hscroll_ (see do_create()), an "external"
+ *   scrollbar set here would be a real caller-owned HWND - but
+ *   win_get_scroll_info()/win_set_scroll_info() always read/write our own
+ *   internal vscroll_info_/hscroll_info_ regardless of what vscroll_/
+ *   hscroll_ point to, so this would silently ignore a real external
+ *   control's actual state.  Not a concern today: nothing in guit3 calls
+ *   this (confirmed by grepping the whole imgui/ tree), so ext_vscroll_/
+ *   ext_hscroll_ are always false in practice. Would need to route
+ *   win_get/set_scroll_info() through the real Win32 API for whichever
+ *   scrollbar is external if this is ever revived.
  */
 void CTadsWinScroll::set_ext_scrollbar(HWND ext_vscroll, HWND ext_hscroll)
 {
@@ -3034,7 +2969,7 @@ void CTadsWinScroll::do_scroll(int vert, HWND hwnd, int scroll_code,
     /* get the information on the scrollbar */
     info.cbSize = sizeof(info);
     info.fMask = SIF_ALL;
-    GetScrollInfo(hwnd, SB_CTL, &info);
+    win_get_scroll_info(hwnd, &info);
 
     /* presume the position won't change */
     newpos = info.nPos;
@@ -3114,13 +3049,13 @@ void CTadsWinScroll::do_scroll(int vert, HWND hwnd, int scroll_code,
         /* set the new position */
         info.nPos = newpos;
         info.fMask = SIF_ALL | SIF_DISABLENOSCROLL;
-        SetScrollInfo(hwnd, SB_CTL, &info, TRUE);
+        win_set_scroll_info(hwnd, &info);
 
         /*
          *   check the new position, which Windows will limit to the valid
          *   range set in the scrollbar 
          */
-        GetScrollInfo(hwnd, SB_CTL, &info);
+        win_get_scroll_info(hwnd, &info);
     }
     else
     {
@@ -3332,89 +3267,20 @@ void CTadsWinScroll::get_scroll_area(RECT *rc, int /*vertical*/) const
 }
 
 /*
- *   Adjust scrollbars to their proper positions 
+ *   Adjust scrollbars to their proper positions.
+ *
+ *   This used to MoveWindow()/ShowWindow() our real vscroll_/hscroll_/
+ *   sizebox_/graybox_ child controls into place. Now that none of those
+ *   are real windows any more (see do_create()'s comment), there's
+ *   nothing left to position here - render_vscrollbar_imgui() computes
+ *   its own on-screen track rect directly from get_scroll_area()/m_size
+ *   each frame, independent of this method. Kept as a no-op rather than
+ *   removed, since it's still called from several places (do_resize(),
+ *   do_create(), a visibility change in CHtmlSysWin_win32::
+ *   adjust_scrollbar_ranges()) that would otherwise all need updating.
  */
 void CTadsWinScroll::adjust_scrollbar_positions()
 {
-    RECT rc;
-    int sbwid;
-    int sbht;
-    int graybox_vis;
-    int sizebox_vis;
-
-    /* get the area of the window and the scrollbar metrics */
-    GetClientRect(handle_, &rc);
-    sbwid = GetSystemMetrics(SM_CXVSCROLL);
-    sbht = GetSystemMetrics(SM_CYHSCROLL);
-
-    /* 
-     *   If there's a sizebox control, figure out whether to show or hide
-     *   it.  Show the sizebox only if the window isn't maximized, and
-     *   both the horizontal and vertical scrollbars are visible. 
-     */
-    sizebox_vis = (sizebox_ != 0
-                   && !is_win_maximized()
-                   && hscroll_ != 0 && !ext_hscroll_ && hscroll_vis_
-                   && vscroll_ != 0 && !ext_vscroll_ && vscroll_vis_);
-
-    /* show or hide the sizebox according to what we've decided */
-    ShowWindow(sizebox_, sizebox_vis ? SW_SHOW : SW_HIDE);
-
-    /* figure the position of the vertical scrollbar */
-    if (vscroll_ != 0 && !ext_vscroll_)
-        MoveWindow(vscroll_, rc.right - sbwid, 0, sbwid,
-                   rc.bottom
-                   - (((hscroll_vis_ && hscroll_ != 0 && !ext_hscroll_)
-                       || sizebox_vis) ? sbht : 0),
-                   TRUE);
-
-    /* figure the position of the horizontal scrollbar */
-    if (hscroll_ != 0 && !ext_hscroll_)
-        MoveWindow(hscroll_, 0, rc.bottom - sbht,
-                   rc.right
-                   - (((vscroll_vis_ && vscroll_ != 0 && !ext_vscroll_)
-                       || sizebox_vis) ? sbwid : 0),
-                   sbht, TRUE);
-
-    /* 
-     *   Determine if the gray box will be visible.  For now, assume it'll
-     *   be visible if we have a corner gap.  If we also have a size box,
-     *   we won't show the gray box, but we'll figure that out
-     *   momentarily. 
-     */
-    graybox_vis = (hscroll_vis_ && vscroll_vis_
-                   && !ext_hscroll_ && !ext_vscroll_);
-    
-    /* move the size box, if we have one */
-    if (sizebox_ != 0)
-    {
-        /* 
-         *   If we have a sizing box, disable it on maximize and enable it
-         *   on restore.  If we're inside a parent window, use the
-         *   parent's current mode rather than our own.  
-         */
-        if (has_sizebox_)
-        {
-            /* move the box to the appropriate new location */
-            MoveWindow(sizebox_, rc.right - sbwid, rc.bottom - sbht,
-                       sbwid, sbht, TRUE);
-
-            /* hide the gray box if we're showing the size box */
-            if (sizebox_vis)
-                graybox_vis = FALSE;
-        }
-    }
-
-    /* move the gray box if necessary */
-    if (graybox_ != 0)
-    {
-        /* move the box to the appropriate new location */
-        MoveWindow(graybox_, rc.right - sbwid, rc.bottom - sbht,
-                   sbwid, sbht, TRUE);
-
-        /* show or hide it as appropriate */
-        ShowWindow(graybox_, graybox_vis ? SW_SHOW : SW_HIDE);
-    }
 }
 
 /*
@@ -3447,11 +3313,11 @@ void CTadsWinScroll::do_resize(int mode, int, int)
  */
 HBRUSH CTadsWinScroll::do_ctlcolor(UINT msg, HDC hdc, HWND hwnd)
 {
-    /* if it's the little box at the scrollbar junction, paint gray */
-    if (!has_sizebox_ && msg == WM_CTLCOLORSTATIC && hwnd == graybox_)
-        return (HBRUSH)GetStockObject(LTGRAY_BRUSH);
-
-    /* use the default for anything else */
+    /*
+     *   Used to paint our (now-removed, see do_create()) graybox_ control
+     *   gray; that control is gone, and this message never actually
+     *   reached it anyway (no message pump - see migration.md §2).
+     */
     return CTadsWin::do_ctlcolor(msg, hdc, hwnd);
 }
 
@@ -3505,8 +3371,7 @@ int CTadsWinScroll::maybe_drag_scroll(long x, long y,
     get_scroll_area(&vrc, TRUE);
     get_scroll_area(&hrc, FALSE);
     if (hscroll_ != 0
-        && IsWindowVisible(hscroll_)
-        && IsWindowEnabled(hscroll_))
+        && hscroll_vis_)
     {
         /* note the old horizontal scroll position */
         get_scroll_info(FALSE, &oldinfo);
@@ -3523,8 +3388,7 @@ int CTadsWinScroll::maybe_drag_scroll(long x, long y,
     }
 
     if (vscroll_ != 0
-        && IsWindowVisible(vscroll_)
-        && IsWindowEnabled(vscroll_))
+        && vscroll_vis_)
     {
         /* note the old horizontal scroll position */
         get_scroll_info(TRUE, &oldinfo);

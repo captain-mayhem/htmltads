@@ -33,7 +33,9 @@ character-encoding fixes, image rendering via GL textures, text selection, mouse
 highlighting. This is genuinely useful progress, and now the application chrome has its first
 ImGui-native pieces too: the menu bar, toolbar, and status bar (§3.1, §3.2) are all done, and so are
 all five dialogs - Options, Customize Theme, the file open/save dialog, the Find dialog, and the folder
-picker (§3.3). Window creation itself and the remaining chrome (banners/scrollbars) are still 100% Win32.
+picker (§3.3). The banner border, scrollbars, size-grip, and tooltip are no longer real child `HWND`s
+either (§3.4). Window creation itself - every window's own `handle_`, top-level or not - is still 100%
+Win32, just permanently hidden.
 
 ## 2. Root cause: "both windows open"
 
@@ -1140,16 +1142,95 @@ same as the native Win32 common dialog did. `get_game_name_cb()`'s call site is 
 parameter, so it keeps the old clear-and-draw-only behavior, which is still correct there).
 Rebuilt `guit3` clean after the change.
 
-### 3.4 Child "windows" (banners, scrollbars, tooltips, size-grip)
-`CTadsWin` treats banners, scrollbars, and the resize grip as real child `HWND`s
+### 3.4 Child "windows" (banners, scrollbars, tooltips, size-grip) - the extra child HWNDs are gone
+`CTadsWin` used to treat banners, scrollbars, and the resize grip as real child `HWND`s
 (`tadswin.cpp:2535,2550,2573,2633`, `htmlgui.cpp:3736` for banners, `htmlgui.cpp:5360` for tooltips).
-These all need an HWND-owning parent, which is exactly what's forcing the Win32 top-level frame in §2
-to keep existing.
 
-**Plan**: convert scrollbars and the size-grip to `ImGui::SliderFloat`-style custom-drawn widgets (or
-use `ImGui`'s built-in child-window scrollbars where the layout allows it), and banners to nested ImGui
-child regions instead of nested `HWND`s. This is a prerequisite for actually deleting the stray Win32
-top-level window rather than just hiding it.
+**Important scope note**: this section is about the *extra* child controls nested one level below each
+window's own `handle_` - a banner's border, the vscroll_/hscroll_/sizebox_/graybox_ scrollbar controls,
+and the tooltip common control. It does **not** touch `handle_` itself: every `CTadsWin` (banner or not,
+top-level or child) still gets a real, permanently-hidden `HWND` from `CTadsWin::create_system_window()`
+(see §2) - that's the deeper, much larger "real fix" §2 describes (eliminating
+`syswin_create_system_window(DWORD ex_style, ...)` for every window in the tree, not just the four control
+types below), and is still future work.
+
+All four of these extra HWNDs turned out to be either purely decorative (never painted - same
+no-message-pump reason as everything else built on the hidden HWND tree, see §2) or, for the scrollbars,
+decorative *plus* incidentally used as external `SetScrollInfo`/`GetScrollInfo` storage. None of them
+needed a real window any more:
+
+- **Banner border** (`border_handle_`, a `"TADS.BannerBorder"`-class `WS_CHILD` window,
+  `CHtmlSysWin_win32::set_is_banner_win()`). `calc_banner_layout()` already computed a correct
+  `border_rc` (left, top, width, height, in the banner's parent-relative coordinate space) every time
+  layout changed, and used to feed it into a `MoveWindow(border_handle_, ...)` call that could never
+  paint anything. Replaced with `draw_banner_border_imgui()` (`htmlgui.cpp`, declared in `htmlgui.h` next
+  to `draw_caret_imgui()`), called once per frame from `do_render_content_begin()`: it converts
+  `border_rc_` (now just stored, not moved-to) to absolute screen coordinates via
+  `get_parent()->get_screen_pos()` - *not* `ImGui::GetWindowPos()`/this window's own position, since
+  `border_rc_` lives in the *parent's* coordinate space, not this window's own (unlike
+  `draw_caret_imgui()`, which draws inside its own content window) - and fills it via
+  `ImGui::GetForegroundDrawList()->AddRectFilled()` with `IM_COL32(64,64,64,255)`, approximating the old
+  window's `COLOR_3DDKSHADOW` fill. The now-orphaned `"TADS.BannerBorder"` class registration and its
+  `border_proc()` window procedure (superclassed off `STATIC`) were removed too, since nothing creates
+  that window any more.
+- **Scrollbars** (`vscroll_`/`hscroll_`, real `"SCROLLBAR"`-class controls, `CTadsWinScroll::do_create()`).
+  These were never painted either (`render_vscrollbar_imgui()`, §4, already draws the actual visible
+  scrollbar), but unlike the border they weren't pure decoration: `do_scroll()` and several callers used
+  real `GetScrollInfo`/`SetScrollInfo(hwnd, SB_CTL, ...)` calls against them as the actual backing store
+  for each scrollbar's range/position (`nMin`/`nMax`/`nPage`/`nPos`/`nTrackPos`) - genuinely load-bearing,
+  not dead. Replaced with `vscroll_info_`/`hscroll_info_` (plain `SCROLLINFO` members on
+  `CTadsWinScroll`) plus two new inline helpers, `win_get_scroll_info()`/`win_set_scroll_info()`
+  (`tadswin.h`, next to the existing `get_scroll_info()` virtual), that read/write those members directly
+  instead of calling the real Win32 API - including replicating `SetScrollInfo`'s documented `nPos`
+  clamping (`[nMin, max(nMin, nMax-nPage+1)]`), since `do_scroll()` depends on that clamping and always
+  calls `win_get_scroll_info()` again immediately after `win_set_scroll_info()` specifically to read back
+  the clamped value (see its "Windows will limit to the valid range" comment, unchanged). `vscroll_`/
+  `hscroll_` are still `HWND`-typed and still non-null whenever `has_vscroll_`/`has_hscroll_` - just
+  opaque identifiers now (`(HWND)this` / `(HWND)((char*)this+1)`, guaranteed distinct and non-null)
+  instead of real windows, so every existing comparison against them (`hwnd == vscroll_`, `vscroll_ != 0`,
+  etc.) still works unchanged. Two other real-HWND dependencies on these were also fixed: `htmlgui.h`'s
+  `vscroll_is_visible()`/`hscroll_is_visible()` (used by `get_scroll_area()` to reserve on-screen space
+  for the scrollbar) used to call `IsWindowVisible(get_vscroll_handle())`, and `maybe_drag_scroll()`
+  (`tadswin.cpp`) used `IsWindowVisible(hscroll_) && IsWindowEnabled(hscroll_)` - both now just read the
+  existing `vscroll_vis_`/`hscroll_vis_` member flags directly (the `IsWindowEnabled` half was dropped
+  entirely: nothing anywhere ever called `EnableWindow` on these controls, so it was always true in
+  practice).
+- **Size-grip and corner gray box** (`sizebox_`/`graybox_`, real `"SCROLLBAR"`/`"STATIC"`-class controls).
+  Pure decoration with no functional dependency (confirmed: `set_has_sizebox(TRUE)` is called once, for
+  the debug log window's HTML panel, but live resize of these windows was already off regardless - see
+  `CTadsWin::do_resize()`'s commented-out child cascade, noted in the "-debugwin" dragging fix above).
+  Removed outright: `do_create()` no longer creates them, `init_sizebox()` is gone, and
+  `set_has_sizebox()` now just tracks the `has_sizebox_` flag as bookkeeping for whenever real corner-grip
+  resize support gets built.
+- **Tooltip** (`tooltip_`, a real `TOOLTIPS_CLASS` common control, `TTF_SUBCLASS`-ed onto `handle_`,
+  `CHtmlSysWin_win32::do_create()`). `TTF_SUBCLASS` only works by intercepting real mouse messages
+  dispatched to `handle_`'s window procedure, which - same reason as everything else on the hidden HWND
+  tree - never happens (no message pump, see §2), so it could never have shown a tooltip. `tooltip_` is
+  now left permanently `0`; the scattered `SendMessage(tooltip_, TTM_ACTIVATE/TTM_NEWTOOLRECT, ...)` calls
+  elsewhere in `htmlgui.cpp` were left in place (harmless no-ops on a null handle, same as they always
+  were on this dead-but-real one - same "leave it, it's harmless" reasoning as other native leftovers in
+  this file, e.g. the dead native menu in §3.1).
+
+`adjust_scrollbar_positions()` (`tadswin.cpp`) - whose entire job used to be `MoveWindow`/`ShowWindow`-ing
+these four control types into place - is now an empty no-op, kept only because it's still called from
+several places (`do_resize()`, `do_create()`, a visibility change in
+`CHtmlSysWin_win32::adjust_scrollbar_ranges()`) that would otherwise all need updating for no behavioral
+gain.
+
+**What's still real**: every `CTadsWin`'s own `handle_` (top-level or not) is still a real, permanently-
+hidden Win32 `HWND` - this section only removed the *extra* child controls nested one level below that.
+Actually deleting the stray top-level Win32 frame (§2's "real fix") still needs that larger change; see
+the scope note above.
+
+**Verified** by launching `guit3.exe tests/ditch3.t3` (built clean with these changes) and screenshotting
+(recipe in §6): the status banner's bottom border (`OS_BANNER_STYLE_BORDER`, "Control Room / Exits: west"
+at the top of the window) renders as a thin dark line under the banner, matching the old native look
+(confirmed via a 3x-upscaled crop across the banner/content boundary); generating enough output to
+overflow the main panel and mouse-wheeling over it (`mouse_event(MOUSEEVENTF_WHEEL, ...)`) scrolled the
+content and moved the scrollbar thumb correctly, both before and after this change's `SCROLLINFO`
+storage swap - confirming `win_get_scroll_info()`/`win_set_scroll_info()`'s clamping matches the real
+API's behavior closely enough that the thumb math from §4 (which depends on exact `SCROLLINFO`
+semantics) still holds.
 
 ### 3.5 Fonts
 Real progress here: `tadsfont.cpp` already uses `imgui/misc/freetype/imgui_freetype.h` for glyph
@@ -1227,9 +1308,11 @@ Windows-locked.
 2. **Menu bar, toolbar** (§3.1) **and status bar** (§3.2) — **all done**. All were self-contained,
    didn't block on the dialog framework, and remove three of the four still-native chrome pieces
    (dialogs remain).
-3. **Child windows** (§3.4): scrollbars/banners/size-grip — needed so the top-level HWND can actually
-   be deleted, not just hidden. Skip MDI-frame/MDI-client child-window paths entirely (§4) — the client
-   doesn't need them.
+3. **Child windows** (§3.4): the *extra* child HWNDs (banner border, scrollbars, size-grip, tooltip) are
+   **done** — none of them are real windows any more. Actually deleting the top-level HWND still needs
+   the larger change §3.4 now describes as still-real: every window's own `handle_` (not just these
+   four control types) is still a real, permanently-hidden `HWND`. Skip MDI-frame/MDI-client child-window
+   paths entirely (§4) — the client doesn't need them.
 4. **Dialogs** (§3.3): biggest chunk by file count. The Options dialog (Edit > Options), the
    "Customize Theme" Fonts/Colors/More/Media property sheet (`run_appearance_dlg()`), the file open/save
    dialog, the Find dialog (Edit > Find Text on Current Page...), and the folder-picker dialog (Options >

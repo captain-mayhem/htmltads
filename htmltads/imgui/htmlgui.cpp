@@ -316,7 +316,7 @@ CHtmlSysWin_win32::CHtmlSysWin_win32(CHtmlFormatter *formatter,
 
     /* presume we don't have a border */
     has_border_ = FALSE;
-    border_handle_ = 0;
+    SetRect(&border_rc_, 0, 0, 0, 0);
 
     /* presume we will automatically scroll vertically */
     auto_vscroll_ = TRUE;
@@ -3752,11 +3752,6 @@ void CHtmlSysWin_win32::set_is_banner_win(int is_banner,
     /* remember our parent */
     banner_parent_= parent;
 
-    /* create a window for the border */
-    border_handle_ = CreateWindow("TADS.BannerBorder", "", WS_CHILD,
-                                  0, 0, 1, 1, get_parent()->get_handle(), 0,
-                                  CTadsApp::get_app()->get_instance(), 0);
-
     /* if there's a parent, link into the parent's child list */
     if (parent != 0)
         parent->add_banner_child(this, where, other);
@@ -3768,10 +3763,6 @@ void CHtmlSysWin_win32::set_is_banner_win(int is_banner,
  */
 void CHtmlSysWin_win32::close_banner_window()
 {
-    /* explicitly close my border window */
-    if (border_handle_ != 0)
-        SendMessage(border_handle_, WM_CLOSE, 0, 0);
-
     /* close my window handle */
     SendMessage(handle_, WM_CLOSE, 0, 0);
 }
@@ -3871,9 +3862,10 @@ void CHtmlSysWin_win32::on_close_parent_banner(int deleting_parent)
     if (deleting_parent)
         banner_parent_ = 0;
 
-    /* hide our system window, including our border window */
+    /* hide our system window; draw_banner_border_imgui() only draws while
+       we're visible (do_render() gates on isVisible()), so hiding this
+       window is enough to also hide our border */
     setVisible(false);
-    ShowWindow(border_handle_, SW_HIDE);
 
     /* 
      *   notify our children that their parent is closing (but note that
@@ -4173,10 +4165,11 @@ void CHtmlSysWin_win32::calc_banner_layout(RECT *parent_rc,
             new_rc.bottom - new_rc.top, TRUE);
     }
 
-    /* if we have a visible border, move it to its new position */
+    /* if we have a visible border, remember its new position/size (as
+       left, top, width, height, matching the fields MoveWindow used to
+       take) for draw_banner_border_imgui() to draw next frame */
     if (has_border_)
-        MoveWindow(border_handle_, border_rc.left, border_rc.top,
-                   border_rc.right, border_rc.bottom, TRUE);
+        border_rc_ = border_rc;
 }
 
 /*
@@ -4448,7 +4441,7 @@ void CHtmlSysWin_win32::get_moreprompt_rect(RECT *rc)
          */
         info.cbSize = sizeof(info);
         info.fMask = SIF_ALL;
-        GetScrollInfo(vscroll_, SB_CTL, &info);
+        win_get_scroll_info(vscroll_, &info);
         vscroll_max = info.nMax - info.nPage + 1;
     }
     else
@@ -4677,6 +4670,39 @@ void CHtmlSysWin_win32::draw_caret_imgui()
 
     ImGui::GetWindowDrawList()->AddRectFilled(
         top, bottom, ImGui::ColorConvertFloat4ToU32(text_color_));
+}
+
+/*
+ *   Draw this banner's border for the current frame.  Replaces the old
+ *   "TADS.BannerBorder" child HWND (see migration.md §3.4) - that window
+ *   was a WS_CHILD of our own permanently-hidden handle_, so like
+ *   everything else built on that dead HWND tree it was created but never
+ *   actually painted (no message pump - see "root cause: both windows
+ *   open"). We draw it ourselves instead, into the foreground draw list so
+ *   it isn't affected by our own content child window's clip rect.
+ *
+ *   border_rc_ is in our *parent's* coordinate space - calc_banner_layout()
+ *   computes it alongside our own m_pos, from the same parent-relative
+ *   new_rc, as (left, top, width, height) (the fields MoveWindow used to
+ *   take). So unlike draw_caret_imgui() (which draws within our own
+ *   content window, at a position already local to it), this has to add
+ *   our *parent's* absolute screen position, not our own.
+ */
+void CHtmlSysWin_win32::draw_banner_border_imgui()
+{
+    /* nothing to draw if we don't have a border, or have no parent to
+       anchor it to (shouldn't happen for a bordered banner, but be safe) */
+    if (!has_border_ || get_parent() == 0)
+        return;
+
+    ImVec2 parent_pos = get_parent()->get_screen_pos();
+    ImVec2 rc_min(parent_pos.x + (float)border_rc_.left,
+                  parent_pos.y + (float)border_rc_.top);
+    ImVec2 rc_max(rc_min.x + (float)border_rc_.right,
+                  rc_min.y + (float)border_rc_.bottom);
+
+    /* approximates the old border window's COLOR_3DDKSHADOW fill */
+    ImGui::GetForegroundDrawList()->AddRectFilled(rc_min, rc_max, IM_COL32(64, 64, 64, 255));
 }
 
 /*
@@ -5308,10 +5334,10 @@ void CHtmlSysWin_win32::adjust_scrollbar_ranges()
 
         /* get the vertical scrollbar info and set it in the scrollbar */
         get_scroll_info(TRUE, &info);
-        SetScrollInfo(vscroll_, SB_CTL, &info, TRUE);
+        win_set_scroll_info(vscroll_, &info);
 
         /* adjust our offset if it changed */
-        GetScrollInfo(vscroll_, SB_CTL, &info);
+        win_get_scroll_info(vscroll_, &info);
         if (vscroll_ofs_ != info.nPos)
             do_scroll(TRUE, vscroll_, SB_THUMBPOSITION, info.nPos, TRUE);
     }
@@ -5321,12 +5347,12 @@ void CHtmlSysWin_win32::adjust_scrollbar_ranges()
     {
         /* get horizontal scrollbar info and set it in the scrollbar */
         new_hscroll_vis = get_scroll_info(FALSE, &info);
-        SetScrollInfo(hscroll_, SB_CTL, &info, TRUE);
+        win_set_scroll_info(hscroll_, &info);
 
         /* adjust our offset if it changed */
         if (new_hscroll_vis)
         {
-            GetScrollInfo(hscroll_, SB_CTL, &info);
+            win_get_scroll_info(hscroll_, &info);
             if (hscroll_ofs_ != info.nPos)
                 do_scroll(FALSE, hscroll_, SB_THUMBPOSITION, info.nPos, TRUE);
         }
@@ -5336,9 +5362,6 @@ void CHtmlSysWin_win32::adjust_scrollbar_ranges()
         {
             /* note the new visibility */
             hscroll_vis_ = new_hscroll_vis;
-            
-            /* show the scrollbars as appropriate */
-            ShowWindow(hscroll_, hscroll_vis_ ? SW_SHOW : SW_HIDE);
 
             /* fix up the scrollbar positions */
             adjust_scrollbar_positions();
@@ -5403,8 +5426,6 @@ void CHtmlSysWin_win32::notify_scroll(HWND, long /*oldpos*/, long /*newpos*/)
  */
 void CHtmlSysWin_win32::do_create()
 {
-    TOOLINFO ti;
-
     /* do default creation */
     CTadsWinScroll::do_create();
 
@@ -5435,25 +5456,19 @@ void CHtmlSysWin_win32::do_create()
     toggle_link_ctrl_ = FALSE;
     toggle_link_on_ = !prefs_->get_links_on();
 
-    /* create the tooltip control */
-    tooltip_ = CreateWindowEx(0, TOOLTIPS_CLASS, 0, 0,
-                              CW_USEDEFAULT, CW_USEDEFAULT,
-                              CW_USEDEFAULT, CW_USEDEFAULT,
-                              handle_, 0,
-                              CTadsApp::get_app()->get_instance(), 0);
-    
-    /* 
-     *   add the "tool" - the entire display area; we'll figure out where
-     *   we actually are when we need to get tooltip text 
+    /*
+     *   We used to create a real Win32 TOOLTIPS_CLASS common control here
+     *   (tooltip_), TTF_SUBCLASS-ed onto handle_ to intercept its mouse
+     *   messages and raise TTN_NEEDTEXT.  Like everything else built on
+     *   that permanently-hidden HWND, it was 100% dead: TTF_SUBCLASS only
+     *   works via real message dispatch to handle_'s window procedure,
+     *   and there is no GetMessage/DispatchMessage pump anywhere in guit3
+     *   (see migration.md §2) - so it could never have shown a tooltip.
+     *   tooltip_ is left permanently null (see the constructor); the
+     *   scattered SendMessage(tooltip_, TTM_ACTIVATE/TTM_NEWTOOLRECT, ...)
+     *   calls elsewhere in this file are harmless no-ops on a null handle,
+     *   same as they always were on this dead-but-real one.
      */
-    ti.cbSize = sizeof(ti);
-    ti.uFlags = TTF_SUBCLASS;
-    ti.hwnd = handle_;
-    ti.uId = 1;
-    ti.hinst = CTadsApp::get_app()->get_instance();
-    ti.lpszText = LPSTR_TEXTCALLBACK;
-    SetRect(&ti.rect, 0, 0, 32767, 32767);
-    SendMessage(tooltip_, TTM_ADDTOOL, 0, (LPARAM)&ti);
 }
 
 /*
@@ -5728,6 +5743,9 @@ void CHtmlSysWin_win32::do_render_content_begin()
 
     /* draw the blinking text-entry caret, if it's showing right now */
     draw_caret_imgui();
+
+    /* draw our own border, if we're a bordered banner */
+    draw_banner_border_imgui();
 
     /* if we're in "MORE" mode, draw a prompt at the bottom */
     if (more_mode_ && !prefs_->get_alt_more_style())
@@ -6731,7 +6749,7 @@ void CHtmlSysWin_win32::fmt_adjust_vscroll()
         SCROLLINFO vsinfo;
         vsinfo.cbSize = sizeof(vsinfo);
         vsinfo.fMask = SIF_ALL;
-        GetScrollInfo(vscroll_, SB_CTL, &vsinfo);
+        win_get_scroll_info(vscroll_, &vsinfo);
 
         /* if we're already scrolled all the way down, rescind more mode */
         if (vsinfo.nPos == (int)(vsinfo.nMax - vsinfo.nPage + 1))
@@ -7831,9 +7849,6 @@ void CHtmlSysWin_win32::set_has_border(int has_border)
     {
         /* remember the new border status */
         has_border_ = has_border;
-
-        /* show or hide the border window accordingly */
-        ShowWindow(border_handle_, has_border_ ? SW_SHOW : SW_HIDE);
 
         /* recalculate the banner layout for the border change */
         owner_->on_set_banner_size(this);
@@ -10235,43 +10250,12 @@ int CHtmlSys_framewin::do_childactivate()
 
 /* ------------------------------------------------------------------------ */
 /*
- *   Superclassed window class for drawing banner borders.  We implement this
- *   as a simple "superclass" (Windows terminology) of the STATIC system
- *   class.  
+ *   The banner border used to be drawn by a superclassed "TADS.BannerBorder"
+ *   Win32 window class here (a simple superclass of STATIC, filling itself
+ *   with COLOR_3DDKSHADOW on WM_PAINT). See draw_banner_border_imgui() and
+ *   migration.md §3.4 for the replacement - it draws the same
+ *   COLOR_3DDKSHADOW-ish fill itself, directly, with no window behind it.
  */
-
-/* original window procedure for the STATIC base class */
-static WNDPROC S_border_proc_base;
-
-static LRESULT CALLBACK border_proc(
-    HWND hwnd, UINT msg, WPARAM wpar, LPARAM lpar)
-{
-    HDC hdc;
-    PAINTSTRUCT ps;
-
-    /* check the message to see if we want to override the base handling */
-    switch(msg)
-    {
-    case WM_PAINT:
-        /* 
-         *   paint the window - fill in the entire area with the "dark
-         *   shadow" color 
-         */
-        hdc = BeginPaint(hwnd, &ps);
-        FillRect(hdc, &ps.rcPaint, GetSysColorBrush(COLOR_3DDKSHADOW));
-        EndPaint(hwnd, &ps);
-
-        /* handled */
-        return 0;
-
-    case WM_ERASEBKGND:
-        /* erase the background - do nothing */
-        return 1;
-    }
-
-    /* inherit the base class's window procedure */
-    return CallWindowProc(S_border_proc_base, hwnd, msg, wpar, lpar);
-}
 
 
 /* ------------------------------------------------------------------------ */
@@ -10307,7 +10291,6 @@ CHtmlSys_mainwin::CHtmlSys_mainwin(CHtmlFormatterInput *formatter,
     CHARSETINFO csinfo;
     HDC hdc;
     TEXTMETRIC tm;
-    WNDCLASS wc;
 
     /* create our menu icon handler */
     iconmenu_ = new IconMenuHandler(TOOLBAR_ICON_WIDTH, TOOLBAR_ICON_HEIGHT);
@@ -10490,29 +10473,15 @@ CHtmlSys_mainwin::CHtmlSys_mainwin(CHtmlFormatterInput *formatter,
     /* we don't have an .exe resource hash table yet */
     exe_res_table_ = 0;
 
-    /* 
-     *   Register our special banner border window, which is a simple
-     *   "superclass" of the system STATIC class (Windows terminology for a
-     *   window class that inherits the window procedure of another window
-     *   class).  This class does almost the same thing as the standard
-     *   system STATIC class, but we provide our own custom painting.
-     *   
-     *   First, to hook into the system STATIC class, get the window class
-     *   information for that class.  
+    /*
+     *   We used to register a "TADS.BannerBorder" window class here (a
+     *   superclass of STATIC, custom-painted by border_proc()) so
+     *   CHtmlSysWin_win32::set_is_banner_win() could create a real child
+     *   HWND for each banner's border. Nothing creates that window any
+     *   more - draw_banner_border_imgui() (htmlgui.cpp, see migration.md
+     *   §3.4) draws it directly instead - so there's no class left to
+     *   register.
      */
-    GetClassInfo(0, "STATIC", &wc);
-
-    /* remember the STATIC class's original window procedure */
-    S_border_proc_base = wc.lpfnWndProc;
-
-    /* 
-     *   register our new class, providing our custom background brush and
-     *   window procedure 
-     */
-    wc.lpszClassName = "TADS.BannerBorder";
-    wc.hInstance = CTadsApp::get_app()->get_instance();
-    wc.lpfnWndProc = (WNDPROC)&border_proc;
-    RegisterClass(&wc);
 }
 
 /* iterator callback object for releasing references on MORE windows */

@@ -761,6 +761,14 @@ public:
      */
     void draw_caret_imgui();
 
+    /*
+     *   Draw this banner's border (if it has one) for the current frame.
+     *   Called once per frame from do_render_content_begin(), same
+     *   pattern as draw_caret_imgui()/render_vscrollbar_imgui() - replaces
+     *   the old dead "TADS.BannerBorder" child HWND.
+     */
+    void draw_banner_border_imgui();
+
     /* 
      *   reset the last input height counter for the purposes of figuring
      *   out where the "more" prompt goes - this should be called whenever
@@ -932,16 +940,19 @@ protected:
      */
     virtual int do_setcursor_bkg() { return FALSE; }
 
-    /* determine if scrollbars are present */
+    /*
+     *   Determine if scrollbars are present.  vscroll_/hscroll_ are no
+     *   longer real HWNDs (see tadswin.h's do_create()/win_get_scroll_info()
+     *   comments), so this reads the visibility flag directly instead of
+     *   IsWindowVisible().
+     */
     int vscroll_is_visible() const
     {
-        return get_vscroll_handle() != 0
-            && IsWindowVisible(get_vscroll_handle());
+        return get_vscroll_handle() != 0 && vscroll_vis_;
     }
     int hscroll_is_visible() const
     {
-        return get_hscroll_handle() != 0
-            && IsWindowVisible(get_hscroll_handle());
+        return get_hscroll_handle() != 0 && hscroll_vis_;
     }
 
     /* receive notification that scrolling has occurred */
@@ -1483,11 +1494,16 @@ protected:
     /* head of list of banner children */
     CHtmlSysWin_win32 *banner_first_child_;
 
-    /* 
-     *   handle for our border window - we use this to display the border at
-     *   the edge of a banner window 
+    /*
+     *   The banner border rect, in our parent's coordinate space (same
+     *   space as m_pos): (left, top, width, height), as computed by
+     *   calc_banner_layout(). We used to display this via a real child
+     *   HWND ("TADS.BannerBorder"); that window was never actually
+     *   painted (no message pump reaches it - see migration.md §2), so
+     *   we now just draw it ourselves each frame - see
+     *   draw_banner_border_imgui().
      */
-    HWND border_handle_;
+    RECT border_rc_;
 
     /* next banner sibling */
     CHtmlSysWin_win32 *banner_next_;

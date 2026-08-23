@@ -1966,9 +1966,6 @@ protected:
     /* process window creation message */
     void do_create();
 
-    /* initialize the sizebox */
-    void init_sizebox();
-
     /* resize the window */
     void do_resize(int mode, int x, int y);
 
@@ -1992,6 +1989,51 @@ protected:
         info->cbSize = sizeof(SCROLLINFO);
         info->fMask = SIF_PAGE | SIF_POS | SIF_RANGE;
         return TRUE;
+    }
+
+    /*
+     *   Our scrollbars (vscroll_/hscroll_) aren't real Win32 SCROLLBAR
+     *   controls any more - see migration.md §3.4, "Child windows
+     *   (banners, scrollbars, size-grip)". They're purely internal now
+     *   (get_vscroll_handle()/get_hscroll_handle() just return opaque,
+     *   non-null identifiers distinguishing the two), and
+     *   render_vscrollbar_imgui() draws the actual visible/interactive
+     *   scrollbar. These two replace the real GetScrollInfo()/
+     *   SetScrollInfo(hwnd, SB_CTL, ...) calls do_scroll() and its callers
+     *   used to make against those controls, storing the same SCROLLINFO
+     *   fields ourselves instead - including SetScrollInfo's documented
+     *   nPos-clamping behavior, which do_scroll() depends on (it always
+     *   calls win_get_scroll_info() again right after win_set_scroll_info()
+     *   specifically to read back the clamped position).
+     */
+    void win_get_scroll_info(HWND which, SCROLLINFO *info) const
+    {
+        const SCROLLINFO &src = (which == vscroll_) ? vscroll_info_ : hscroll_info_;
+        UINT cbSize = info->cbSize;
+        UINT fMask = info->fMask;
+        *info = src;
+        info->cbSize = cbSize;
+        info->fMask = fMask;
+    }
+    void win_set_scroll_info(HWND which, const SCROLLINFO *info)
+    {
+        SCROLLINFO &dst = (which == vscroll_) ? vscroll_info_ : hscroll_info_;
+        dst.cbSize = sizeof(SCROLLINFO);
+        dst.fMask = SIF_ALL;
+        dst.nMin = info->nMin;
+        dst.nMax = info->nMax;
+        dst.nPage = info->nPage;
+        dst.nTrackPos = info->nTrackPos;
+
+        /* clamp nPos into [nMin, nMax-nPage+1] (or [nMin,nMax] if there's
+           no page size), exactly as the real SetScrollInfo() documents */
+        long pos_max = (dst.nPage > 0)
+            ? max((long)dst.nMin, (long)(dst.nMax - (long)dst.nPage + 1))
+            : (long)dst.nMax;
+        long pos = info->nPos;
+        if (pos < (long)dst.nMin) pos = dst.nMin;
+        if (pos > pos_max) pos = pos_max;
+        dst.nPos = pos;
     }
 
     /*
@@ -2110,9 +2152,18 @@ protected:
                                            LPARAM lpar);
 
 protected:
-    /* scrollbars */
+    /*
+     *   "Scrollbars".  These are no longer real Win32 SCROLLBAR controls
+     *   (see the win_get_scroll_info()/win_set_scroll_info() comment
+     *   above) - vscroll_/hscroll_ are just distinct non-null opaque
+     *   identifiers (used to tell the two apart in do_scroll() and
+     *   friends), and vscroll_info_/hscroll_info_ hold their actual
+     *   range/position state.
+     */
     HWND vscroll_;
     HWND hscroll_;
+    SCROLLINFO vscroll_info_;
+    SCROLLINFO hscroll_info_;
 
     /*
      *   Flags: scrollbars are external.  These are set to true when the
@@ -2130,12 +2181,6 @@ protected:
     /* scrollbar visibility flags */
     int vscroll_vis_ : 1;
     int hscroll_vis_ : 1;
-
-    /* sizebox control */
-    HWND sizebox_;
-
-    /* gray box at bottom right corner - used when both scrollbars present */
-    HWND graybox_;
 
     /* flags indicating whether scrollbars are desired */
     int has_vscroll_ : 1;
