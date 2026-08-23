@@ -2891,8 +2891,18 @@ void CTadsWinScroll::render_vscrollbar_imgui()
     RECT rc;
     get_scroll_area(&rc, TRUE);
     const float track_w = 10.0f;
-    ImVec2 track_min(win_pos.x + rc.right - track_w, win_pos.y + rc.top);
-    ImVec2 track_max(win_pos.x + rc.right, win_pos.y + rc.bottom);
+    /*
+     *   get_scroll_area() already subtracts SM_CXVSCROLL from rc.right to
+     *   carve out a margin for the scrollbar - rc.right is the boundary
+     *   text/content is laid out up to (see CHtmlSysWin_win32::do_resize()'s
+     *   disp_width_). The track belongs in that already-reserved margin, to
+     *   the right of rc.right, not inside it: positioning it at
+     *   [rc.right - track_w, rc.right] (the old code) drew it over the last
+     *   track_w pixels of the content area instead, so any line of text
+     *   using the full available width visually ran under the scrollbar.
+     */
+    ImVec2 track_min(win_pos.x + rc.right, win_pos.y + rc.top);
+    ImVec2 track_max(win_pos.x + rc.right + track_w, win_pos.y + rc.bottom);
     float track_h = track_max.y - track_min.y;
     if (track_h <= 0)
         return;

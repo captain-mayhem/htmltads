@@ -1338,23 +1338,143 @@ since a non-input window's caret is never actually shown (`show_caret()` gates o
 only input windows set). Verified by rebuilding clean; not re-verified visually in-session (see the
 "automated UI testing abandoned" note below).
 
-**Automated UI-driven testing was abandoned partway through this work.** Screenshot-based verification
-(the recipe in §6) requires bringing the `guit3` window to the real OS foreground first. One attempt to
-do that with `SetForegroundWindow()` silently failed (a common OS restriction when the calling process
-isn't already foreground) without any error, and the subsequent `CopyFromScreen()` call captured whatever
-actually was in the foreground instead - which turned out to be an unrelated Outlook dialog showing the
-user's real email account list. That screenshot was deleted immediately and never shared anywhere, but a
-follow-up attempt at a more reliable focus-forcing technique (`AttachThreadInput` +
-`SetForegroundWindow`) got blocked outright by the user's antivirus software as "malicious script
-content" before it could even run - a known false-positive pattern for that particular Win32 API
-combination, not anything specific to this codebase. Given both the near-miss and the AV blocking, further
-fixes in this session were verified by code review and a clean rebuild only, with the user doing the
-actual in-app confirmation. **Worth solving properly before the next session needs visual verification**:
-either a more innocuous focus-forcing approach that doesn't trip AV heuristics (e.g. simulating a taskbar
-click via `SendInput` rather than direct `SetForegroundWindow`/`AttachThreadInput` API calls), or
-confirming the target window is truly focused (e.g. comparing `GetForegroundWindow()` against the known
-`hwnd` before ever calling `CopyFromScreen()`) so a focus failure aborts instead of silently screenshotting
-whatever else is on screen.
+**Bug: text containing an em-dash (or any other character that expands under UTF-8) rendered with
+missing/wrong spacing, e.g. "manager--your engineers" running together — fixed.** Root cause:
+`CHtmlSysWin_win32::measure_text()` (`htmlgui.cpp`) converts the incoming ANSI/codepage string to UTF-8
+(via an intermediate wide-char buffer) before calling `ImGui::CalcTextSize()`, since ImGui only
+understands UTF-8. It then measured `ImGui::CalcTextSize(utf8data.data(), utf8data.data() + len)` -
+using `len`, the *original* string's ANSI byte length, as the end offset into the *converted UTF-8
+buffer*. Any character that takes more bytes in UTF-8 than in the source codepage (em-dashes, curly
+quotes, accented letters - all common in narrative game text) makes the UTF-8 buffer longer than `len`,
+so this truncated the measurement partway through the string, undershooting the real width.
+`draw_text()`, the actual rendering path right below in the same file, does the identical ANSI→UTF-8
+conversion but correctly uses `utf8size` (the converted buffer's own byte length) for both
+`CalcTextSize()` and `TextUnformatted()` - so what got measured for layout and what got drawn on screen
+disagreed for any text containing such a character, and since `measure_text()` is what the HTML
+formatter uses to decide line-wrapping and spacing, an undershot width let more text get placed than
+actually fit, producing exactly the run-together text in the report. **Fix**: changed `measure_text()`'s
+`CalcTextSize()` call to use `utf8size` instead of `len`, matching `draw_text()`. Verified by rebuilding
+clean; not yet re-verified visually (see the UI-automation note below).
+
+**Bug: text ran under the vertical scrollbar instead of stopping before it — fixed, after two false
+starts.** This one took three rounds to actually fix, and is worth reading in full since the first two
+"fixes" below were real bugs but not *this* bug - they just changed how the symptom presented.
+
+*False start #1*: the `measure_text()` fix earlier in this section was a real, worthwhile fix, but
+undershooting the measured text width had been leaving a coincidental gap that happened to clear the
+scrollbar - fixing it just meant text legitimately using more of its available width started visibly
+running under the scrollbar track instead.
+
+*False start #2*: `CTadsWinScroll::render_vscrollbar_imgui()` (`tadswin.cpp`) computed the scrollbar
+track's screen position as `[rc.right - track_w, rc.right]`, where `rc` comes from `get_scroll_area()` -
+but `get_scroll_area()` already subtracts `SM_CXVSCROLL` from the client width to produce `rc.right`
+specifically so it can be used as the content/text area's right boundary
+(`CHtmlSysWin_win32::do_resize()` sets `disp_width_` from this same call). So the track was being drawn
+*inside* the last `track_w` (10px) pixels of the area text is allowed to fill, rather than in the margin
+*outside* it. Moved `track_min`/`track_max` to `[rc.right, rc.right + track_w]` instead. This was a real,
+independent bug (now fixed and still correct), but rebuilding and re-testing afterward showed text still
+overflowing the *entire* window, past even the true client edge, with no scrollbar visible at all in that
+test (content was too short to need scrolling yet) - so this wasn't the (main) cause either.
+
+**Root cause, actually confirmed via temporary instrumentation** (added a few `fprintf()`-to-file calls
+in `do_resize()`, `get_disp_width()`, and `measure_text()`, rebuilt, reproduced, read the log, then
+removed them - see "working notes" below for why this was necessary): `disp_width_` and `measure_text()`
+were both already correct at the moment the failing paragraph was formatted (confirmed directly:
+`disp_width_=1420` on a 1456px-wide test window, properly reserving scrollbar room). The actual
+line-break *decision*, though, doesn't go through `measure_text()` at all - `CHtmlDispText::find_line_break()`
+(`htmldisp.cpp:1439`, shared cross-platform TADS3 formatter code, not part of this Windows/ImGui port)
+calls a *different* method, `win->get_max_chars_in_width()`, to ask "how many characters of this text fit
+in N pixels?" `CHtmlSysWin_win32::get_max_chars_in_width()` (`htmlgui.cpp`) had never been touched by any
+of the FreeType/ImGui migration work in this file - it still measured purely via GDI's
+`GetTextExtentExPoint()` against the `CreateFontIndirect()`-created system font, a completely different
+rasterizer/hinter than the FreeType glyphs `draw_text()` actually renders (see `CTadsFont`'s constructor,
+§3.5 above). Whenever GDI's per-character advance widths disagreed with FreeType's - evidently common
+enough with the default serif font - this function told the formatter that *more* characters fit than
+FreeType would actually draw within the same pixel width, so the line broke later than it should have and
+the rendered text ran past the intended right margin (and, once the margin fix above landed, past the
+scrollbar drawn in it).
+
+**Fix**: rewrote `get_max_chars_in_width()` to measure the same way `measure_text()`/`draw_text()` do -
+convert the incoming ANSI text to UTF-16 (`MultiByteToWideChar`, same as those functions) and accumulate
+each character's advance width via `ImGui::GetFont()->GetFontBaked(ImGui::GetFontSize())->GetCharAdvance()`,
+stopping as soon as adding another character's advance would exceed the target width. The wide-char
+count doubles as the ANSI character count for this app's practical (single-byte-codepage) charsets, the
+same assumption `measure_text()` already relies on elsewhere in this file. GDI (`GetDC`/`select_font()`)
+is still used to *select* the font (needed to push the matching ImGui font via `select_font()`'s existing
+`CTadsFont::select()` call), just not to measure with any more.
+
+Also touched in the course of chasing this: `CHtmlSysWin_win32::calc_banner_layout()` (`htmlgui.cpp`) was
+reordered to call `MoveWindow(handle_, ...)` *before* `do_resize(...)` rather than after, since
+`do_resize()` reads `handle_`'s current size via `get_scroll_area()`/`GetClientRect()` and was doing so
+against the *pre-resize* geometry. This is a real, independent bug (worth keeping fixed), but empirically
+did not change this specific symptom - Windows' own synchronous `WM_SIZE` dispatch during `MoveWindow()`
+was apparently already correcting `disp_width_` via the same `do_resize()` code path before the explicit
+post-`MoveWindow()` call in the old code order ran, so the two calls' results converged either way for
+this case. Left in since it's still a correctness fix on its own terms (a window's own resize handler
+should see its own already-updated size, not a stale one), just not the fix for this bug.
+
+Verified end-to-end: rebuilt, launched `guit3.exe tests/ditch3.t3`, clicked through to the game's first
+room description (the exact paragraph from the original report, including the "manager—your" em-dash),
+and confirmed via a zoomed screenshot crop that "fact-finding" and "twelve-hour drive away" now wrap onto
+new lines with a clean margin before the window edge, instead of running off/under it.
+
+**Working notes on debugging this without a real debugger**: this session had no attached debugger, and
+UI automation for visual verification was already established as unreliable/risky earlier in the session
+(see below). Once code-reading alone stopped converging on an answer (both "false starts" above looked
+individually correct and were, just not sufficient), temporary `fprintf()`-to-a-log-file instrumentation
+in the suspect functions - rebuild, reproduce once via a single scripted mouse click (known to work
+reliably, unlike synthetic keyboard input - see below), read the log, remove the instrumentation - was
+far more effective than further speculation. Worth reaching for this pattern earlier next time reasoning
+about a rendering/layout mismatch stalls, rather than after several rounds of "plausible but unconfirmed"
+fixes.
+
+**Automated UI-driven testing: what worked, what didn't, and why - read this before trying to script a
+repro in a fresh session.**
+
+- **Bringing the window to the real OS foreground is both unnecessary and risky - don't do it.**
+  Screenshotting a *freshly-launched* `guit3.exe` (via `Start-Process` + a few seconds' wait, then
+  `EnumWindows` filtered to the target PID's `GLFW30`-class window, then `GetWindowRect` +
+  `Graphics.CopyFromScreen()`, all with **no** `SetForegroundWindow()`/focus-forcing call at all) worked
+  reliably and repeatedly throughout this session. A freshly-created window is already positioned
+  correctly on screen for `CopyFromScreen()` to capture without needing real OS focus. Trying to force
+  focus onto an *already-running* window instead is where this went wrong twice: `SetForegroundWindow()`
+  alone silently failed (a common OS restriction when the calling process isn't already foreground)
+  without any error, and the subsequent `CopyFromScreen()` call captured whatever actually was in the
+  foreground instead - which turned out once to be an unrelated Outlook dialog showing the user's real
+  email account list (deleted immediately, never shared anywhere - but still a real near-miss). A
+  follow-up attempt at a more forceful technique (`AttachThreadInput` + `SetForegroundWindow`) got blocked
+  outright by the user's antivirus software as "malicious script content" - a known false-positive pattern
+  for that specific Win32 API combination. **The fix that actually worked**: don't fight for focus at all
+  - always launch a fresh process for each screenshot-verification pass rather than reusing/refocusing an
+  existing window. If a target window's true foreground status ever needs checking first, compare
+  `GetForegroundWindow()` against the known `hwnd` before calling `CopyFromScreen()`, so a focus mismatch
+  aborts instead of silently screenshotting whatever else is on screen.
+- **Mouse input (via `PostMessage`) is reliable; synthetic keyboard input is not - prefer clicking.**
+  A single scripted `WM_LBUTTONDOWN`/`WM_LBUTTONUP` click (via `SetCursorPos` + `mouse_event`, at a
+  screen coordinate read off an actual screenshot - e.g. clicking the "begin the game" hyperlink on the
+  title screen) worked correctly and repeatably every time it was tried. Synthetic keyboard messages were
+  a repeated source of trouble: (1) sending a raw `WM_KEYDOWN`/`WM_KEYUP` pair for Enter with a
+  zero/placeholder `lParam` (missing the real scan-code/repeat-count bit encoding Windows expects) was
+  interpreted as a stuck/held key, causing the game to submit dozens of blank commands over several real
+  minutes before it was caught - genuinely disruptive if the user is watching the window live, which they
+  may be even when it wasn't explicitly mentioned. (2) `WM_CHAR`-only input (no matching `WM_KEYDOWN`) was
+  needed for `do_char()`'s own `case 13`/`case 10` handling of Enter at the in-game command prompt (see
+  `CHtmlSysWin_win32_Input::do_char()`, `htmlgui.cpp`) - correct there - but appeared to *not* reliably
+  reach the title screen's own "press Enter to begin" wait-for-keystroke state (likely a different, more
+  `WM_KEYDOWN`-shaped code path - not confirmed, since the mouse-click alternative below made chasing this
+  further unnecessary), and repeated attempts at either style of synthetic key input were inconsistently
+  dropped/ignored in ways never fully explained (typed characters not appearing in the input buffer,
+  Enter not registering) - possibly a genuine keyboard-focus prerequisite this app's input handling has
+  that mouse events don't. **Given a choice, drive `guit3` via synthetic mouse clicks on visible,
+  known-position UI elements (hyperlinks, menu items, dialog buttons, the scrollbar track) rather than
+  synthetic keyboard input**, and locate click targets by reading pixel coordinates off an actual
+  screenshot rather than guessing.
+- **If reasoning about a rendering/layout bug from source alone stalls, add temporary instrumentation
+  rather than guessing further.** Several rounds of "this looks like the bug" fixes in the scrollbar/text
+  overlap investigation just above turned out to be real-but-insufficient. A handful of `fprintf()`-to-a-
+  log-file calls added temporarily to the suspect functions (rebuild, reproduce once via a single scripted
+  mouse click, read the log, then remove the instrumentation) cut through the ambiguity far faster than
+  continuing to read code and re-derive expected behavior by hand.
 
 **Font enumeration — factored out behind a platform hook, Windows-only implementation.**
 `CTadsFont::font_is_present()` (`tadsfont.cpp`) answers "is a font with this name installed?", used for

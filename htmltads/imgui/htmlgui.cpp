@@ -4158,11 +4158,18 @@ void CHtmlSysWin_win32::calc_banner_layout(RECT *parent_rc,
         m_pos.y = new_rc.top;
         m_size.x = new_rc.right - new_rc.left;
         m_size.y = new_rc.bottom - new_rc.top;
-        do_resize(0, new_rc.right - new_rc.left, new_rc.bottom - new_rc.top);
+        /*
+         *   Resize handle_ before calling do_resize(): do_resize() computes
+         *   disp_width_/disp_height_ (the HTML formatter's wrap width) via
+         *   get_scroll_area(), which reads handle_'s *current* client rect
+         *   with GetClientRect() - calling it while handle_ still has its
+         *   old size fed the formatter a stale width for this pass.
+         */
         MoveWindow(handle_,
             new_rc.left, new_rc.top,
             new_rc.right - new_rc.left,
             new_rc.bottom - new_rc.top, TRUE);
+        do_resize(0, new_rc.right - new_rc.left, new_rc.bottom - new_rc.top);
     }
 
     /* if we have a visible border, remember its new position/size (as
@@ -5872,7 +5879,17 @@ CHtmlPoint CHtmlSysWin_win32::measure_text(CHtmlSysFont *font,
     std::vector<char> utf8data;
     utf8data.resize(utf8size);
     WideCharToMultiByte(CP_UTF8, 0, strdata.data(), bufsize, utf8data.data(), utf8size, NULL, NULL);
-    ImVec2 size = ImGui::CalcTextSize(utf8data.data(), utf8data.data() + len);
+    /*
+     *   Measure the *converted* UTF-8 buffer using its own byte length
+     *   (utf8size), not the original ANSI/codepage string's byte length
+     *   (len) - any character that expands under UTF-8 (em-dashes, curly
+     *   quotes, accented letters, ...) makes utf8size > len, so using len
+     *   here truncated the measurement short of what draw_text() (below)
+     *   actually renders, undershooting the reported width for any text
+     *   containing such a character and throwing off the HTML formatter's
+     *   line-wrapping/spacing math that depends on this result.
+     */
+    ImVec2 size = ImGui::CalcTextSize(utf8data.data(), utf8data.data() + utf8size);
 
     /* return the ascender height if the caller wants it */
     if (ascent != 0)
@@ -5888,31 +5905,54 @@ CHtmlPoint CHtmlSysWin_win32::measure_text(CHtmlSysFont *font,
 }
 
 /*
- *   Get the maximum number of characters that fit in a given width 
+ *   Get the maximum number of characters that fit in a given width
  */
 size_t CHtmlSysWin_win32::get_max_chars_in_width(
     class CHtmlSysFont *font, const textchar_t *str, size_t len, long wid)
 {
     HDC dc;
-    INT fit_cnt;
-    SIZE siz;
 
-    /* get the device context */
+    /* get the device context and select the font (also pushes the ImGui font) */
     dc = GetDC(handle_);
-    
-    /* select the font */
     select_font(dc, font);
-
-    /* measure the text */
-    fit_cnt = 0;
-    GetTextExtentExPoint(dc, str, len, wid, &fit_cnt, 0, &siz);
-
-    /* done with the DC */
     ReleaseDC(handle_, dc);
+
+    /*
+     *   Measure against the same FreeType-rendered font draw_text()/
+     *   measure_text() actually draw with, not GDI's own metrics: the old
+     *   GetTextExtentExPoint() call measured using GDI's rasterizer/hinter
+     *   against the CreateFontIndirect() system font, a different engine
+     *   than the FreeType glyphs actually rendered on screen (see
+     *   CTadsFont's constructor). Whenever the two disagreed on a
+     *   character's advance width, this function - which decides where
+     *   find_line_break() (htmldisp.cpp) actually breaks a line - could
+     *   report that more characters fit than FreeType would actually draw
+     *   within the same pixel width, letting rendered text run past the
+     *   available line width (e.g. under the scrollbar).
+     */
+    int bufsize = MultiByteToWideChar(font->get_charset().codepage,
+                                      MB_PRECOMPOSED, str, (int)len, NULL, 0);
+    std::vector<wchar_t> strdata;
+    strdata.resize(bufsize);
+    MultiByteToWideChar(font->get_charset().codepage, MB_PRECOMPOSED, str,
+                        (int)len, strdata.data(), bufsize);
+
+    ImFontBaked *baked = ImGui::GetFont()->GetFontBaked(ImGui::GetFontSize());
+    float total = 0.0f;
+    int fit = 0;
+    for (int i = 0 ; i < bufsize ; ++i)
+    {
+        float adv = baked->GetCharAdvance((ImWchar)strdata[i]);
+        if (total + adv > (float)wid)
+            break;
+        total += adv;
+        ++fit;
+    }
+
     ImGui::PopFont();
 
     /* return the number that fit */
-    return (size_t)fit_cnt;
+    return (size_t)fit;
 }
 
 /*
