@@ -1,4 +1,7 @@
 # Html-TADS
+
+[![build](https://github.com/captain-mayhem/htmltads/actions/workflows/build.yml/badge.svg)](https://github.com/captain-mayhem/htmltads/actions/workflows/build.yml)
+
 Unlike [tads-runner](https://github.com/captain-mayhem/tads-runner), which is licensed under GPL-2.0, the htmltads subfolder comes with a very restrictive license.
 
 From the license file of htmltads:
@@ -10,9 +13,18 @@ the written permission of the author.
 If you port TADS to a new platform, the author does grant permission
 for you to distribute your ported version - I encourage it, in fact."
 
-Since my goal is only to recompile htmltads as a 64-bit executable running on a Windows 11 PC 
+Since my primary goal is only to recompile htmltads as a 64-bit executable running on a Windows 11 PC 
 with a modern compiler and a CMake buildsystem without changing the feature set of htmltads,
 this project is supposed to fall under the porting TADS exception.
+
+Another goal would be porting the interpreter (htmlt3) to a platform independent version using
+GLFW/OpenGL/ImGui instead of Win32/GDI APIs. The working title is guit3. This is also a pure porting
+attempt, even though on a much larger scale. A not yet platform-independet prototype exists on the
+[imgui branch](https://github.com/captain-mayhem/htmltads/tree/imgui). The final goal behind this port
+is to allow a full multimedia html tads3 interpreter running purely on the web, using WebGL and
+WebAssembly.
+Honoring Michael J. Robert's license of htmltads, the development of the interpreter guit3
+cannot change the feature set of Html-TADS in any way.
 
 ## How to build
 

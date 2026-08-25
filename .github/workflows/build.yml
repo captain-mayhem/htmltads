@@ -1,0 +1,29 @@
+name: build
+
+on: [push, pull_request]
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            preset: default
+          - os: windows-latest
+            preset: windows-only
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          path: htmltads
+      - uses: actions/checkout@v7
+        with:
+          repository: captain-mayhem/tads-runner
+          path: tads-runner
+      - if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y ninja-build
+      - run: cmake --preset ${{ matrix.preset }}
+        working-directory: tads-runner
+      - run: cmake --build build/default
+        working-directory: tads-runner
