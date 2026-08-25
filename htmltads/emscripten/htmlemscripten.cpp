@@ -121,7 +121,6 @@ size_t CHtmlSysWin_emscripten::get_max_chars_in_width(class CHtmlSysFont *font,
         }
         return 0;
 	}, substr.c_str(), wid);
-    printf("measure %i %i %i\n", numchars, len, wid);
     return numchars;
 }
 

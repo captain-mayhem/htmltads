@@ -26,3 +26,5 @@ add_library(babel STATIC
 target_include_directories(babel PUBLIC .)
 
 add_library(Tads::babel ALIAS babel)
+
+tads_source_group(babel ${HTMLTADS_DIR})

@@ -183,6 +183,8 @@ if (EMSCRIPTEN)
 		DESTINATION .)
 endif()
 
+tads_source_group(${htmlt3_target_name} ${HTMLTADS_DIR})
+
 #we only build the runtime for non-windows targets
 if(NOT WIN32)
 	return()
@@ -281,6 +283,8 @@ target_link_options(htmltdb3_tmp PRIVATE
 	/MANIFEST:NO
 )
 
+tads_source_group(htmltdb3_tmp ${HTMLTADS_DIR})
+
 
 make_t3r(htmltdb3 win32/about3.jpg=about.jpg win32/aboutWB3.jpg=aboutwb.jpg)
 
@@ -330,6 +334,8 @@ target_link_libraries(tadsweb PRIVATE
     Urlmon.lib
 	Ws2_32.lib
 )
+
+tads_source_group(tadsweb ${HTMLTADS_DIR})
 
 ###install rules
 

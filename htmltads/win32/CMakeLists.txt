@@ -31,7 +31,11 @@ target_link_libraries(script PRIVATE Scintilla::SciInterface)
 
 set_target_properties(script PROPERTIES SUFFIX .twbAddIn)
 
-install(TARGETS 
+tads_source_group(tads3 ${HTMLTADS_DIR})
+tads_source_group(html ${HTMLTADS_DIR})
+tads_source_group(script ${HTMLTADS_DIR})
+
+install(TARGETS
 	tads3 html script
 	EXPORT TadsTargets
 	RUNTIME DESTINATION .)
