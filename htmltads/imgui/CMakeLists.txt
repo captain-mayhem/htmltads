@@ -143,3 +143,12 @@ add_custom_command(
 		COMMAND ${CMAKE_COMMAND} -E copy_if_different ${CMAKE_SOURCE_DIR}/tads3/charmap/cmaplib.t3r $<TARGET_FILE_DIR:guit3>/charmap/)
 
 tads_source_group(guit3 ${HTMLTADS_DIR})
+
+install(TARGETS guit3
+	DESTINATION .
+)
+
+install(FILES
+	${CMAKE_SOURCE_DIR}/tads3/charmap/cmaplib.t3r
+	DESTINATION charmap
+)
