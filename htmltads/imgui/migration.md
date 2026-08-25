@@ -7,8 +7,11 @@
   (`git log` shows the first commit is literally "Copied platform specific headers for htmltads into
   new folder") and is being converted file-by-file to GLFW + Dear ImGui + OpenGL3, with FreeType for
   font rendering.
-- `htmltads/htmltads/imgui/imgui/` — vendored Dear ImGui + backends (`imgui_impl_glfw`,
-  `imgui_impl_opengl3`) plus its own unused `main.cpp` demo (not part of the `guit3` target).
+- `htmltads/imgui/` — vendored Dear ImGui + backends (`imgui_impl_glfw`,
+  `imgui_impl_opengl3`) plus its own unused `main.cpp` demo (not part of the `guit3` target). Lives
+  top-level alongside the other 3rdparty libs (`glfw`, `freetype`, etc.), not nested under
+  `htmltads/htmltads/imgui/` — that directory is the `guit3` app itself, which includes it via
+  `#include <imgui/imgui.h>` (its `guit3` CMakeLists.txt puts `htmltads/` on the include path).
 - `htmltads/htmltads/emscripten/` — a **separate**, older, parallel port effort that talks to the T3
   VM/console layer directly for a browser build (`hos_emscripten.*`, `htmlemscripten.*`). It does not
   share code with `imgui/` and is not part of the `guit3` target. Worth reconciling later, but out of

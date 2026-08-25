@@ -12,6 +12,8 @@ if (IMGUI_TADS)
 	set (BUILD_SHARED_LIBS OFF)
 	set(SKIP_INSTALL_ALL ON)
 	add_subdirectory(freetype)
+
+	add_subdirectory(imgui)
 endif()
 
 if (WIN32)
