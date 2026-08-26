@@ -30,7 +30,7 @@ Modified
 #include "htmlsys.h"
 #endif
 #ifndef W32FONT_H
-#include "w32font.h"
+#include "guifont.h"
 #endif
 
 

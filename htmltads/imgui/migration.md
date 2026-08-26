@@ -109,7 +109,7 @@ One related, smaller gap noticed while testing (not fixed here, left for later):
   window until they're switched to the `glfw*` equivalents too.
 
 **`-debugwin` opened an unmovable, unclickable window — fixed.** `guit3 -debugwin` (wired up in
-[w32main.cpp:486-563](w32main.cpp#L486-L563)) creates a `CHtmlSys_dbglogwin`, a second top-level
+[guimain.cpp:486-563](guimain.cpp#L486-L563)) creates a `CHtmlSys_dbglogwin`, a second top-level
 `CTadsWin` (`parent == nullptr`) alongside the main window. Correction to an earlier note here: this
 does *not* hit the "real Win32 HWND with no message pump" problem described above — the top-level
 (`parent == nullptr`) branch of `CTadsWin::do_render_content_begin()`
@@ -175,7 +175,7 @@ open" writeup, which describes exactly this for the *main* window, but the fix t
 (`setVisible()` hiding `handle_` for top-level windows) was accidentally scoped to only apply when the
 window also owns a GLFW context (`m_window != 0`). That's true for the main window, but
 `CHtmlSys_dbglogwin` is a *second* top-level window (`parent_ == nullptr`,
-`w32main.cpp:552`); `CTadsSyswin::syswin_create_system_window()`'s GLFW overload
+`guimain.cpp:552`); `CTadsSyswin::syswin_create_system_window()`'s GLFW overload
 ([tadswin.cpp:3617](tadswin.cpp#L3617)) deliberately refuses to create a second real GLFW window ("we
 want only one real main window") and returns `nullptr`, so the debug window's `m_window` is always
 `nullptr`. `setVisible()`'s `if (m_window)` check was therefore always false for it, falling through to
@@ -293,7 +293,7 @@ real, separate Win32 dialog (`#32770` window class) on every startup. Traced it 
 which the T3 engine invokes synchronously (not from within `event_loop()`) whenever it wants to show the
 player a message, most commonly the "no mapping file is available for the local character set" warning
 raised at startup by `tads3/vmerrmsg.cpp` when no charmap file is found for the OS codepage. It routes
-through `w32_msgbox()` in [w32tr.cpp:181](w32tr.cpp#L181), which called `MessageBox()` directly.
+through `w32_msgbox()` in [guitr.cpp:181](guitr.cpp#L181), which called `MessageBox()` directly.
 
 Replaced with `tadswin_message_box()`, a new function in
 [tadswin.cpp](tadswin.cpp)/[tadswin.h](tadswin.h) that mimics `MessageBox()`'s signature and blocking
@@ -318,8 +318,8 @@ build. Verified by rebuilding and launching from `tests\` (which always triggere
 the game now goes straight to its title screen with no popup at all.
 
 **Scope note for next time:** this only converts `w32_msgbox()` (the VM's generic message-box hook,
-`w32tr.cpp:181`). The many other `MessageBox()` call sites — `htmlgui.cpp` (quit/save-overwrite
-confirmations, `foldsel2.cpp`, `htmlpref.cpp`, `w32fndlg.cpp` — see the `grep -i MessageBox` results —
+`guitr.cpp:181`). The many other `MessageBox()` call sites — `htmlgui.cpp` (quit/save-overwrite
+confirmations, `foldsel2.cpp`, `htmlpref.cpp`, `guifndlg.cpp` — see the `grep -i MessageBox` results —
 are still native and were deliberately left alone. Most of those fire *from inside* `event_loop()`'s
 per-frame handling (e.g. a menu command handler), where calling `tadswin_message_box()` would nest a
 second `ImGui::NewFrame()`/`ImGui::Render()` inside the one already in progress and hit an ImGui assert;
@@ -342,8 +342,8 @@ to help prioritize:
 | `tadswebctl.h` | 17 | COM/OLE ActiveX browser control embedding (`exdisp.h`) for the in-game Web UI feature. Legacy IE technology — **recommend dropping**, not porting, unless the Web UI feature is still required (see §4). |
 | `tadsapp.cpp` / `.h` | 13 / 8 | App-level message routing, accelerators, modeless dialog list, MDI handling — tied to the Win32 message pump; needs redesign once there's no HWND to pump. |
 | `foldsel.h` / `foldsel2.cpp` | 11 / 10 | Custom folder-picker dialog - **superseded**. The live call site (Options > Starting tab's Browse button) now uses the ImGui-native `CTadsFolderDialog` (`tadsfolderdlg.h`/`.cpp`); `foldsel.h`/`foldsel2.cpp` are left compiled but unused, same "harmless dead code" reasoning as elsewhere in this port. |
-| `w32fndlg.h` / `.cpp` | 6 / 10 | Find dialog (`CTadsDialogFind`) — **ported** (see §3.3's `CTadsFindDialog` entry); this file itself is left compiled but unused. Its `CTadsDialogFindReplace`/`CTadsDialogFindRegex` classes belong to the out-of-scope Workbench debugger and were never ported. |
-| `tadscbtn.h`, `w32webui.h`, `w32snd.h`, `tadsstat.h`, `htmlpref.h` | 6, 5, 4, 4, 4 | Custom button control, web-UI glue, sound glue, status line, prefs header — all **not started**. |
+| `guifndlg.h` / `.cpp` | 6 / 10 | Find dialog (`CTadsDialogFind`) — **ported** (see §3.3's `CTadsFindDialog` entry); this file itself is left compiled but unused. Its `CTadsDialogFindReplace`/`CTadsDialogFindRegex` classes belong to the out-of-scope Workbench debugger and were never ported. |
+| `tadscbtn.h`, `guiwebui.h`, `guisnd.h`, `tadsstat.h`, `htmlpref.h` | 6, 5, 4, 4, 4 | Custom button control, web-UI glue, sound glue, status line, prefs header — all **not started**. |
 
 Everything else (tadswav/tadsvorb/tadsmidi/tadssnd/tadsreg/tadsimg/tadsjpeg/tadspng/tadscar/tadscsnd/
 tadstab/tadscom) has only 1-3 stray references, mostly just `#include <windows.h>` or a type alias —
@@ -440,7 +440,7 @@ right-click popup (`IDR_DEBUGLOG_POPUP`, loaded via the same `load_context_popup
 left genuinely unported, and it's a deliberate non-issue rather than a gap: `CHtmlSysWin_win32_dbglog`'s
 constructor only calls `load_context_popup(IDR_DEBUGLOG_POPUP)` when `debugger_ifc_ != 0`
 ([htmlgui.cpp](htmlgui.cpp), `CHtmlSysWin_win32_dbglog::CHtmlSysWin_win32_dbglog`), and — per the
-"synchronous virtual interface had to become callback-based" entry in §3.3 — `w32main.cpp`'s only call site
+"synchronous virtual interface had to become callback-based" entry in §3.3 — `guimain.cpp`'s only call site
 in `guit3` always constructs the debug window with a null `debugger_ifc_` (that interface belongs to the
 out-of-scope Workbench debugger/editor, see the "MDI" decision in §4). So this popup is unreachable in the
 client build regardless of porting effort; porting it would be dead code from the moment it landed.
@@ -601,7 +601,7 @@ What changed:
 - `owner_draw()`/`WM_DRAWITEM` handling was dropped — it turned out to be dead code with zero callers
   even in the original Win32 version (nothing in the app ever creates an owner-drawn status part), so
   there was nothing to port.
-- `get_handle()` is kept (returning `0`/null) purely so `w32webui.h` — the not-yet-ported, phase-two
+- `get_handle()` is kept (returning `0`/null) purely so `guiwebui.h` — the not-yet-ported, phase-two
   Web UI code (§4) that still calls `GetClientRect(statusline_->get_handle(), ...)` for its own layout —
   keeps compiling. It's never actually invoked at runtime today since nothing instantiates the Web UI
   control yet.
@@ -692,7 +692,7 @@ regression from the new `do_rightbtn_down()` override intercepting clicks it sho
 
 ### 3.3 Dialogs (preferences, find/replace, folder picker, generic app dialogs)
 All dialog infrastructure (`tadsdlg.cpp`/`tadsdlg2.cpp`, `htmlpref.cpp`, `foldsel2.cpp`,
-`w32fndlg.cpp`) is built on `CreateDialogParam`/`DialogBoxParam` with resource-defined (`.rc`) layouts,
+`guifndlg.cpp`) is built on `CreateDialogParam`/`DialogBoxParam` with resource-defined (`.rc`) layouts,
 `WM_INITDIALOG`/`WM_COMMAND` handlers, and native controls (buttons, tree views, tab controls via
 `tadsdlg2.cpp`'s `CreateWindow("SysTreeView32", ...)`).
 
@@ -818,12 +818,12 @@ whole reason this dialog's writeup insists on describing what a screenshot actua
 follow the exact same deferred pending-flag + completion-callback pattern as `CTadsFileDialog` - `open()`
 is safe to call from a menu click handled mid-frame, `render()` (called from `CHtmlSys_mainwin::do_render()`,
 right after `CTadsFileDialog::render()`) draws the popup and invokes the callback once it closes. Only the
-plain Find dialog (`CTadsDialogFind`, `DLG_FIND`) was ported: `w32fndlg.h`/`.cpp` also defines
+plain Find dialog (`CTadsDialogFind`, `DLG_FIND`) was ported: `guifndlg.h`/`.cpp` also defines
 `CTadsDialogFindReplace`/`CTadsDialogFindRegex` (regex search, whole-word, project-wide scope, an actual
 Replace button) for `DLG_REPLACE`/`DLG_REGEXFIND`, but grepping the whole `imgui/` tree confirmed neither
-class nor either resource ID is ever referenced outside `w32fndlg.cpp` itself - they belong to the
+class nor either resource ID is ever referenced outside `guifndlg.cpp` itself - they belong to the
 Workbench debugger/editor (`CHtmlSys_dbglogwin`), which is out of scope for the guit3 client port (see the
-"MDI" decision in §4). `w32fndlg.cpp`/`.h` are left compiled but unused, same "harmless dead code"
+"MDI" decision in §4). `guifndlg.cpp`/`.h` are left compiled but unused, same "harmless dead code"
 reasoning as the old Options property-sheet code.
 
 The old `find_dlg_` member on `CHtmlSys_mainwin` (a persistent `CTadsDialogFind*`, `new`'d in the
@@ -846,7 +846,7 @@ to begin with). `CHtmlSys_dbglogwin`'s override - which forwards to a separate, 
 `dbghostifc_get_find_text()` on yet another interface (`CHtmlSys_dbglogwin_hostifc`, implemented outside
 this repo entirely, by whatever debugger host embeds it) - just wraps its unchanged synchronous call in an
 immediate callback invocation to satisfy the new signature; this path is additionally dead in practice
-since `w32main.cpp`'s only call site constructs the debug window with a null `debugger_ifc_`, so it always
+since `guimain.cpp`'s only call site constructs the debug window with a null `debugger_ifc_`, so it always
 returns "no text" regardless. `do_find()` itself now passes a lambda to `get_find_text()` and does its
 `execute_find()`/`find_not_found()` work from inside that lambda instead of after a returned value; it
 also takes an `AddRef()`/`Release()` pair around the whole call (mirroring the existing
@@ -939,7 +939,7 @@ caller passes more than one filter group, and a Save-mode overwrite confirmation
 `tadswin_message_box()`. It parses the same Win32 `OPENFILENAME::lpstrFilter` multi-string format
 (`"Desc\0*.ext\0\0"`) callers already had lying around, so none of the filter strings needed rewriting.
 
-Four call sites were converted: `w32main.cpp`'s `get_game_name_cb()` (the VM's "no game given on the
+Four call sites were converted: `guimain.cpp`'s `get_game_name_cb()` (the VM's "no game given on the
 command line" startup callback), `CHtmlSys_mainwin::do_load_new_game_prompt()` (File > Open New Game,
 `htmlgui.cpp`), and both Game Chest-tab browse buttons in
 `CHtmlPreferences::opt_render_gamechest_tab()` (`htmlpref.cpp`). A fifth call site,
@@ -1012,7 +1012,7 @@ last dialog left on the Win32 side. It's now backed by `CTadsFolderDialog`
 field, an "Up" button, double-click-to-enter navigation) with "Select Folder"/Cancel buttons instead of a
 filename field, following the same open()/render() deferred-popup shape as `CTadsFileDialog`/
 `CTadsFindDialog`. `foldsel.h`/`foldsel2.cpp` are left compiled but unused, same "harmless dead code"
-reasoning as the old Options property-sheet code and `w32fndlg.cpp`/`.h`.
+reasoning as the old Options property-sheet code and `guifndlg.cpp`/`.h`.
 
 **This dialog's one real call site is nested one modal deep (inside the already-open Options dialog), and
 that nesting broke in a way the existing pattern's documentation had never actually verified by clicking.**
@@ -1099,7 +1099,7 @@ if a hook is registered it calls that instead of `GetOpenFileName()`/`GetSaveFil
 dialog. Left unregistered (the three native-Win32 targets never call `oss_set_askfile_hook()`), it's
 byte-for-byte the same native dialog as before - verified by rebuilding `tr32h`/`trd32h` standalone after
 the change with no source changes needed on their end. `guit3` registers `askfile_hook()`
-([w32main.cpp](w32main.cpp), right next to the `appctx.get_game_name` setup) at startup.
+([guimain.cpp](guimain.cpp), right next to the `appctx.get_game_name` setup) at startup.
 
 The hook signature deliberately uses only plain C types (`const char *filter`, not `OPENFILENAME *`) -
 `oswin.h` has a standing house rule (see the `HINSTANCE`/`oss_G_hinstance` comment right above it) to stay
@@ -1137,7 +1137,7 @@ loop calls it instead of `draw_frame()` - it's expected to do its own full per-f
 the dialog itself, since `CHtmlSys_mainwin::do_render()` already calls `CTadsFileDialog::render()` as
 part of its normal top-level-popup sequence (see the "File open/save dialog" entry above); calling both
 `render_background()` and `draw_frame()` in the same frame would draw the dialog twice. `askfile_hook()`
-([w32main.cpp](w32main.cpp)) now passes a lambda that calls `win->do_render()` (plus the debug log
+([guimain.cpp](guimain.cpp)) now passes a lambda that calls `win->do_render()` (plus the debug log
 window's `do_render()`, if one is open, matching what `event_loop()` itself does) as the background
 renderer, so the running game - text, menu bar, status line, any open Options/context-menu popups -
 keeps rendering normally underneath, and the file dialog now reads as a floating modal on top of it,
@@ -1267,15 +1267,15 @@ actually dead:
   per-OS design (fontconfig on Linux, CoreText on macOS) whenever that gate comes down — see the
   `font_is_present()` note below, which is the same underlying problem.
 
-`w32font.cpp`/`w32font.h` turned out **not** to be dead code — the doc's earlier "worth checking before
-deleting" note was answered: `CHtmlSysFont_win32` (`w32font.h:35`) is the concrete font class used
+`guifont.cpp`/`guifont.h` turned out **not** to be dead code — the doc's earlier "worth checking before
+deleting" note was answered: `CHtmlSysFont_win32` (`guifont.h:35`) is the concrete font class used
 throughout `htmlgui.cpp` for actual HTML text rendering, and it `: public CTadsFont`, so it's very much
 alive. Its own GDI use (`get_win_font_metrics()`, a `GetDC`/`SelectObject`/`GetTextMetrics`/`ReleaseDC`
 call for ascent/descent/height and the fixed-pitch flag) was real but redundant: FreeType already
 computes the same metrics while loading the font for rendering (in `CTadsFont`'s constructor, via
 `AddFontFromMemoryTTF`), so asking GDI for them again via a second, separate query was unnecessary work
 duplicating data already sitting in the `ImFont`. Replaced with a new private `get_baked()` helper
-(`w32font.h`/`.cpp`) that calls `m_font->GetFontBaked(-logfont_.lf.lfHeight)` (the same pixel size the
+(`guifont.h`/`.cpp`) that calls `m_font->GetFontBaked(-logfont_.lf.lfHeight)` (the same pixel size the
 font was loaded at) and reads `ImFontBaked::Ascent`/`Descent` directly — `descender_height` is
 `-Descent` since FreeType's `Descent` is negative (distance below the baseline) while the old
 `TEXTMETRIC::tmDescent` this replaces is a positive magnitude. Fixed-pitch detection (`TMPF_FIXED_PITCH`
@@ -1312,7 +1312,7 @@ is a working stand-in for the old `GetDeviceCaps` calls.
    (`tadsfont.cpp`) now falls back to `ImGui::GetIO().Fonts->Fonts[0]` - the default font added once in
    `htmlgui.cpp`'s `do_create()` via `AddFontDefault()`, immediately after creating the ImGui context and
    long before any `CTadsFont` exists, so it's always valid regardless of frame timing - instead of
-   pushing `nullptr`. `CHtmlSysFont_win32::get_baked()` (`w32font.cpp`) got the same fallback, so a font
+   pushing `nullptr`. `CHtmlSysFont_win32::get_baked()` (`guifont.cpp`) got the same fallback, so a font
    that can't load its real system data still reports metrics consistent with what's actually rendered
    (the default font's metrics) rather than degenerate zero-height text, and its two callers
    (the constructor and `get_font_metrics()`) no longer need to special-case a null result.
@@ -1493,7 +1493,7 @@ leaving the abstraction for whenever a second platform actually shows up.
 `os_font_family_is_present(const char *fontname, size_t len)` (declared in `tadsfont.h`) is the new
 platform hook - one implementation expected per OS/GUI backend. `CTadsFont::font_is_present()` is now a
 one-line forwarder to it, so every existing call site (`htmlgui.cpp`) is untouched. The
-`EnumFontFamiliesEx()`-based implementation itself moved out of `tadsfont.cpp` into `w32font.cpp` (the
+`EnumFontFamiliesEx()`-based implementation itself moved out of `tadsfont.cpp` into `guifont.cpp` (the
 file that was already the Windows-specific companion to `tadsfont.cpp`'s more OS-neutral core) with no
 logic changes, just a rename and relocation; `font_enum_proc()`/`enum_proc_ctx_t` moved with it into an
 anonymous namespace (they're implementation details of this one backend, not shared). A future
@@ -1505,7 +1505,7 @@ blocks the whole target on non-Windows.
 ### 3.6 Images
 Also good progress: `tadsimg.cpp` uploads to a GL texture and renders with `ImGui::Image()`
 ([tadsimg.cpp:167](tadsimg.cpp#L167)). It still has ~11 `HDC`/DIB references though (old GDI decode
-path likely coexisting with the new GL path), and `w32img.cpp` (a separate, still fully Win32 file) is
+path likely coexisting with the new GL path), and `guiimg.cpp` (a separate, still fully Win32 file) is
 still compiled into `guit3` — needs auditing for what still calls into it vs. what's dead.
 
 ### 3.7 Sound / MIDI
@@ -1521,10 +1521,10 @@ Windows-locked.
 - **Registry** (`tadsreg.cpp` — `RegOpenKeyEx`/`RegQueryValueEx`/`RegSetValueEx`): used for persisted
   settings. Needs a cross-platform key/value store (INI/JSON file, or per-OS: registry on Windows,
   plist on macOS, XDG config dir on Linux).
-- **COM/OLE**: `CoInitialize`/`CoUninitialize` in `w32main.cpp` ([w32main.cpp:817](w32main.cpp#L817),
-  [:883](w32main.cpp#L883)), plus the ActiveX web-control embedding in `tadswebctl.h`/`w32webui.h`. Per
+- **COM/OLE**: `CoInitialize`/`CoUninitialize` in `guimain.cpp` ([guimain.cpp:817](guimain.cpp#L817),
+  [:883](guimain.cpp#L883)), plus the ActiveX web-control embedding in `tadswebctl.h`/`guiwebui.h`. Per
   §4, the Web UI feature must survive but is phase-two work — for phase one, gate
-  `tadswebctl.*`/`w32webui.h` (and the `CoInitialize`/`CoUninitialize` calls that only exist to support
+  `tadswebctl.*`/`guiwebui.h` (and the `CoInitialize`/`CoUninitialize` calls that only exist to support
   it) behind a compile-time flag so `guit3` builds clean without them rather than either porting or
   deleting the feature now.
 - **Win32-only linked libraries** in `imgui/CMakeLists.txt`: `Htmlhelp.lib` (WinHelp — obsolete help
@@ -1532,7 +1532,7 @@ Windows-locked.
   §3.7), `Ws2_32.lib`/`Wininet.lib`/`Mpr.lib` (networking — the repo already vendors `curl/`, which is
   cross-platform and could replace `Wininet` usage), `Shlwapi.lib`, `Version.lib`, `dxguid.lib`. Each of
   these marks a place where cross-platform equivalents need to be chosen.
-- **`RICHED32.DLL`** load in `w32main.cpp:828` and the debug console (`init_debug_console`/
+- **`RICHED32.DLL`** load in `guimain.cpp:828` and the debug console (`init_debug_console`/
   `close_debug_console`) — Windows-specific, need auditing for whether they're still needed once
   dialogs move to ImGui.
 - **`event_loop()` currently also unconditionally calls `ImGui::ShowDemoWindow()`**
@@ -1541,7 +1541,7 @@ Windows-locked.
 
 ## 4. Decisions (resolved)
 
-- **Embedded Web UI** (IE ActiveX control, `tadswebctl.*`/`w32webui.h`): needs to survive long-term,
+- **Embedded Web UI** (IE ActiveX control, `tadswebctl.*`/`guiwebui.h`): needs to survive long-term,
   but is explicitly a **second-phase** concern, not part of the initial `guit3` port. For phase one, it
   should just **compile clean without Win32 calls** — wrap the ActiveX/COM-specific code in `#ifdef`s
   (e.g. gated on a `TADS_WEBUI_ENABLED`-style flag, off by default for `guit3`) or otherwise stub it out,
@@ -1580,7 +1580,7 @@ Windows-locked.
    dialog, the Find dialog (Edit > Find Text on Current Page...), and the folder-picker dialog (Options >
    Starting tab's Browse button) are all **done**. No dialogs remain on the Win32 side.
 5. **Font/image cleanup** (§3.5, §3.6): remove now-dead GDI code paths once nothing still calls them.
-6. **Gate the Web UI behind `#ifdef`s** (§3.8/§4): get `tadswebctl.*`/`w32webui.h` and their
+6. **Gate the Web UI behind `#ifdef`s** (§3.8/§4): get `tadswebctl.*`/`guiwebui.h` and their
    COM/ActiveX calls compiling out cleanly for `guit3` rather than porting them now.
 7. **Audio backend** and remaining **platform services** (§3.7, §3.8): registry/settings storage,
    networking (curl instead of Wininet), help/rich-edit dependency audit.

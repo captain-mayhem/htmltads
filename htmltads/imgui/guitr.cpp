@@ -23,7 +23,7 @@ Modified
 #include <Windows.h>
 
 #ifndef W32MAIN_H
-#include "w32main.h"
+#include "guimain.h"
 #endif
 #ifndef HTMLGUI_H
 #include "htmlgui.h"
@@ -35,7 +35,7 @@ Modified
 #include "tadsapp.h"
 #endif
 #ifndef W32VER_H
-#include "w32ver.h"
+#include "guiver.h"
 #endif
 
 

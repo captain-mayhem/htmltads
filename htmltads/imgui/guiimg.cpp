@@ -53,7 +53,7 @@ Modified
 #include "tadsmng.h"
 #endif
 #ifndef W32IMG_H
-#include "w32img.h"
+#include "guiimg.h"
 #endif
 #ifndef HTMLGUI_H
 #include "htmlgui.h"

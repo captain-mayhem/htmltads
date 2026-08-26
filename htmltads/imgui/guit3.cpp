@@ -24,7 +24,7 @@ Modified
 #include <Windows.h>
 
 #include "t3main.h"
-#include "w32main.h"
+#include "guimain.h"
 #include "hos_gui.h"
 
 /* include the TADS 2 VM version information */

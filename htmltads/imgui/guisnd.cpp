@@ -47,7 +47,7 @@ Modified
 #include "htmlpref.h"
 #endif
 #ifndef W32SND_H
-#include "w32snd.h"
+#include "guisnd.h"
 #endif
 #ifndef HTMLGUI_H
 #include "htmlgui.h"

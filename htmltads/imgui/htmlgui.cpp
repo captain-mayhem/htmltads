@@ -92,10 +92,10 @@ Modified
 #include "htmlrc.h"
 #endif
 #ifndef W32FONT_H
-#include "w32font.h"
+#include "guifont.h"
 #endif
 #ifndef W32SND_H
-#include "w32snd.h"
+#include "guisnd.h"
 #endif
 #ifndef TADSDLG_H
 #include "tadsdlg.h"
@@ -107,7 +107,7 @@ Modified
 #include "tadsole.h"
 #endif
 #ifndef W32MAIN_H
-#include "w32main.h"
+#include "guimain.h"
 #endif
 #ifndef TADSREG_H
 #include "tadsreg.h"

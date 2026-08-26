@@ -36,11 +36,11 @@ add_executable(guit3
 	../win32/mpegamp/mpegamp_w32.cpp
 	
 	htmlgui.cpp
-	w32main.cpp
-	w32font.cpp
-	w32font.h
-	w32snd.cpp
-	w32img.cpp
+	guimain.cpp
+	guifont.cpp
+	guifont.h
+	guisnd.cpp
+	guiimg.cpp
 	hos_gui.cpp
 	tadswin.cpp
 	tadsapp.cpp
@@ -71,7 +71,7 @@ add_executable(guit3
 	tadsole.cpp
 	oem_w32.c
 	foldsel2.cpp
-	w32fndlg.cpp
+	guifndlg.cpp
 	iconmenu.cpp
 	tadswebctl.cpp
 	tadscom.cpp
@@ -80,11 +80,11 @@ add_executable(guit3
 	
 	hos_gui.h
 	
-	w32tr.cpp
-	w32nogch.cpp
-	w32trt3.cpp
+	guitr.cpp
+	guinogch.cpp
+	guitrt3.cpp
 	t3main.cpp
-	w32t3.cpp
+	guit3.cpp
 
 	../win32/htmlt3.rc
 )

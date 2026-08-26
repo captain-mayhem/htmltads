@@ -56,7 +56,7 @@ Modified
 #include "tadsfolderdlg.h"
 #endif
 #ifndef W32MAIN_H
-#include "w32main.h"
+#include "guimain.h"
 #endif
 
 #include <imgui/imgui.h>

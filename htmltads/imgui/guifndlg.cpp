@@ -29,7 +29,7 @@ Modified
 #include "tadsdlg.h"
 #endif
 #ifndef W32FNDLG_H
-#include "w32fndlg.h"
+#include "guifndlg.h"
 #endif
 #ifndef HTMLRES_H
 #include "htmlres.h"

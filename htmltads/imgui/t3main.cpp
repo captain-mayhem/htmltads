@@ -42,7 +42,7 @@ Modified
 
 /* HTML TADS includes */
 #include "t3main.h"
-#include "w32main.h"
+#include "guimain.h"
 #include "htmlgui.h"
 #include "htmlpref.h"
 #include "tadsapp.h"

@@ -38,7 +38,7 @@ Modified
 #include "htmlpref.h"
 #endif
 #ifndef W32MAIN_H
-#include "w32main.h"
+#include "guimain.h"
 #endif
 #ifndef TADSIMG_H
 #include "tadsimg.h"

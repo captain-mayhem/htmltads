@@ -33,10 +33,10 @@ Modified
 
 /* HTML TADS includes */
 #ifndef W32MAIN_H
-#include "w32main.h"
+#include "guimain.h"
 #endif
 #include "htmlver.h"
-#include "w32ver.h"
+#include "guiver.h"
 #include "osifcnet.h"
 
 

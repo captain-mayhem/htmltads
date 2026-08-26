@@ -51,7 +51,7 @@ Modified
 #include "htmlrf.h"
 #endif
 #ifndef W32MAIN_H
-#include "w32main.h"
+#include "guimain.h"
 #endif
 #ifndef TADSDLG_H
 #include "tadsdlg.h"
@@ -75,7 +75,7 @@ Modified
 #include "htmlres.h"
 #endif
 #ifndef W32WEBUI_H
-#include "w32webui.h"
+#include "guiwebui.h"
 #endif
 
 
