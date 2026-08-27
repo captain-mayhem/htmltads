@@ -9921,6 +9921,9 @@ CHtmlSys_mainwin::CHtmlSys_mainwin(CHtmlFormatterInput *formatter,
     /* no command-line input is in progress */
     input_in_progress_ = FALSE;
 
+    /* no previous "find" text yet */
+    find_text_[0] = '\0';
+
     /* presume we won't have a stand-alone executable */
     standalone_exe_ = FALSE;    
 
