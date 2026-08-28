@@ -9225,7 +9225,7 @@ void CHtmlSysWin_win32_Input::process_command(
         || strnicmp(cmd, "telnet:", 7) == 0)
     {
         /* start the web browser */
-        if ((unsigned long)ShellExecute(
+        if ((INT_PTR)ShellExecute(
             0, "open", cmd, 0, 0, SW_SHOWNORMAL) <= 32)
         {
             char buf[256];
@@ -9982,7 +9982,8 @@ CHtmlSys_mainwin::CHtmlSys_mainwin(CHtmlFormatterInput *formatter,
      *   code page, and use this as the default character set.  
      */
     code_page = GetACP();
-    TranslateCharsetInfo((DWORD *)code_page, &csinfo, TCI_SRCCODEPAGE);
+    /* with TCI_SRCCODEPAGE the API reads the "pointer" as the code page number */
+    TranslateCharsetInfo((DWORD *)(UINT_PTR)code_page, &csinfo, TCI_SRCCODEPAGE);
     default_charset_.codepage = code_page;
     default_charset_.charset = csinfo.ciCharset;
 
@@ -11500,8 +11501,9 @@ void CHtmlSys_mainwin::advise_load_charmap(const char *ldesc,
     if (code_page == 0)
         return;
 
-    /* translate the code page to a character set identifier */
-    TranslateCharsetInfo((DWORD *)code_page, &csinfo, TCI_SRCCODEPAGE);
+    /* translate the code page to a character set identifier
+     * (with TCI_SRCCODEPAGE the API reads the "pointer" as the code page) */
+    TranslateCharsetInfo((DWORD *)(UINT_PTR)code_page, &csinfo, TCI_SRCCODEPAGE);
 
     /* remember the default character set identifier */
     default_charset_.codepage = code_page;
@@ -16797,7 +16799,7 @@ void CHtmlSys_abouttadswin::process_command(
     else if (strnicmp(cmd, "http:", 5) == 0)
     {
         /* it's a web link - fire it off in a browser */
-        if ((unsigned long)ShellExecute(
+        if ((INT_PTR)ShellExecute(
             0, "open", cmd, 0, 0, SW_SHOWNORMAL) <= 32)
         {
             char buf[256];

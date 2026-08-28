@@ -174,8 +174,14 @@ BOOL CHtmlDbgWiz::do_dialog_msg(HWND hwnd, UINT message,
         /* draw with black text and no background */
         SetTextColor((HDC)wpar, RGB(0x00,0x00,0x00));
         SetBkMode((HDC)wpar, TRANSPARENT);
-        return (BOOL)GetStockObject(HOLLOW_BRUSH);
-        break;
+        /*
+         *   the dialog proc's "real" return value is the brush handle, which
+         *   is pointer-sized - return it via DWLP_MSGRESULT instead of
+         *   truncating it into the BOOL return
+         */
+        SetWindowLongPtr(handle_, DWLP_MSGRESULT,
+                         (LONG_PTR)GetStockObject(HOLLOW_BRUSH));
+        return TRUE;
 
     case WM_NOTIFY:
         /* 

@@ -1047,7 +1047,14 @@ public:
             /* draw with black text and no background */
             SetTextColor((HDC)wpar, RGB(0x00,0x00,0x00));
             SetBkMode((HDC)wpar, TRANSPARENT);
-            return (BOOL)GetStockObject(HOLLOW_BRUSH);
+            /*
+             *   the "real" return value for a dialog proc is the brush
+             *   handle, which is pointer-sized - hand it back via
+             *   DWLP_MSGRESULT rather than truncating it into the BOOL return
+             */
+            SetWindowLongPtr(handle_, DWLP_MSGRESULT,
+                             (LONG_PTR)GetStockObject(HOLLOW_BRUSH));
+            return TRUE;
 
         default:
             break;
@@ -5869,8 +5876,8 @@ void CHtmlSys_dbgmain::do_create()
     GetComboBoxInfo(searchbox_, &cbi);
 
     /* "subclass" the combo box's edit field */
-    searchbox_orig_winproc_ = (WNDPROC)SetWindowLong(
-        cbi.hwndItem, GWLP_WNDPROC, (UINT_PTR)&searchbox_winproc);
+    searchbox_orig_winproc_ = (WNDPROC)SetWindowLongPtr(
+        cbi.hwndItem, GWLP_WNDPROC, (LONG_PTR)&searchbox_winproc);
 
     /* use the system font in the combo */
     SendMessage(searchbox_, WM_SETFONT,
@@ -11643,7 +11650,7 @@ initial_checks:
             /* generate an IFID */
             sprintf(seed, "%s%s%lx%lx%lx%lx",
                     _strtime(tbuf), _strdate(dbuf),
-                    GetTickCount(), (long)&buf,
+                    GetTickCount(), (unsigned long)(ULONG_PTR)&buf,
                     GetCurrentProcessId(), GetCurrentThreadId());
             tads_generate_ifid(ifid, sizeof(ifid), seed);
 
@@ -13586,12 +13593,12 @@ int CHtmlSys_dbgmain::run_command_sub(const textchar_t *exe_name,
         mainwin->dbg_printf(FALSE, ">\"%s\"\n", cmdline);
 
         /* run the program */
-        unsigned long code = (unsigned long)ShellExecute(
+        INT_PTR code = (INT_PTR)ShellExecute(
             0, 0, cmdline, 0, 0, SW_SHOWNORMAL);
 
         /* any result code <= 32 indicates an error */
         if (code <= 32)
-            *exit_code = code + 1;
+            *exit_code = (int)(code + 1);
 
         /* successfully 'executed' */
         return 0;
@@ -16853,7 +16860,7 @@ int CHtmlSys_dbgmain::open_in_text_editor(const textchar_t *fname,
                 exinfo.lpDirectory = 0;
                 exinfo.nShow = SW_SHOWNORMAL;
                 if (!ShellExecuteEx(&exinfo)
-                    || (unsigned long)exinfo.hInstApp <= 32
+                    || (INT_PTR)exinfo.hInstApp <= 32
                     || exinfo.hProcess == 0)
                 {
                     /* 
@@ -16900,9 +16907,9 @@ int CHtmlSys_dbgmain::open_in_text_editor(const textchar_t *fname,
         os_get_path_name(filedir, sizeof(filedir), path);
         
         /* invoke the editor */
-        if ((unsigned long)ShellExecute(0, "open", prog,
-                                        expanded_args.get(), filedir,
-                                        SW_SHOWNORMAL) <= 32)
+        if ((INT_PTR)ShellExecute(0, "open", prog,
+                                  expanded_args.get(), filedir,
+                                  SW_SHOWNORMAL) <= 32)
         {
             /* show the error */
             MessageBox(handle_, "Error executing text editor application.  "

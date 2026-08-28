@@ -66,8 +66,8 @@ private:
     static LRESULT CALLBACK S_subclass_proc(
         HWND hwnd, UINT msg, WPARAM wpar, LPARAM lpar);
 
-    /* original window procedure for the toolbar */
-    LONG defproc_;
+    /* original window procedure for the toolbar (pointer-sized) */
+    LONG_PTR defproc_;
 
     /* message hook procedure for menu message filtering */
     void menu_hook(int code, WPARAM wpar, LPARAM lpar);

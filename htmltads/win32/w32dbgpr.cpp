@@ -4180,7 +4180,7 @@ protected:
                 
                 /* it's a match - add it to the combo */
                 sprintf(cmdbuf, "%s (%s (%s))",
-                        cur->cmd->sym, curkey, cur->tab);
+                        cur->cmd->sym, curkey, cur->tab.get());
                 SendMessage(cmdcb, CB_ADDSTRING, 0, (LPARAM)cmdbuf);
             }
         }
@@ -7846,7 +7846,7 @@ int CHtmlDialogBuildAdv::do_command(WPARAM cmd, HWND ctl)
         }
 
         /* display the help file for the compiler options */
-        if ((unsigned long)ShellExecute(
+        if ((INT_PTR)ShellExecute(
             0, 0, buf, 0, 0, SW_SHOWNORMAL) <= 32)
             MessageBox(GetParent(handle_),
                        "Couldn't open help.  You must have a web "

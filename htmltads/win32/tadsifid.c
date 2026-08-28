@@ -226,7 +226,7 @@ static void isaac_gen_seed(struct isaacctx *ctx, const char *seed_string)
      */
     hwnd = CreateWindow("STATIC", "test", WS_POPUPWINDOW | WS_CAPTION,
                         CW_USEDEFAULT, CW_USEDEFAULT, 0, 0, 0, 0, 0, 0);
-    ctx->rsl[1] = (unsigned long)hwnd;
+    ctx->rsl[1] = (unsigned long)(ULONG_PTR)hwnd;  /* entropy only; truncation ok */
     DestroyWindow(hwnd);
 
     /* 

@@ -1357,7 +1357,7 @@ void CHtmlDbgProjWin::create_tree()
     /* create a tree control filling our whole client area */
     tree_ = CreateWindowEx(ex_style, WC_TREEVIEW, "project tree", style,
                            0, 0, rc.right, rc.bottom, handle_,
-                           (HMENU)TREEVIEW_ID,
+                           (HMENU)(UINT_PTR)TREEVIEW_ID,
                            CTadsApp::get_app()->get_instance(), 0);
 
     /* register ourselves as the drag-drop handler for the treeview */
@@ -6888,8 +6888,8 @@ void CHtmlDbgProjWin::open_item(HTREEITEM item)
         }
 
         /* ask the OS to open the file */
-        if ((unsigned long)ShellExecute(0, "open", fname,
-                                        0, 0, SW_SHOWNORMAL) <= 32)
+        if ((INT_PTR)ShellExecute(0, "open", fname,
+                                  0, 0, SW_SHOWNORMAL) <= 32)
         {
             /* that failed - show an error */
             MessageBox(dbgmain_->get_handle(),

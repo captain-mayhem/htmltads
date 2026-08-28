@@ -3710,7 +3710,7 @@ void CHtmlDbgExprWin::clear_config(CHtmlDebugConfig *config,
     textchar_t element[50];
 
     /* build our element name */
-    sprintf(element, "expression list %d", panel_num);
+    sprintf(element, "expression list %d", (int)panel_num);
 
     /* clear out any existing list */
     config->clear_strlist(varname, element);
@@ -3735,7 +3735,7 @@ void CHtmlDbgExprWin::save_config(CHtmlDebugConfig *config,
          *   can distinguish this expression list from those of other panels
          *   within this main window 
          */
-        sprintf(element, "expression list %d", panel_num);
+        sprintf(element, "expression list %d", (int)panel_num);
         
         /* clear out any existing list */
         config->clear_strlist(varname, element);
@@ -3766,7 +3766,7 @@ void CHtmlDbgExprWin::save_config(CHtmlDebugConfig *config,
     }
         
     /* save my separator position */
-    sprintf(element, "sep xpos %d", panel_num);
+    sprintf(element, "sep xpos %d", (int)panel_num);
     config->setval(varname, element, sep_xpos_);
 }
 
@@ -3782,7 +3782,7 @@ void CHtmlDbgExprWin::load_config(CHtmlDebugConfig *config,
 
     /* load my separator position */
     int x;
-    sprintf(element, "sep xpos %d", panel_num);
+    sprintf(element, "sep xpos %d", (int)panel_num);
     if (!config->getval(varname, element, &x))
         sep_xpos_ = x;
 
@@ -3794,7 +3794,7 @@ void CHtmlDbgExprWin::load_config(CHtmlDebugConfig *config,
          *   can distinguish this expression list from those of other panels
          *   within this main window 
          */
-        sprintf(element, "expression list %u", panel_num);
+        sprintf(element, "expression list %u", (unsigned)panel_num);
         
         /* clear out the list */
         begin_refresh(0);

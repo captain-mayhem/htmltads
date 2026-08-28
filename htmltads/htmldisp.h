@@ -237,6 +237,16 @@ public:
     static void operator delete(void *ptr);
 
     /*
+     *   Matching placement delete.  The compiler calls this (never client
+     *   code) if a constructor throws after the placement 'new' above; it
+     *   must mirror that 'new' signature or MSVC warns C4291 at every
+     *   'new (formatter) CHtmlDispXxx(...)' call site.  We just route to the
+     *   ordinary delete, which reads the stored heap-id prefix to decide
+     *   between the formatter heap and the system heap.
+     */
+    static void operator delete(void *ptr, class CHtmlFormatter *formatter);
+
+    /*
      *   Get/set the line ID.  The formatter needs to be able to tell when
      *   two adjacent items in the display list are in different lines.
      *   To accomplish this, it tags each item with a line ID; upon

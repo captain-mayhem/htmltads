@@ -297,11 +297,12 @@ protected:
             char *p;
 
             /* get the title - if it's a resource string, read it in */
-            if ((DWORD)psh_->ppsp[i].pszTitle <= 0xffff)
+            if ((ULONG_PTR)psh_->ppsp[i].pszTitle <= 0xffff)
             {
                 /* get the string */
                 LoadString(CTadsApp::get_app()->get_instance(),
-                           (UINT)psh_->ppsp[i].pszTitle, buf, sizeof(buf));
+                           (UINT)(ULONG_PTR)psh_->ppsp[i].pszTitle,
+                           buf, sizeof(buf));
             }
             else
             {

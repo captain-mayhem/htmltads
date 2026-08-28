@@ -245,7 +245,7 @@ LONG WINAPI exc_handler(EXCEPTION_POINTERS *info)
 
     /* put in our own address for calculating the relative base address */
     strcpy(buf, "exc_handler = ");
-    hex_to_str(buf + 14, (DWORD)exc_handler);
+    hex_to_str(buf + 14, (DWORD)(ULONG_PTR)exc_handler);
     strcpy(buf + 22, "\r\n");
     WriteFile(hfile, buf, 24, &actual, 0);
 
@@ -277,7 +277,7 @@ LONG WINAPI exc_handler(EXCEPTION_POINTERS *info)
          *   stack address than inner ones, because the stack grows
          *   downwards 
          */
-        if ((DWORD *)*ebp <= ebp)
+        if ((DWORD *)(ULONG_PTR)*ebp <= ebp)
             break;
 
         /* display the return address */
@@ -287,7 +287,7 @@ LONG WINAPI exc_handler(EXCEPTION_POINTERS *info)
         WriteFile(hfile, buf, 10, &actual, 0);
 
         /* move on to the enclosing frame */
-        ebp = (DWORD *)*ebp;
+        ebp = (DWORD *)(ULONG_PTR)*ebp;
     }
 
     /* close the file */

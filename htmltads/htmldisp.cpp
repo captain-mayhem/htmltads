@@ -321,11 +321,21 @@ void CHtmlDisp::operator delete(void *ptr)
 
     case HTMLDISP_HEAPID_SYS:
         /*
-         *   it came from the system heap - delete the memory as normal 
+         *   it came from the system heap - delete the memory as normal
          */
         ::operator delete(ptr);
         break;
     }
+}
+
+/*
+ *   Placement delete matching operator new(size_t, CHtmlFormatter *).  Invoked
+ *   only by the compiler when a constructor throws; route to the ordinary
+ *   delete, which uses the stored heap-id prefix to free the block correctly.
+ */
+void CHtmlDisp::operator delete(void *ptr, CHtmlFormatter *)
+{
+    CHtmlDisp::operator delete(ptr);
 }
 
 

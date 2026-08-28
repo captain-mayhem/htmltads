@@ -508,7 +508,7 @@ int CTadsMidiFilePlayer::set_up_player(HWND hwnd)
         /* try opening a stream on this MIDI device */
         MMRESULT res = midiStreamOpen(
             &hmidistrm_, &midi_dev_id_, (DWORD)1,
-            (DWORD)hwnd, (DWORD)this, CALLBACK_WINDOW);
+            (DWORD_PTR)hwnd, (DWORD_PTR)this, CALLBACK_WINDOW);
         
         /* if that succeeded, we can stop searching */
         if (res == MMSYSERR_NOERROR)
@@ -1035,7 +1035,7 @@ int CTadsMidiFilePlayerBuffer::prepare_header(HMIDISTRM hmidistrm,
      *   its parameter, to locate the CTadsMidiFilePlayer object to
      *   dispatch the event to the player event callback 
      */
-    midihdr_.dwUser = (DWORD)player;
+    midihdr_.dwUser = (DWORD_PTR)player;
 
     /* initialize the rest of the header */
     midihdr_.dwFlags = 0;

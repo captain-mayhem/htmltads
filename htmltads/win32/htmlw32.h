@@ -3471,8 +3471,8 @@ public:
         /* get the selection range */
         if (get_sel_range(&fmt, &start, &end))
         {
-            *a = (void *)start;
-            *b = (void *)end;
+            *a = (void *)(ULONG_PTR)start;
+            *b = (void *)(ULONG_PTR)end;
             return TRUE;
         }
         return FALSE;
@@ -3480,7 +3480,7 @@ public:
 
     /* get a spot's position - the spot handle is simply the position */
     virtual unsigned long get_spot_pos(void *spot)
-        { return (unsigned long)spot; }
+        { return (unsigned long)(ULONG_PTR)spot; }
 
     /* enter/exit size/move operation - pass these along to our panel */
     void do_entersizemove()
