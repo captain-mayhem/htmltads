@@ -111,293 +111,159 @@ void CTadsImage::delete_image()
 }
 
 /*
- *   Draw the image 
+ *   Draw the image.
+ *
+ *   The image lives in an OpenGL texture (see create_texture()); we render it
+ *   through ImGui.  'pos' is the destination rectangle in the current ImGui
+ *   window's local coordinate space.  The legacy GDI blit path (CreateDC /
+ *   StretchBlt / AlphaBlend / a 1bpp AND-mask) has been removed - guit3 has no
+ *   HDC to draw into.
  */
 void CTadsImage::draw(CTadsWin *win, CHtmlRect *pos,
                       htmlimg_draw_mode_t mode)
 {
-    HDC hdc;
-    long ht, wid;
-    int blt_mode;
-    int old_mode;
-    HDC src_dc = 0;
-    BLENDFUNCTION bf;
-    BOOL (WINAPI *alphaproc)
-        (HDC, int, int, int, int, HDC, int, int, int, int, BLENDFUNCTION);
-
-    if (ImGui::GetCurrentContext()->CurrentWindow != nullptr) {
-        ImVec2 uv0(0, 0), uv1(1, 1);
-
-        switch (mode) {
-            switch (mode)
-            {
-            case HTMLIMG_DRAW_CLIP:
-                /*
-                 *   draw at exact size, aligning at upper left of destination
-                 *   area, and clipping if it's too big
-                 */
-                wid = width_ > (unsigned long)(pos->right - pos->left)
-                    ? pos->right - pos->left : width_;
-                ht = height_ > (unsigned long)(pos->bottom - pos->top)
-                    ? pos->bottom - pos->top : height_;
-
-				uv1.x = (float)wid / width_;
-				uv1.y = (float)ht / height_;
-                break;
-
-            case HTMLIMG_DRAW_STRETCH:
-                break;
-
-            case HTMLIMG_DRAW_TILE:
-                /*
-                 *   draw at the exact size as many times as necessary to tile the
-                 *   area
-                 */
-                wid = width_ < (unsigned long)(pos->right - pos->left)
-                    ? pos->right - pos->left : width_;
-                ht = height_ < (unsigned long)(pos->bottom - pos->top)
-                    ? pos->bottom - pos->top : height_;
-
-                uv1.x = (float)wid / width_;
-                uv1.y = (float)ht / height_;
-                break;
-            }
-        }
-        ImGui::SetCursorPos(ImVec2(pos->left, pos->top));
-        ImGui::Image((ImTextureID)(intptr_t)m_texture, ImVec2(pos->right - pos->left, pos->bottom - pos->top), ImVec2(0,0), uv1);
-    }
-
-    /* don't do anything if not drawing */
-    if ((hdc = win->gethdc()) == 0)
+    /* nothing to draw without an ImGui window to draw into */
+    ImGuiContext *ctx = ImGui::GetCurrentContext();
+    if (ctx == nullptr || ctx->CurrentWindow == nullptr
+        || width_ == 0 || height_ == 0)
         return;
 
-    /* 
-     *   get the AlphaBlend address in case we need it; don't bother with it
-     *   if we have a mask, since we'll just render with the mask instead 
+    /*
+     *   Make sure the texture exists.  It's normally created when the image
+     *   is decoded, but that can happen before the OpenGL context is ready
+     *   (e.g. resources loaded during startup), so create it here on first
+     *   use as a fallback.
      */
-    alphaproc = (mask_ == 0 ? get_alphablend_proc() : 0);
+    if (m_texture == 0 && pix_ != 0)
+        create_texture();
+    if (m_texture == 0)
+        return;
 
-    /* create a source DC, and select the DIB section into it */
-    src_dc = CreateCompatibleDC(hdc);
-    SelectObject(src_dc, dibsect_);
+    long dst_wid = pos->right - pos->left;
+    long dst_ht = pos->bottom - pos->top;
+    if (dst_wid <= 0 || dst_ht <= 0)
+        return;
 
-    /* use halftones for good scaling */
-    old_mode = SetStretchBltMode(hdc, HALFTONE);
-    SetBrushOrgEx(hdc, 0, 0, 0);
+    /*
+     *   The texture is stored top-down with straight alpha, so the natural UV
+     *   range (0,0)-(1,1) maps the whole image over the destination rect,
+     *   which is exactly what HTMLIMG_DRAW_STRETCH wants.
+     */
+    ImVec2 draw_size((float)dst_wid, (float)dst_ht);
+    ImVec2 uv0(0.0f, 0.0f), uv1(1.0f, 1.0f);
 
-
-    /* set up the BLENDFUNCTION if we're using alpha blending */
-    if (alphaproc != 0 && has_alpha_)
-    {
-        /* 
-         *   set up to copy from the source image; we don't use constant
-         *   alpha, so set the constant alpha to max (0xff) 
-         */
-        bf.BlendOp = AC_SRC_OVER;
-        bf.BlendFlags = 0;
-        bf.SourceConstantAlpha = 0xff;
-        bf.AlphaFormat = AC_SRC_ALPHA;
-    }
-
-    /* presume we'll draw in 'source copy' mode */
-    blt_mode = SRCCOPY;
-
-    /* if we have a mask, draw it first */
-    if (mask_ != 0)
-    {
-        /* 
-         *   AND the mask to set background pixels to black wherever we're
-         *   drawing opaque image pixels 
-         */
-        draw_mask(hdc, win, pos, mode);
-
-        /* set the drawing mode to OR for the image */
-        blt_mode = SRCPAINT;
-    }
-
-    /* figure out how we're going to draw the image into the given area */
-    switch(mode)
+    switch (mode)
     {
     case HTMLIMG_DRAW_CLIP:
-        /* 
-         *   draw at exact size, aligning at upper left of destination
-         *   area, and clipping if it's too big 
+        /*
+         *   draw at native size, aligned at the top left of the destination
+         *   area, clipping (never scaling) if the image is larger
          */
-        wid = width_ < (unsigned long)(pos->right - pos->left)
-              ? width_ : pos->right - pos->left;
-        ht = height_ < (unsigned long)(pos->bottom - pos->top)
-             ? height_ : pos->bottom - pos->top;
-
-        /* display the bitmap in the appropriate mode */
-        if (has_alpha_ && alphaproc != 0)
-            (*alphaproc)(hdc, pos->left, pos->top, wid, ht,
-                         src_dc, 0, 0, wid, ht, bf);
-        else
-            StretchBlt(hdc, pos->left, pos->top, wid, ht,
-                       src_dc, 0, 0, wid, ht, blt_mode);
+        {
+            long wid = (long)width_ < dst_wid ? (long)width_ : dst_wid;
+            long ht = (long)height_ < dst_ht ? (long)height_ : dst_ht;
+            draw_size = ImVec2((float)wid, (float)ht);
+            uv1.x = (float)wid / (float)width_;
+            uv1.y = (float)ht / (float)height_;
+        }
         break;
 
     case HTMLIMG_DRAW_STRETCH:
-        /*
-         *   stretch the image to fill the given area 
-         */
-        if (has_alpha_ && alphaproc != 0)
-            (*alphaproc)(hdc, pos->left, pos->top,
-                         pos->right - pos->left, pos->bottom - pos->top,
-                         src_dc, 0, 0, width_, height_, bf);
-        else
-            StretchBlt(hdc, pos->left, pos->top,
-                       pos->right - pos->left, pos->bottom - pos->top,
-                       src_dc, 0, 0, width_, height_, blt_mode);
+        /* stretch to fill the destination area - handled by the defaults */
         break;
 
     case HTMLIMG_DRAW_TILE:
         /*
-         *   draw at the exact size as many times as necessary to tile the
-         *   area 
+         *   repeat the image as many times as needed to fill the destination
+         *   area; GL_REPEAT wrapping on the texture turns a >1 UV range into
+         *   tiling for us
          */
-        {
-            long curx, cury;
-
-            for (curx = pos->left ; curx < pos->right ; curx += width_)
-            {
-                for (cury = pos->top ; cury < pos->bottom ; cury += height_)
-                {
-                    /* 
-                     *   draw the image at the current tile position,
-                     *   clipping if necessary 
-                     */
-                    wid = width_ < (unsigned long)(pos->right - curx)
-                          ? width_ : pos->right - curx;
-                    ht = height_ < (unsigned long)(pos->bottom - cury)
-                         ? height_ : pos->bottom - cury;
-
-                    /* display the bitmap */
-                    if (has_alpha_ && alphaproc != 0)
-                        (*alphaproc)(hdc, curx, cury, wid, ht,
-                                     src_dc, 0, 0, wid, ht, bf);
-                    else
-                        StretchBlt(hdc, curx, cury, wid, ht,
-                                   src_dc, 0, 0, wid, ht, blt_mode);
-                }
-            }
-        }
+        uv1.x = (float)dst_wid / (float)width_;
+        uv1.y = (float)dst_ht / (float)height_;
         break;
     }
 
-    /* restore the old stretch-blt mode */
-    SetStretchBltMode(hdc, old_mode);
-
-    /* delete our source DC */
-    DeleteDC(src_dc);
+    ImGui::SetCursorPos(ImVec2((float)pos->left, (float)pos->top));
+    ImGui::Image((ImTextureID)(intptr_t)m_texture, draw_size, uv0, uv1);
 }
 
 /*
- *   Draw the mask
+ *   Upload the decoded pixel buffer to an OpenGL texture.
+ *
+ *   pix_ is a Windows-DIB-style buffer: rows run bottom-up, each row is padded
+ *   to a 4-byte boundary, and pixels are in BGR order (24bpp) or pre-multiplied
+ *   BGRA order (32bpp - the decoders pre-multiply by alpha for the old
+ *   AlphaBlend path).  We convert to a top-down, straight-alpha RGBA image
+ *   before uploading: the Microsoft OpenGL 1.1 headers don't reliably expose
+ *   GL_BGRA, and ImGui's blend function expects straight (non-pre-multiplied)
+ *   alpha.  This matches the conversion the toolbar-icon loader in htmlgui.cpp
+ *   already does.
  */
-void CTadsImage::draw_mask(HDC hdc, CTadsWin *win, CHtmlRect *pos,
-                           htmlimg_draw_mode_t mode)
+void CTadsImage::create_texture()
 {
-    struct
+    int bpp = (bpp_ != 0 ? bpp_ : 24);
+
+    /* we only know how to handle 24- and 32-bit pixel buffers */
+    if (pix_ == 0 || width_ == 0 || height_ == 0 || (bpp != 24 && bpp != 32))
     {
-        BITMAPINFO bmi;
-        RGBQUAD clr;
-    }
-    bmi;
-    long ht, wid;
-
-    /* fill in the bitmap info header */
-    bmi.bmi.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
-    bmi.bmi.bmiHeader.biWidth = width_;
-    bmi.bmi.bmiHeader.biHeight = height_;
-    bmi.bmi.bmiHeader.biPlanes = 1;
-    bmi.bmi.bmiHeader.biCompression = 0;
-    bmi.bmi.bmiHeader.biSizeImage = 0;
-    bmi.bmi.bmiHeader.biXPelsPerMeter = 0;
-    bmi.bmi.bmiHeader.biYPelsPerMeter = 0;
-    bmi.bmi.bmiHeader.biClrUsed = 2;
-    bmi.bmi.bmiHeader.biClrImportant = 2;
-    bmi.bmi.bmiHeader.biBitCount = 1;
-
-    /* fill in the two-color palette - just black and white */
-    bmi.bmi.bmiColors[0].rgbBlue = 0x00;
-    bmi.bmi.bmiColors[0].rgbGreen = 0x00;
-    bmi.bmi.bmiColors[0].rgbRed = 0x00;
-
-    bmi.bmi.bmiColors[1].rgbBlue = 0xff;
-    bmi.bmi.bmiColors[1].rgbGreen = 0xff;
-    bmi.bmi.bmiColors[1].rgbRed = 0xff;
-
-    /* figure out how we're going to draw the image into the given area */
-    switch(mode)
-    {
-    case HTMLIMG_DRAW_CLIP:
-        /* 
-         *   draw at exact size. aligning at upper left of destination
-         *   area, and clipping if it's too big 
-         */
-        wid = width_ < (unsigned long)(pos->right - pos->left)
-              ? width_ : pos->right - pos->left;
-        ht = height_ < (unsigned long)(pos->bottom - pos->top)
-             ? height_ : pos->bottom - pos->top;
-
-        /* display the bitmap */
-        StretchDIBits(hdc,
-                      pos->left, pos->top, wid, ht,
-                      0, 0, wid, ht,
-                      mask_,
-                      (LPBITMAPINFO)&bmi.bmi.bmiHeader,
-                      DIB_RGB_COLORS,
-                      SRCAND);
-        break;
-
-    case HTMLIMG_DRAW_STRETCH:
-        /*
-         *   stretch the image to fill the given area 
-         */
-        StretchDIBits(hdc, pos->left, pos->top,
-                      pos->right - pos->left, pos->bottom - pos->top,
-                      0, 0, width_, height_,
-                      mask_,
-                      (LPBITMAPINFO)&bmi.bmi.bmiHeader,
-                      DIB_RGB_COLORS,
-                      SRCAND);
-        break;
-
-    case HTMLIMG_DRAW_TILE:
-        /*
-         *   draw at the exact size as many times as necessary to tile the
-         *   area 
-         */
+        /* drop any stale texture so we don't render garbage */
+        if (m_texture != 0)
         {
-            long curx, cury;
-
-            for (curx = pos->left ; curx < pos->right ; curx += width_)
-            {
-                for (cury = pos->top ; cury < pos->bottom ; cury += height_)
-                {
-                    /* 
-                     *   draw the image at the current tile position,
-                     *   clipping if necessary 
-                     */
-                    wid = width_ < (unsigned long)(pos->right - curx)
-                          ? width_ : pos->right - curx;
-                    ht = height_ < (unsigned long)(pos->bottom - cury)
-                         ? height_ : pos->bottom - cury;
-
-                    /* display the bitmap */
-                    StretchDIBits(hdc,
-                                  curx, cury, wid, ht,
-                                  0, 0, wid, ht,
-                                  mask_,
-                                  (LPBITMAPINFO)&bmi.bmi.bmiHeader,
-                                  DIB_RGB_COLORS,
-                                  SRCAND);
-                }
-            }
+            glDeleteTextures(1, &m_texture);
+            m_texture = 0;
         }
-        break;
+        return;
     }
+
+    int src_bpp = bpp / 8;
+    unsigned long src_stride = ((width_ * (unsigned long)bpp + 31) / 32) * 4;
+
+    /* build a top-down, straight-alpha RGBA copy */
+    unsigned char *rgba =
+        new unsigned char[(size_t)width_ * (size_t)height_ * 4];
+    for (unsigned long y = 0 ; y < height_ ; ++y)
+    {
+        const unsigned char *srcp = (const unsigned char *)os_add_huge(
+            pix_, (unsigned long)(height_ - 1 - y) * src_stride);
+        unsigned char *dstp = rgba + (size_t)y * (size_t)width_ * 4;
+        for (unsigned long x = 0 ; x < width_ ;
+             ++x, srcp += src_bpp, dstp += 4)
+        {
+            int b = srcp[0], g = srcp[1], r = srcp[2];
+            int a = (src_bpp == 4 ? srcp[3] : 255);
+
+            /* undo the pre-multiplication the decoder applied */
+            if (src_bpp == 4 && a != 0 && a != 255)
+            {
+                r = r * 255 / a;
+                g = g * 255 / a;
+                b = b * 255 / a;
+                if (r > 255) r = 255;
+                if (g > 255) g = 255;
+                if (b > 255) b = 255;
+            }
+
+            dstp[0] = (unsigned char)r;
+            dstp[1] = (unsigned char)g;
+            dstp[2] = (unsigned char)b;
+            dstp[3] = (unsigned char)a;
+        }
+    }
+
+    /* (re-)create the GL texture, reusing the id if we already have one */
+    if (m_texture == 0)
+        glGenTextures(1, &m_texture);
+    glBindTexture(GL_TEXTURE_2D, m_texture);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
+    glPixelStorei(GL_UNPACK_ROW_LENGTH, 0);
+    glPixelStorei(GL_UNPACK_ALIGNMENT, 4);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, width_, height_, 0,
+                 GL_RGBA, GL_UNSIGNED_BYTE, rgba);
+
+    delete [] rgba;
 }
 
 /*
@@ -558,6 +424,9 @@ int CTadsImage::create_pix_dword_aligned(const unsigned char *const *src_rows,
 
     /* remember the byte width */
     width_bytes_ = out_width_bytes;
+
+    /* upload the decoded pixels to an OpenGL texture for rendering */
+    create_texture();
 
     /* success */
     return 0;

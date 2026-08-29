@@ -91,14 +91,19 @@ protected:
     /* allocate the DIB section object */
     int alloc_dib();
 
+    /*
+     *   Upload the decoded pixel buffer (pix_) to an OpenGL texture stored in
+     *   m_texture.  This is the single point where every image type (JPEG,
+     *   PNG, MNG) is turned into something ImGui::Image() can render; call it
+     *   once the pixels in pix_ are ready.  Safe to call repeatedly (used by
+     *   MNG to refresh the texture on each animation frame).
+     */
+    void create_texture();
+
     /* get the AlphaBlend function, if available */
     static BOOL (WINAPI *get_alphablend_proc())
         (HDC, int, int, int, int, HDC, int, int, int, int, BLENDFUNCTION);
 
-    /* AND the mask onto the screen */
-    void draw_mask(HDC hdc, class CTadsWin *win, class CHtmlRect *pos,
-                   htmlimg_draw_mode_t mode);
-    
     /* delete any existing image */
     void delete_image();
 

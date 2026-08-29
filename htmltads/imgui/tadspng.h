@@ -48,10 +48,6 @@ public:
      *   supports alpha blending, and set PNG read options accordingly 
      */
     static void init_alpha_support();
-
-private:
-    /* create the mask, if we have transparency information */
-    int create_mask(class CHtmlPng *png, int pix_bytes_per_pixel);
 };
 
 

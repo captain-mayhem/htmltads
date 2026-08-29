@@ -1503,10 +1503,36 @@ live in `CMakeLists.txt`, at the same `if (NOT WIN32) return()` gate mentioned i
 blocks the whole target on non-Windows.
 
 ### 3.6 Images
-Also good progress: `tadsimg.cpp` uploads to a GL texture and renders with `ImGui::Image()`
-([tadsimg.cpp:167](tadsimg.cpp#L167)). It still has ~11 `HDC`/DIB references though (old GDI decode
-path likely coexisting with the new GL path), and `guiimg.cpp` (a separate, still fully Win32 file) is
-still compiled into `guit3` — needs auditing for what still calls into it vs. what's dead.
+**GL-texture rendering: done for all image types.** Previously only `CTadsJpeg` uploaded a GL texture
+(inline in `create_pix_dword_aligned()`), so PNG and MNG images decoded fine but drew nothing in the
+ImGui path. The texture-upload logic is now centralized in `CTadsImage::create_texture()`
+([tadsimg.cpp](tadsimg.cpp)), called from all three loaders: the base
+`CTadsImage::create_pix_dword_aligned()` (PNG), `CTadsJpeg::create_pix_dword_aligned()` (JPEG), and
+`CHtmlSysImageMng_win32::notify_mng_update()` (MNG, re-uploaded on every animation frame).
+`create_texture()` converts the DIB-style `pix_` buffer (bottom-up, DWORD-aligned rows, BGR/pre-
+multiplied-BGRA) into a top-down straight-alpha RGBA image and uploads it as `GL_RGBA` — the same
+BGRA→RGBA-in-software approach the toolbar-icon loader in `htmlgui.cpp` uses, because the Microsoft
+OpenGL 1.1 headers don't reliably expose `GL_BGRA` and ImGui's blend wants straight alpha.
+
+`CTadsImage::draw()` is now GL/ImGui-only: the legacy GDI blit path (`CreateCompatibleDC` /
+`StretchBlt` / `AlphaBlend`) and the 1bpp AND-mask path (`CTadsImage::draw_mask()`,
+`CTadsPng::create_mask()`) are deleted — the mask only ever existed as a fallback for Windows versions
+without `AlphaBlend`, which is moot under GL. `draw()` also now actually implements the three
+`htmlimg_draw_mode_t` modes (a doubled `switch` statement meant CLIP/TILE silently degraded to
+STRETCH before). Verified by a manual-mode test game rendering a paletted PNG, a JPEG photo, a 32-bit
+RGBA PNG with partial transparency, a 24-bit RGB PNG, and a stretched image — all render right-side up
+with correct colors and working alpha.
+
+Remaining image cleanup (not blocking, GDI-adjacent but not GDI *rendering*):
+- `CTadsImage::alloc_dib()` still allocates `pix_` via `CreateDIBSection` (`dibsect_`, `<windows.h>`).
+  It's now just an allocator — nothing blits the DIB — and could become a plain `os_alloc_huge()` once
+  someone wants the last Win32 dependency out of the decode path.
+- `get_alphablend_proc()` / `is_alpha_supported()` still gate whether the decoders keep an alpha
+  channel at all. On Windows `AlphaBlend` always resolves, so this is inert; a non-Windows port needs
+  it to just return true.
+- `guiimg.cpp` (the `CHtmlSysImage*_win32` glue) is still a Win32-named file but now only does
+  `doc_to_screen()` + a call into the `CTadsImage`/`CTadsJpeg`/`CTadsPng`/`CTadsMng` base — no real
+  Win32 left in the image draw path.
 
 ### 3.7 Sound / MIDI
 Untouched. `tadssnd.cpp`, `tadsmidi.cpp`, `tadswav.cpp` all call directly into Windows Multimedia

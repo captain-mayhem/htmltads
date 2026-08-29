@@ -349,6 +349,12 @@ void CHtmlSysImageMng_win32::set_display_site(CHtmlSysImageDisplaySite *site)
  */
 void CHtmlSysImageMng_win32::notify_mng_update(int x, int y, int wid, int ht)
 {
+    /*
+     *   the MNG decoder has composed a new frame into our canvas (pix_) -
+     *   re-upload it to the GL texture so the next redraw shows it
+     */
+    create_texture();
+
     /* invalidate the display site */
     if (display_site_ != 0)
         display_site_->dispsite_inval(x, y, wid, ht);
