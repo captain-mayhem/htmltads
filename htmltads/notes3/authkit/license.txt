@@ -34,6 +34,14 @@ you please.
 If you have any questions about this license, please contact the
 author at the email address listed later in this file.
 
+64-Bit port
+-----------
+
+The 64-Bit port is Copyright 2026 by Marco Staginski only concerning
+modifications of the original source code in accordance with the porting 
+permission of htmltads. The original copyrights remain on all
+parts that are nor specific to this port.
+
 
 NO WARRANTY
 -----------

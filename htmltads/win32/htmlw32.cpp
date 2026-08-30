@@ -16889,7 +16889,10 @@ void CHtmlSys_creditswin::build_contents(CHtmlTextBuffer *txtbuf)
         "Michael J. Roberts<br><br>"
 
         "<b>Windows Desktop Icons</b><br>"
-        "M. D. Dollahite<br><br>";
+        "M. D. Dollahite<br><br>"
+
+        "<b>64 Port by</b><br>"
+        "Marco Staginski<br><br>";
 
     static const char txt3[] =
         "<b>JPEG Implementation</b><br>"
@@ -16941,6 +16944,8 @@ void CHtmlSys_creditswin::build_contents(CHtmlTextBuffer *txtbuf)
         "that you can use and distribute it without charge, but subject "
         "to certain restrictions.  Please refer to the accompanying "
         "<a href=license>license file</a> for details.<br><br>"
+
+        "<b>64-Bit Port Copyright &copy; 2026 by Marco Staginski</b><br>"
 
         "<br><font size=-1>";
 
