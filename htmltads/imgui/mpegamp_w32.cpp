@@ -8,9 +8,17 @@ static char RCSid[] =
 Name
   mpegamp_w32.c - amp 0.7.6 audio driver for win95/98/nt
 Function
-  
+
 Notes
   Derived from amp 0.7.6 for use in HTML TADS on Windows 95/98/NT.
+
+  guit3 fork of win32/mpegamp/mpegamp_w32.cpp.  The only difference from the
+  legacy Win32 version is CMpegAmpW32's constructor: guit3's
+  CTadsCompressedAudio streams through CTadsAudioDevice (miniaudio) rather
+  than a DirectSound buffer, so the IDirectSound* / HWND parameters are gone
+  from the whole digitized-audio ctor chain.  See
+  htmltads/imgui/migration.md section 3.7.  Keep everything else in this file
+  in sync with win32/mpegamp/mpegamp_w32.cpp.
 Modified
   10/24/98 MJRoberts  - Creation
 */
@@ -27,7 +35,7 @@ Modified
 
 /* ------------------------------------------------------------------------ */
 /*
- *   Statics 
+ *   Statics
  */
 const int CMpegAmp::t_b8_l[2][3][22] =
 {
@@ -79,23 +87,23 @@ const int CMpegAmp::t_sampling_frequency[2][3] =
 
 /* ------------------------------------------------------------------------ */
 /*
- *   Implementation 
+ *   Implementation
  */
 
 CMpegAmpW32::CMpegAmpW32(
     const textchar_t *fname, DWORD file_start_ofs, DWORD file_size,
-    struct IDirectSound *ds, class CTadsAudioControl *ctl,
-    HWND hwnd, void (*done_func)(void *, int), void *done_func_ctx)
+    class CTadsAudioControl *ctl,
+    void (*done_func)(void *, int), void *done_func_ctx)
      : CMpegAmp(),
-       CTadsCompressedAudio(fname, file_start_ofs, file_size, ds, ctl,
-                            hwnd, done_func, done_func_ctx)
+       CTadsCompressedAudio(fname, file_start_ofs, file_size, ctl,
+                            done_func, done_func_ctx)
 {
     /* initialize the decoder */
     initialise_decoder();
 }
 
 /*
- *   write data to the output stream 
+ *   write data to the output stream
  */
 void CMpegAmp::printout(void)
 {
@@ -118,7 +126,7 @@ void CMpegAmp::stop_playback()
 
 /* ------------------------------------------------------------------------ */
 /*
- *   Get the track length 
+ *   Get the track length
  */
 long CMpegAmpW32::get_track_len_ms()
 {
@@ -132,22 +140,22 @@ long CMpegAmpW32::get_track_len_ms()
 /* ------------------------------------------------------------------------ */
 /*
  *   The remainder of this file is adapted from the original audio.c, the
- *   main entrypoint for the unix version 
+ *   main entrypoint for the unix version
  */
 
 /* this file is a part of amp software, (C) tomislav uzelac 1996,1997
 */
 
-/* audio.c      main amp source file 
+/* audio.c      main amp source file
  *
- * Created by: tomislav uzelac  Apr 1996 
+ * Created by: tomislav uzelac  Apr 1996
  * Karl Anders Oygard added the IRIX code, 10 Mar 1997.
  * Ilkka Karvinen fixed /dev/dsp initialization, 11 Mar 1997.
  * Lutz Vieweg added the HP/UX code, 14 Mar 1997.
  * Dan Nelson added FreeBSD modifications, 23 Mar 1997.
  * Andrew Richards complete reorganisation, new features, 25 Mar 1997
  * Edouard Lafargue added sajber jukebox support, 12 May 1997
- */ 
+ */
 
 int CMpegAmp::decodeMPEG(void)
 {
@@ -163,7 +171,7 @@ int CMpegAmp::decodeMPEG(void)
         report_header_error(g);
         return -1;
     }
-    
+
     if (header.protection_bit==0)
         getcrc();
 
@@ -172,7 +180,7 @@ int CMpegAmp::decodeMPEG(void)
         warn("Cannot set up audio. Exiting\n");
         return -1;
     }
-        
+
     if (header.layer==1)
     {
         if (layer3_frame(&header,cnt)) {
@@ -190,7 +198,7 @@ int CMpegAmp::decodeMPEG(void)
     }
 
     /*
-     *   decoder loop ********************************** 
+     *   decoder loop **********************************
      */
     snd_eof=0;
     while (!snd_eof && !stop_flag)
@@ -203,10 +211,10 @@ int CMpegAmp::decodeMPEG(void)
                 snd_eof=1;
                 break;
             }
-            
+
             if (header.protection_bit==0)
                 getcrc();
-            
+
             if (header.layer==1)
             {
                 if (layer3_frame(&header,cnt))
@@ -229,8 +237,8 @@ int CMpegAmp::decodeMPEG(void)
     return 0;
 }
 
-/* 
- *   call this once at the beginning 
+/*
+ *   call this once at the beginning
  */
 void CMpegAmp::initialise_decoder(void)
 {
@@ -239,15 +247,15 @@ void CMpegAmp::initialise_decoder(void)
     calculate_t43();
 }
 
-/* 
- *   call this before each file is played 
+/*
+ *   call this before each file is played
  */
 void CMpegAmp::initialise_globals(void)
 {
-    append=data=nch=0; 
+    append=data=nch=0;
     f_bdirty=TRUE;
     bclean_bytes=0;
-    
+
     memset(s,0,sizeof s);
     memset(res,0,sizeof res);
 }
@@ -264,16 +272,16 @@ void CMpegAmp::report_header_error(int err)
     case GETHDR_FL1: warn("ISO/MPEG layer 1 is not supported.\n");
                      break;
     case GETHDR_FF : warn("free format bitstreams are not supported.\n");
-                     break;  
+                     break;
     case GETHDR_SYN: warn("error: out of sync.\n");
                      break;
-    case GETHDR_EOF: 
+    case GETHDR_EOF:
     default:                ;   /* some stupid compilers need the semicolon */
-    }       
+    }
 }
 
 /*
- *   set up the audio buffer 
+ *   set up the audio buffer
  */
 int CMpegAmp::setup_audio(struct AUDIO_HEADER *header)
 {
@@ -282,7 +290,7 @@ int CMpegAmp::setup_audio(struct AUDIO_HEADER *header)
 
     /* get the sampling frequency from the header */
     freq = t_sampling_frequency[header->ID][header->sampling_frequency];
-    
+
     /* check the header to determine if we're stereo or mono */
     stereo = (header->mode != 3 && !A_DOWNMIX);
 
@@ -298,7 +306,7 @@ int CMpegAmp::setup_audio(struct AUDIO_HEADER *header)
 
 /* ------------------------------------------------------------------------ */
 /*
- *   Show a warning 
+ *   Show a warning
  */
 void CMpegAmp::warn(const char *msg, ...)
 {
@@ -306,14 +314,14 @@ void CMpegAmp::warn(const char *msg, ...)
 
     if (((CMpegAmpW32 *)this)->url_ != 0)
         oshtml_dbg_printf("%s: ", ((CMpegAmpW32 *)this)->url_);
-    
+
     va_start(ap, msg);
     oshtml_dbg_vprintf(msg, ap);
     va_end(ap);
 }
 
 /*
- *   dump the buffer 
+ *   dump the buffer
  */
 void CMpegAmp::dump(int *)
 {
@@ -370,7 +378,7 @@ long CMpegTimeParser::get_play_time_ms()
 #include <conio.h>
 /* ------------------------------------------------------------------------ */
 /*
- *   Testing 
+ *   Testing
  */
 int main(int argc,char **argv)
 {
@@ -422,8 +430,8 @@ int main(int argc,char **argv)
     return 0;
 }
 
-/* 
- *   play back synchronously 
+/*
+ *   play back synchronously
  */
 void CMpegAmpW32::play(const char *inFileStr, int stop_on_key)
 {
@@ -460,13 +468,13 @@ void CMpegAmpW32::play(const char *inFileStr, int stop_on_key)
             /* if playback is finished, stop */
             if (!is_playing())
                 break;
-            
+
             /* if the user has pressed a key, stop */
             if (_kbhit())
             {
                 /* stop playback */
                 stop(TRUE);
-                
+
                 /* no need to wait any longer */
                 break;
             }
