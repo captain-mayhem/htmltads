@@ -343,12 +343,13 @@ to help prioritize:
 | `tadsapp.cpp` / `.h` | 13 / 8 | App-level message routing, accelerators, modeless dialog list, MDI handling — tied to the Win32 message pump; needs redesign once there's no HWND to pump. |
 | `foldsel.h` / `foldsel2.cpp` | 11 / 10 | Custom folder-picker dialog - **superseded**. The live call site (Options > Starting tab's Browse button) now uses the ImGui-native `CTadsFolderDialog` (`tadsfolderdlg.h`/`.cpp`); `foldsel.h`/`foldsel2.cpp` are left compiled but unused, same "harmless dead code" reasoning as elsewhere in this port. |
 | `guifndlg.h` / `.cpp` | 6 / 10 | Find dialog (`CTadsDialogFind`) — **ported** (see §3.3's `CTadsFindDialog` entry); this file itself is left compiled but unused. Its `CTadsDialogFindReplace`/`CTadsDialogFindRegex` classes belong to the out-of-scope Workbench debugger and were never ported. |
-| `tadscbtn.h`, `guiwebui.h`, `guisnd.h`, `tadsstat.h`, `htmlpref.h` | 6, 5, 4, 4, 4 | Custom button control, web-UI glue, sound glue, status line, prefs header — all **not started**. |
+| `tadscbtn.h`, `guiwebui.h`, `guisnd.h`, `tadsstat.h`, `htmlpref.h` | 6, 5, 4, 4, 4 | Custom button control, web-UI glue, status line, prefs header — **not started**. `guisnd.h` (sound glue) is **ported** for digitized audio — see §3.7. |
 
 Everything else (tadswav/tadsvorb/tadsmidi/tadssnd/tadsreg/tadsimg/tadsjpeg/tadspng/tadscar/tadscsnd/
 tadstab/tadscom) has only 1-3 stray references, mostly just `#include <windows.h>` or a type alias —
-low `HWND` density but not necessarily low effort (audio APIs in particular are all Win32 multimedia
-calls, see §4).
+low `HWND` density but not necessarily low effort. The audio ones (`tadssnd`/`tadscsnd`/`tadswav`/
+`tadsvorb`/`tadsmidi`) are **mostly ported** now — digitized-audio output goes through miniaudio and
+the threading is `std::`-based; only the decoders' file reads and MIDI remain Win32 (§3.7).
 
 ### 3.1 Menu bar and toolbar — done
 `CHtmlSys_mainwin::render_menu_bar()` ([htmlgui.cpp:11510](htmlgui.cpp#L11510), declared in
@@ -1535,13 +1536,111 @@ Remaining image cleanup (not blocking, GDI-adjacent but not GDI *rendering*):
   Win32 left in the image draw path.
 
 ### 3.7 Sound / MIDI
-Untouched. `tadssnd.cpp`, `tadsmidi.cpp`, `tadswav.cpp` all call directly into Windows Multimedia
-(`waveOut*`, `midiOut*`) and/or DirectSound (`dxguid.lib` is linked). This is one of the larger
-"actually platform-specific" subsystems (unlike menus/dialogs, which are UI-toolkit-specific and have a
-straightforward ImGui replacement, audio needs a real cross-platform audio backend — e.g. something
-like miniaudio/SDL_audio/OpenAL — chosen and wired in). Vorbis/MP3 decoding (`tadsvorb.cpp`, the
-`win32/mpegamp/*` sources already linked into `guit3`) are already portable; only the output layer is
-Windows-locked.
+**Digitized audio (WAV/MP3/OGG) output ported to miniaudio; threading and the 'done' callback ported to
+the C++ standard library; MIDI gated to Windows.** What remains Win32 is the decoders' *file reading*
+(a HANDLE and `ReadFile`, deliberately deferred - see below) and MIDI playback itself (no portable
+synth yet). The DirectSound streaming buffer, the `CreateEvent`/`CreateThread`/`CRITICAL_SECTION`
+plumbing, and the `HTMLM_SOUND_DONE` window message are all gone from the digitized path.
+
+#### Where the seam is
+The HTML TADS engine only knows the abstract sound classes in `htmlsys.h` — `CHtmlSysSoundWav`,
+`CHtmlSysSoundMpeg`, `CHtmlSysSoundOgg`, `CHtmlSysSoundMidi` — and their `create_wav`/`create_mpeg`/
+`create_ogg`/`create_midi` factory functions in [guisnd.cpp](guisnd.cpp). Everything below that line is
+ours to replace. The existing layering is already clean and works in our favour:
+
+- **Digitized audio (WAV/MP3/OGG) all funnels through one class.** `CHtmlSysSoundWav_win32` /
+  `CHtmlSysSoundMpeg_win32` / `CHtmlSysSoundOgg_win32` (`guisnd.h`) are thin shims over
+  `CHtmlSysSoundDigitized_win32`, which delegates to `CTadsCompressedAudio`
+  ([tadscsnd.cpp](tadscsnd.cpp)). That mix-in owned the **entire** platform surface: a DirectSound
+  triple-buffer, the decode/playback thread, volume/mute. The three decoder subclasses (`CWavW32`,
+  `CMpegAmpW32`, `CVorbisW32`) only implement `do_decoding()` and call four protected methods on the
+  base: `open_playback_buffer(freq, bits_per_sample, channels)`, `write_playback_buffer(buf, bytes)`,
+  `close_playback_buffer()`, `halt_playback_buffer()`.
+- **The decoders themselves are already portable.** `win32/mpegamp/*` is vendored C++ and
+  `libvorbis`/`libogg` are vendored cross-platform libraries (both already `add_subdirectory`'d for the
+  superproject). Only the output layer, the threading, and the file I/O are Windows-locked.
+- **MIDI is the real outlier.** [tadsmidi.cpp](tadsmidi.cpp) (~2200 lines) drives `midiStreamOpen`/
+  `midiStreamOut`/`midiOutShortMsg` with a window-message callback, and fundamentally relies on the OS
+  providing a wavetable synth. There is no portable equivalent.
+
+#### What was done
+
+1. **Vendored `miniaudio`** as [`htmltads/miniaudio/`](../../miniaudio/) — single public-domain header
+   (`miniaudio.h`, version pinned at 0.11.22) plus a one-line implementation TU (`miniaudio.c`). The
+   `.c` is compiled **directly into the `guit3` target** (added to its source list, with
+   `../../miniaudio` on its include path), the same way the vendored `win32/mpegamp/*` sources already
+   are — *not* as a separate `add_subdirectory` static lib. An earlier attempt at a standalone
+   `miniaudio` lib target tripped the Visual Studio generator: `guit3.vcxproj` picked up the
+   `miniaudio.lib` link dependency before `miniaudio.vcxproj` existed in the loaded `.sln`, giving
+   `LNK1104: cannot open file '..\..\miniaudio\Debug\miniaudio.lib'`. Compiling the one TU inline
+   removes the cross-project dependency entirely. The implementation compiles playback only
+   (`MA_NO_DECODING`/`ENCODING`/`RESOURCE_MANAGER`/`ENGINE` etc.) since the TADS decoders feed raw PCM.
+2. **New backend-neutral device interface** [`tadsaudiodev.h`](tadsaudiodev.h) /
+   [`tadsaudiodev.cpp`](tadsaudiodev.cpp): `CTadsAudioDevice` (open / write / halt / drain / close /
+   set_volume), shaped like the old DirectSound streaming buffer so the decoders didn't change, with a
+   single miniaudio implementation (`ma_device` playback + a one-second `ma_pcm_rb` ring buffer; the
+   decoder thread is the lone producer, miniaudio's audio thread the lone consumer, so the streaming
+   path is lock-free; the device handle is mutex-guarded only against a concurrent `set_volume` from a
+   fader thread). Playback auto-starts once a quarter of the ring buffer is primed, mirroring the old
+   "start after two chunks" heuristic. Same file also hosts the cross-thread done-callback queue.
+3. **`CTadsCompressedAudio` reworked** ([tadscsnd.h](tadscsnd.h)/[tadscsnd.cpp](tadscsnd.cpp)): the
+   four protected methods now drive a `CTadsAudioDevice`; `<dsound.h>`, `IDirectSound*`, `WAVEFORMATEX`
+   and all the DS lock/cursor bookkeeping are gone; `flush_to_directx`/`wait_for_last_buf`/
+   `directx_begin_play` deleted. Threading uses the base class's `std::thread` helper; `refcnt_` is a
+   `std::atomic`; `CRITICAL_SECTION` → `std::mutex`.
+4. **`CTadsAudioPlayer` / `CTadsAudioVolumeControl` / `CTadsAudioFader` ported**
+   ([tadssnd.h](tadssnd.h)/[tadssnd.cpp](tadssnd.cpp)): a small `tads_event` (mutex + condition
+   variable, manual-reset, modelled on the Win32 events it replaces); `std::thread`/`std::atomic`/
+   `std::mutex` throughout; `GetTickCount()` → `std::chrono::steady_clock`. The fader/player wait
+   coordination that used `WaitForMultipleObjects` on raw `HANDLE`s is now three helper methods on the
+   player (`wait_for_playback_start`, `wait_stop`, `stop_signaled`).
+5. **The last `HWND` in the digitized path is gone.** `send_done_message()` used to `PostMessage`
+   `HTMLM_SOUND_DONE`; it now enqueues the completed `CTadsAudioPlayer` on a thread-safe queue
+   (`tads_audio_post_done_callback`), and `CHtmlSys_mainwin::event_loop()` calls
+   `tads_audio_run_done_callbacks()` once per frame right after `glfwPollEvents()` to run them on the
+   main thread. This also *fixes* a latent bug: with no message pump, the old `HTMLM_SOUND_DONE` case
+   in `CHtmlSysWin_win32::process_win_message()` never fired, so sound-resource queues (e.g. looping
+   background tracks advancing to the next clip) were silently broken in guit3. The `HWND`/`hwnd`
+   parameters were dropped from `CTadsCompressedAudio`, the three decoder ctors, `mpegamp_w32`, the
+   `create_player` virtual and `CHtmlSysSoundDigitized_win32::play_sound`'s call to it.
+6. **MIDI gated to `#ifdef _WIN32`.** `tadsmidi.cpp`'s whole body and `guisnd.cpp`'s MIDI section are
+   now `#ifdef _WIN32`; the `#else` gives a stub `CHtmlSysSoundMidi::create_midi()` that returns null
+   (a game requesting MIDI music just plays silent). MIDI still works exactly as before on Windows.
+   `tadsmidi.cpp`'s handful of base-class touch points (`SetEvent(start_evt_/stop_evt_)`,
+   `start_time_ = GetTickCount()`) were updated to the new `tads_event`/`mark_start_time()` API. The
+   dead `#ifdef HAVE_DXMUSIC` DirectMusic monitor-thread code still references the removed
+   `thread_hdl_`/`thread_id_` members, but `HAVE_DXMUSIC` is defined nowhere so it never compiles.
+7. **CMake:** `guit3` compiles `../../miniaudio/miniaudio.c` as one of its own sources (see item 1).
+   `Winmm.lib` kept (still needed by the Windows-gated `tadsmidi.cpp`); `dxguid.lib` kept **only** for
+   `CHtmlSys_mainwin::get_directsound()`'s vestigial DirectSound-availability probe in `htmlgui.cpp`
+   (`IID_IDirectSoundNotify`) — see "Deferred" below. Verified building under both the Ninja
+   (`build/default`) and Visual Studio (`build/vs`, `windows-vs` preset) generators.
+
+Builds clean (`cmake --build build/default --target guit3`) and `guit3.exe tests/ditch3.t3` launches
+and runs normally. Actual audio playback is **not yet runtime-verified** — neither test game
+(`ditch.gam`, `ditch3.t3`) has any sound, so a sound-bearing `.t3`/`.gam` needs sourcing to exercise
+the WAV/OGG/MP3 path by ear.
+
+#### Deferred (follow-ups, each independently testable)
+
+- **Decoder file I/O is still Win32.** `CTadsCompressedAudio` still opens `in_file_` with `CreateFile`,
+  and `do_decoding(HANDLE, DWORD)` plus `CWavW32::read_header`/`read_data`, `tadsvorb.cpp`'s
+  `datasource_t` callbacks and `mpegamp`'s `get_input()` still use `ReadFile`/`SetFilePointer`. Porting
+  this to the TADS `osfile` API (`osfoprb`/`osfrb`/`osfseek`/`osfpos`) is mechanical but spans five
+  files and includes packed-struct WAV-header parsing (`PCMWAVEFORMAT`/`WAVEFORMATEX`), so it was split
+  out rather than done blind with no audio test game. This is the last thing between the digitized path
+  and a non-Windows build of it.
+- **Vestigial DirectSound probe.** `CHtmlSys_mainwin::get_directsound()` ([htmlgui.cpp](htmlgui.cpp)
+  ~11139) still `LoadLibrary("DSOUND.DLL")`s and version-checks DirectX purely as a proxy for "is audio
+  available", gating `notify_sound_pref_change()` and `hos_gui.cpp`'s capability query. Nothing uses
+  the returned `IDirectSound*` any more. Replace it with a plain "audio available" bool (miniaudio's
+  `ma_context`/`ma_device_init` success is the real signal) and drop `dxguid.lib`.
+- **MIDI, for real:** vendor TinySoundFont (single-header, permissive) + a bundled GM soundfont and
+  feed its rendered PCM through `CTadsAudioDevice`, replacing the `midiStream*` sequencer. Phase-two.
+- **Volume curve:** `CTadsAudioVolumeControl::update_level()` applies a `log10` perceptual curve and
+  hands 0..10000 to `CTadsAudioDevice::set_volume`, which maps it *linearly* to miniaudio's master
+  volume (0..1). The old code applied a second dB mapping on top. Close enough for now; revisit if
+  fades sound wrong once there's a test game.
 
 ### 3.8 Windows-only platform services still relied on
 - **Registry** (`tadsreg.cpp` — `RegOpenKeyEx`/`RegQueryValueEx`/`RegSetValueEx`): used for persisted
@@ -1608,8 +1707,11 @@ Windows-locked.
 5. **Font/image cleanup** (§3.5, §3.6): remove now-dead GDI code paths once nothing still calls them.
 6. **Gate the Web UI behind `#ifdef`s** (§3.8/§4): get `tadswebctl.*`/`guiwebui.h` and their
    COM/ActiveX calls compiling out cleanly for `guit3` rather than porting them now.
-7. **Audio backend** and remaining **platform services** (§3.7, §3.8): registry/settings storage,
-   networking (curl instead of Wininet), help/rich-edit dependency audit.
+7. **Audio backend** (§3.7): **mostly done** — digitized-audio (WAV/MP3/OGG) output ported to
+   miniaudio, threading and the 'done' callback ported to `std::`, MIDI gated to Windows. Remaining:
+   the decoders' Win32 file reads → `osfile`, and (phase two) a portable MIDI synth. Plus remaining
+   **platform services** (§3.8): registry/settings storage, networking (curl instead of Wininet),
+   help/rich-edit dependency audit.
 8. **Remove the `if (NOT WIN32) return()` gate** in `imgui/CMakeLists.txt` and get a real Linux/macOS
    build going, fixing whatever remaining Win32-only code the compiler turns up.
 

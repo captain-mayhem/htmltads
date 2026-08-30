@@ -84,11 +84,11 @@ const int CMpegAmp::t_sampling_frequency[2][3] =
 
 CMpegAmpW32::CMpegAmpW32(
     const textchar_t *fname, DWORD file_start_ofs, DWORD file_size,
-    struct IDirectSound *ds, class CTadsAudioControl *ctl,
-    HWND hwnd, void (*done_func)(void *, int), void *done_func_ctx)
+    class CTadsAudioControl *ctl,
+    void (*done_func)(void *, int), void *done_func_ctx)
      : CMpegAmp(),
-       CTadsCompressedAudio(fname, file_start_ofs, file_size, ds, ctl,
-                            hwnd, done_func, done_func_ctx)
+       CTadsCompressedAudio(fname, file_start_ofs, file_size, ctl,
+                            done_func, done_func_ctx)
 {
     /* initialize the decoder */
     initialise_decoder();

@@ -97,6 +97,9 @@ Modified
 #ifndef W32SND_H
 #include "guisnd.h"
 #endif
+#ifndef TADSAUDIODEV_H
+#include "tadsaudiodev.h"
+#endif
 #ifndef TADSDLG_H
 #include "tadsdlg.h"
 #endif
@@ -15493,6 +15496,16 @@ int CHtmlSys_mainwin::event_loop(int* flag) {
         // - When io.WantCaptureKeyboard is true, do not dispatch keyboard input data to your main application, or clear/overwrite your copy of the keyboard data.
         // Generally you may always pass all inputs to dear imgui, and hide them from your application based on those two flags.
         glfwPollEvents();
+
+        /*
+         *   Run any pending audio 'done' callbacks on the main thread.  The
+         *   playback/fader threads enqueue completed sounds (see
+         *   tadsaudiodev.cpp); this is where the sound-resource queue learns
+         *   a track has finished so it can advance to the next one.  This
+         *   replaces the old HTMLM_SOUND_DONE window message, which had no
+         *   pump to deliver it in the guit3 build.
+         */
+        tads_audio_run_done_callbacks();
 
         ImGuiIO& io = ImGui::GetIO();
 

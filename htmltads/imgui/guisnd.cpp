@@ -65,8 +65,17 @@ Modified
 
 /* ------------------------------------------------------------------------ */
 /*
- *   System MIDI object implementation 
+ *   System MIDI object implementation
+ *
+ *   MIDI playback still relies on the Windows Multimedia streaming
+ *   sequencer (midiStreamOpen/Out, see tadsmidi.cpp), which has no
+ *   cross-platform equivalent - a software synth (e.g. TinySoundFont plus a
+ *   bundled soundfont) is the intended long-term replacement.  For now this
+ *   whole subsystem is gated to Windows; on other platforms create_midi()
+ *   returns null, so a game that requests MIDI music simply plays silent.
+ *   See htmltads/imgui/migration.md section 3.7.
  */
+#ifdef _WIN32
 
 CHtmlSysSoundMidi_win32::CHtmlSysSoundMidi_win32(CTadsAudioControl *ctl)
 {
@@ -310,9 +319,24 @@ void CHtmlSysSoundMidi_win32::resume()
     // $$$ ignore for now
 }
 
+#else /* !_WIN32 */
+
+/*
+ *   Non-Windows stub: MIDI music is not supported until a cross-platform
+ *   synth is wired in, so report that we can't create a MIDI resource.
+ */
+CHtmlSysResource *CHtmlSysSoundMidi::
+   create_midi(const CHtmlUrl *, const textchar_t *,
+               unsigned long, unsigned long, CHtmlSysWin *)
+{
+    return 0;
+}
+
+#endif /* _WIN32 */
+
 /* ------------------------------------------------------------------------ */
 /*
- *   Win32 Compressed Audio implementation 
+ *   Compressed Audio implementation
  */
 
 /*
@@ -362,8 +386,7 @@ int CHtmlSysSoundDigitized_win32::play_sound(
 
     /* create the player */
     player_ = create_player(fname_.get(), seek_pos_, data_size_,
-                            win->get_directsound(), win,
-                            win->get_handle(), done_func, done_func_ctx);
+                            win, done_func, done_func_ctx);
 
     /* if the player couldn't open the file, fail */
     if (player_->get_file_handle() == INVALID_HANDLE_VALUE)
@@ -520,12 +543,12 @@ CHtmlSysResource *CHtmlSysSoundWav::
  */
 CTadsCompressedAudio *CHtmlSysSoundWav_win32::create_player(
     const textchar_t *fname, DWORD file_start_ofs, DWORD file_size,
-    IDirectSound *ds, class CTadsAudioControl *ctl,
-    HWND hwnd, void (*done_func)(void *, int), void *done_func_ctx)
+    class CTadsAudioControl *ctl,
+    void (*done_func)(void *, int), void *done_func_ctx)
 {
     /* return a new CWaveW32 object */
-    return new CWavW32(fname, file_start_ofs, file_size, ds, ctl,
-                       hwnd, done_func, done_func_ctx);
+    return new CWavW32(fname, file_start_ofs, file_size, ctl,
+                       done_func, done_func_ctx);
 }
 
 /* ------------------------------------------------------------------------ */
@@ -582,12 +605,12 @@ CHtmlSysResource *CHtmlSysSoundMpeg::
  */
 CTadsCompressedAudio *CHtmlSysSoundMpeg_win32::create_player(
     const textchar_t *fname, DWORD file_start_ofs, DWORD file_size,
-    IDirectSound *ds, class CTadsAudioControl *ctl,
-    HWND hwnd, void (*done_func)(void *, int), void *done_func_ctx)
+    class CTadsAudioControl *ctl,
+    void (*done_func)(void *, int), void *done_func_ctx)
 {
     /* return a new CMpegAmpW32 object */
-    return new CMpegAmpW32(fname, file_start_ofs, file_size, ds, ctl,
-                           hwnd, done_func, done_func_ctx);
+    return new CMpegAmpW32(fname, file_start_ofs, file_size, ctl,
+                           done_func, done_func_ctx);
 }
 
 /* ------------------------------------------------------------------------ */
@@ -644,11 +667,11 @@ CHtmlSysResource *CHtmlSysSoundOgg::
  */
 CTadsCompressedAudio *CHtmlSysSoundOgg_win32::create_player(
     const textchar_t *fname, DWORD file_start_ofs, DWORD file_size,
-    IDirectSound *ds, class CTadsAudioControl *ctl,
-    HWND hwnd, void (*done_func)(void *, int), void *done_func_ctx)
+    class CTadsAudioControl *ctl,
+    void (*done_func)(void *, int), void *done_func_ctx)
 {
     /* return a new CVorbisW32 object */
-    return new CVorbisW32(fname, file_start_ofs, file_size, ds, ctl,
-                          hwnd, done_func, done_func_ctx);
+    return new CVorbisW32(fname, file_start_ofs, file_size, ctl,
+                          done_func, done_func_ctx);
 }
 

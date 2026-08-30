@@ -34,7 +34,11 @@ add_executable(guit3
 	../win32/mpegamp/huffman.cpp
 	../win32/mpegamp/transform.cpp
 	../win32/mpegamp/mpegamp_w32.cpp
-	
+
+	# miniaudio - single-file cross-platform audio output backend, compiled
+	# straight into guit3 (its only consumer).  See migration.md 3.7.
+	../../miniaudio/miniaudio.c
+
 	htmlgui.cpp
 	guimain.cpp
 	guifont.cpp
@@ -65,6 +69,8 @@ add_executable(guit3
 	tadsmng.cpp
 	tadssnd.cpp
 	tadscsnd.cpp
+	tadsaudiodev.cpp
+	tadsaudiodev.h
 	tadsvorb.cpp
 	tadsmidi.cpp
 	tadswav.cpp
@@ -109,6 +115,7 @@ target_link_libraries(guit3 PRIVATE
 target_include_directories(guit3 PRIVATE
 	.
 	../win32/mpegamp
+	../../miniaudio
 )
 
 target_link_libraries(guit3 PRIVATE
@@ -116,12 +123,18 @@ target_link_libraries(guit3 PRIVATE
 
 	Htmlhelp.lib
 	Comctl32.lib
+	# Winmm.lib is still needed for tadsmidi.cpp's midiStream* MIDI sequencer,
+	# which is gated to _WIN32 until a portable software synth replaces it.
 	Winmm.lib
 	Ws2_32.lib
 	Wininet.lib
 	Mpr.lib
 	Version.lib
 	Shlwapi.lib
+	# still referenced only by CHtmlSys_mainwin::get_directsound()'s vestigial
+	# DirectSound-availability probe in htmlgui.cpp (IID_IDirectSoundNotify).
+	# Audio output itself no longer uses DirectSound; that probe can be
+	# removed in a follow-up, and this line with it.
 	dxguid.lib
 )
 

@@ -127,8 +127,8 @@ protected:
      */
     virtual class CTadsCompressedAudio *create_player(
         const textchar_t *fname, DWORD file_start_ofs, DWORD file_size,
-        IDirectSound *ds, class CTadsAudioControl *ctl,
-        HWND hwnd, void (*done_func)(void *, int), void *done_func_ctx) = 0;
+        class CTadsAudioControl *ctl,
+        void (*done_func)(void *, int), void *done_func_ctx) = 0;
 
     /* our player object */
     class CTadsCompressedAudio *player_;
@@ -188,8 +188,8 @@ private:
     /* create the player object */
     virtual CTadsCompressedAudio *create_player(
         const textchar_t *fname, DWORD file_start_ofs, DWORD file_size,
-        IDirectSound *ds, class CTadsAudioControl *ctl,
-        HWND hwnd, void (*done_func)(void *, int), void *done_func_ctx);
+        class CTadsAudioControl *ctl,
+        void (*done_func)(void *, int), void *done_func_ctx);
 };
 
 /* ------------------------------------------------------------------------ */
@@ -244,8 +244,8 @@ protected:
     /* create the player object */
     virtual CTadsCompressedAudio *create_player(
         const textchar_t *fname, DWORD file_start_ofs, DWORD file_size,
-        IDirectSound *ds, class CTadsAudioControl *ctl,
-        HWND hwnd, void (*done_func)(void *, int), void *done_func_ctx);
+        class CTadsAudioControl *ctl,
+        void (*done_func)(void *, int), void *done_func_ctx);
 };
 
 /* ------------------------------------------------------------------------ */
@@ -300,8 +300,8 @@ protected:
     /* create the player object */
     virtual CTadsCompressedAudio *create_player(
         const textchar_t *fname, DWORD file_start_ofs, DWORD file_size,
-        IDirectSound *ds, class CTadsAudioControl *ctl,
-        HWND hwnd, void (*done_func)(void *, int), void *done_func_ctx);
+        class CTadsAudioControl *ctl,
+        void (*done_func)(void *, int), void *done_func_ctx);
 };
 
 #endif /* W32SND_H */

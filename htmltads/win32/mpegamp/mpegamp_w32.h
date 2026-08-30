@@ -40,8 +40,8 @@ class CMpegAmpW32: public CMpegAmp, public CTadsCompressedAudio
 public:
     CMpegAmpW32(
         const textchar_t *fname, DWORD file_start_ofs, DWORD file_size,
-        struct IDirectSound *ds, class CTadsAudioControl *ctl,
-        HWND hwnd, void (*done_func)(void *, int), void *done_func_ctx);
+        class CTadsAudioControl *ctl,
+        void (*done_func)(void *, int), void *done_func_ctx);
     ~CMpegAmpW32() { }
 
     /* 

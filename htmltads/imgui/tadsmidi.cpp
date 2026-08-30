@@ -47,6 +47,16 @@ Modified
 #include "tadsistr.h"
 #endif
 
+/*
+ *   This file is built on the Windows Multimedia streaming MIDI sequencer
+ *   (midiStreamOpen/Out/...) and optionally DirectMusic, neither of which
+ *   has a cross-platform equivalent.  Until a software synth replacement is
+ *   wired in (see htmltads/imgui/migration.md section 3.7), the whole
+ *   translation unit compiles only on Windows; elsewhere it is empty and
+ *   guisnd.cpp's create_midi() stub returns null.
+ */
+#ifdef _WIN32
+
 
 /* ------------------------------------------------------------------------ */
 /*
@@ -159,8 +169,11 @@ CTadsMidiFilePlayer::CTadsMidiFilePlayer(
     CTadsAudioControl *ctl, const textchar_t *fname,
     osfildef *fp, long seek_pos, long data_size,
     HWND hwnd, void (*done_func)(void *, int), void *done_func_ctx)
-    : CTadsAudioPlayer(hwnd, done_func, done_func_ctx)
+    : CTadsAudioPlayer(done_func, done_func_ctx)
 {
+    /* remember our owner window (for MIDI callback message routing) */
+    hwnd_ = hwnd;
+
     /* set a reference on behalf of our caller */
     refcnt_ = 1;
 
@@ -351,7 +364,7 @@ int CTadsMidiFilePlayer::play()
      */
     if (err != 0)
     {
-        SetEvent(stop_evt_);
+        stop_evt_.set();
         return err;
     }
         
@@ -398,8 +411,8 @@ int CTadsMidiFilePlayer::play()
          */
         
         /* note the starting time and signal the "start" event */
-        start_time_ = GetTickCount();
-        SetEvent(start_evt_);
+        mark_start_time();
+        start_evt_.set();
     
         /*   
          *   Prime the stream buffers by sending out the initial chunks.  The
@@ -413,7 +426,7 @@ int CTadsMidiFilePlayer::play()
 
     /* if an error occurred, signal the "stop" event */
     if (err != 0)
-        SetEvent(stop_evt_);
+        stop_evt_.set();
 
     /* return the status */
     return err;
@@ -451,10 +464,10 @@ void CTadsMidiFilePlayer::dm_monitor()
                 {
                 case DMUS_NOTIFICATION_SEGSTART:
                     /* playback has started - note the time */
-                    start_time_ = GetTickCount();
+                    mark_start_time();
                     
                     /* signal the start of playback */
-                    SetEvent(start_evt_);
+                    start_evt_.set();
                     break;
                     
                 case DMUS_NOTIFICATION_SEGABORT:
@@ -463,7 +476,7 @@ void CTadsMidiFilePlayer::dm_monitor()
                     call_done_callback();
                     
                     /* signal that playback has finished */
-                    SetEvent(stop_evt_);
+                    stop_evt_.set();
 
                     /* we can terminate the monitor thread now */
                     done = TRUE;
@@ -980,7 +993,7 @@ void CTadsMidiFilePlayer::do_midi_cb(UINT msg)
             call_done_callback();
 
             /* signal that playback has finished */
-            SetEvent(stop_evt_);
+            stop_evt_.set();
 
         }
 
@@ -2202,3 +2215,5 @@ int midi_event_t::alloc_long_data(unsigned long siz)
     return 0;
 }
 
+
+#endif /* _WIN32 */

@@ -379,6 +379,9 @@ private:
     long file_start_pos_;
     long file_size_;
 
+    /* owner window, for MIDI callback (MM_MOM_*) message routing */
+    HWND hwnd_;
+
     /* MIDI stream handle */
     HMIDISTRM hmidistrm_;
 
