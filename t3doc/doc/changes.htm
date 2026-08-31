@@ -65,7 +65,7 @@ li p {
 
 This file lists the changes that have been made recently to HTML TADS.
 This release also contains improvements to TADS itself, which
-are documented separately in <a href='t3changes.htm'>Recent Changes
+are documented separately in <a href='@TADS_CHANGE_LOG@'>Recent Changes
 to TADS</a>.
 
 <p>
@@ -73,6 +73,28 @@ Note that we've tried to keep all of the documentation that accompanies
 this release up-to-date with these changes.  This file is provided as a
 quick overview for experienced TADS users so that you can quickly see
 what has changed since the last version you installed.
+
+<!------------------------------------------------------------------------>
+<p>
+<h3>Changes in Release HT64-1 (Windows build Win64-1; TADS 2.5.16/3.1.3)</h3>
+<i>Released August 31, 2026</i>
+
+<p>This release is the first release of a 64-Bit port of HTML Tads.
+<p>Known issues:
+<ul>
+
+<li>The docsearch.dll is an empty dummy implementation as there was no
+source code available for docsearch and re-implementing it will take time.
+Therefore, search functionality regarding the documentation is limited.
+
+<li>The mksetup.exe is not present as there is also no source code available
+for this component. Therefore, creating an installer for your game will not work.
+You could copy over the mksetup.exe, setup1.dat and setup2.dat from the original
+HMTL Tads release. As it is a separate executable, it should work (not tested).
+
+<li>Currently, no installer package is provided for 64 Bit HTML Tads. Might be added in future.
+
+</ul>
 
 
 <!------------------------------------------------------------------------>
