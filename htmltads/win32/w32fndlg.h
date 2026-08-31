@@ -217,8 +217,8 @@ protected:
     virtual void init_dlg_pos();
 
     /* message handler - instance method */
-    virtual BOOL do_dialog_msg(HWND dlg_hwnd, UINT message, WPARAM wpar,
-                               LPARAM lpar);
+    virtual INT_PTR do_dialog_msg(HWND dlg_hwnd, UINT message, WPARAM wpar,
+                                  LPARAM lpar);
 
     /* read the current control settings into our member variables */
     virtual int read_control_settings();

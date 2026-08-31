@@ -155,8 +155,8 @@ void CHtmlDbgWiz::init()
 /*
  *   handle a message 
  */
-BOOL CHtmlDbgWiz::do_dialog_msg(HWND hwnd, UINT message,
-                                WPARAM wpar, LPARAM lpar)
+INT_PTR CHtmlDbgWiz::do_dialog_msg(HWND hwnd, UINT message,
+                                  WPARAM wpar, LPARAM lpar)
 {
     switch (message)
     {
@@ -175,13 +175,14 @@ BOOL CHtmlDbgWiz::do_dialog_msg(HWND hwnd, UINT message,
         SetTextColor((HDC)wpar, RGB(0x00,0x00,0x00));
         SetBkMode((HDC)wpar, TRANSPARENT);
         /*
-         *   the dialog proc's "real" return value is the brush handle, which
-         *   is pointer-sized - return it via DWLP_MSGRESULT instead of
-         *   truncating it into the BOOL return
+         *   Return the "hollow" brush so the static text draws transparently
+         *   over our background image.  For WM_CTLCOLORxxx the dialog manager
+         *   uses the dialog procedure's return value directly as the brush
+         *   handle (it does not consult DWLP_MSGRESULT for these messages),
+         *   so the handle must be returned pointer-wide and untruncated -
+         *   which is why do_dialog_msg() returns INT_PTR rather than BOOL.
          */
-        SetWindowLongPtr(handle_, DWLP_MSGRESULT,
-                         (LONG_PTR)GetStockObject(HOLLOW_BRUSH));
-        return TRUE;
+        return (INT_PTR)GetStockObject(HOLLOW_BRUSH);
 
     case WM_NOTIFY:
         /* 
