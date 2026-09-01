@@ -371,3 +371,9 @@ install(DIRECTORY
 	win32/mkwebfiles
 	DESTINATION .
 )
+
+install(FILES
+	notes/changes.htm
+	notes/compat.htm
+	DESTINATION doc
+)
