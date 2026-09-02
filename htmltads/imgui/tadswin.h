@@ -541,7 +541,7 @@ public:
      *   proper destruction mechanism (for example, MDI child windows need
      *   special handling). 
      */
-    void destroy_handle() { sysifc_->syswin_destroy_handle(handle_); }
+    void destroy_handle() { destroy_now(); }
 
     /* get my parent window */
     CTadsWin *get_parent() const { return parent_; }
@@ -675,8 +675,79 @@ public:
     /* get the top-level GLFW window, if this window owns one */
     GLFWwindow *get_glfw_window() { return m_window; }
 
+    /*
+     *   Tear this window down.  For a real child HWND this is DestroyWindow()
+     *   (which drives WM_DESTROY -> do_destroy() through the window proc); for
+     *   a top-level window, whose handle_ is only a token and which has no
+     *   window proc to deliver WM_DESTROY, call do_destroy() directly.  Use
+     *   this instead of DestroyWindow(get_handle()).
+     */
+    void destroy_now()
+    {
+        do_destroy();
+    }
+
+    /*
+     *   Request that this window close, the way posting WM_CLOSE to it used
+     *   to: run do_close() and, if it allows the close, tear the window down.
+     *   Returns true if the window was closed, false if do_close() vetoed it.
+     */
+    bool request_close()
+    {
+        if (!do_close())
+            return false;
+        do_destroy();
+        return true;
+    }
+
     /* determine if I'm maximized */
     int is_win_maximized() const;
+
+    /*
+     *   Get my client rectangle.  There's no real HWND to call GetClientRect()
+     *   on any more (see create_system_window()); our client area is simply
+     *   our current size, kept up to date every frame by the layout code
+     *   (calc_banner_layout(), do_render()).  Origin is always (0,0).
+     */
+    void get_client_rect(RECT *rc) const
+    {
+        rc->left = 0;
+        rc->top = 0;
+        rc->right = (LONG)(m_size.x + 0.5f);
+        rc->bottom = (LONG)(m_size.y + 0.5f);
+    }
+
+    /*
+     *   Client <-> screen coordinate conversion, replacing
+     *   ScreenToClient(handle_, &pt) / ClientToScreen(handle_, &pt).  "Screen"
+     *   here means the GLFW window's client-area pixel space (the same space
+     *   ImGui's io.MousePos and get_screen_pos() use), not the Win32 desktop.
+     */
+    void screen_to_client(POINT *pt) const
+    {
+        ImVec2 o = get_screen_pos();
+        pt->x -= (LONG)o.x;
+        pt->y -= (LONG)o.y;
+    }
+    void client_to_screen(POINT *pt) const
+    {
+        ImVec2 o = get_screen_pos();
+        pt->x += (LONG)o.x;
+        pt->y += (LONG)o.y;
+    }
+
+    /*
+     *   Per-window timers.  These replace SetTimer(handle_, id, ms, 0) /
+     *   KillTimer(handle_, id): guit3 has no message loop to deliver WM_TIMER,
+     *   so instead we keep a small schedule list here and fire do_timer(id)
+     *   from tick_timers(), which CHtmlSys_mainwin::event_loop() calls once
+     *   per frame for every window in the tree (tick_timers_tree()).  Timers
+     *   are periodic, like WM_TIMER.
+     */
+    void win_set_timer(UINT_PTR id, unsigned int interval_ms);
+    void win_kill_timer(UINT_PTR id);
+    void tick_timers(double now_ms);
+    void tick_timers_tree(double now_ms);
 
     /*
      *   Get the window handle to use as the parent handle when creating
@@ -1776,6 +1847,10 @@ protected:
     static struct tadswin_timer_alo *inuse_timers_;
 
     std::vector<CTadsWin*> m_children;
+
+    /* active per-window timer schedules (see win_set_timer()) */
+    struct tadswin_timer_sched { UINT_PTR id; double interval_ms; double next_ms; };
+    std::vector<tadswin_timer_sched> timer_scheds_;
 
     std::string m_title;
     ImVec2 m_pos;

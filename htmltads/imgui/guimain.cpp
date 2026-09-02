@@ -686,7 +686,7 @@ static void run_game(int argc, char** argv,
 
     /* close the debug window, if we opened one */
     if (dbgwin != 0)
-        DestroyWindow(dbgwin->get_handle());
+        dbgwin->destroy_now();
     
     /*
      *   Make sure we've closed the main window.  If it's still around,
@@ -696,7 +696,7 @@ static void run_game(int argc, char** argv,
     if (CHtmlSys_mainwin::get_main_win() != 0)
     {
         /* destroy the main window */
-        DestroyWindow(CHtmlSys_mainwin::get_main_win()->get_handle());
+        CHtmlSys_mainwin::get_main_win()->destroy_now();
     }
     else
     {

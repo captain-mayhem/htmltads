@@ -527,15 +527,29 @@ int CTadsWin::create_system_window(CTadsWin *parent, HWND parent_hwnd,
     /* remember the system interface object */
     sysifc_ = sysifc;
 
-    /* create the child window */
-    handle_ = sysifc->syswin_create_system_window(
-        get_winstyle_ex(), title, get_winstyle(),
-        pos->left, pos->top,
-        (pos->right == CW_USEDEFAULT && pos->left == CW_USEDEFAULT
-         ? CW_USEDEFAULT : pos->right - pos->left),
-        (pos->bottom == CW_USEDEFAULT && pos->bottom == CW_USEDEFAULT
-         ? CW_USEDEFAULT : pos->bottom - pos->top),
-        parent_hwnd, 0, CTadsApp::get_app()->get_instance(), this);
+    /*
+     *   No real Win32 HWND any more, for any window - top-level or child.
+     *   guit3 has no GetMessage/DispatchMessage pump (see migration.md §2):
+     *   a real top-level frame only ever sat on screen as a dead, blank
+     *   window next to the GLFW/ImGui one, and the child controls that used
+     *   to need a real HWND parent (banners, scrollbars, etc.) are all ImGui
+     *   -native now (§3.4).  handle_ is an opaque, non-null, unique token -
+     *   the same technique §3.4 already uses for vscroll_/hscroll_ - so every
+     *   "handle_ != 0" / "hwnd == handle_" comparison in the still-partly-
+     *   ported tree keeps working unchanged.  Win32 calls that actually touch
+     *   a window (GetClientRect, timers, ...) have been replaced with ImGui/
+     *   GLFW equivalents; the remaining ones (InvalidateRect etc.) are inert
+     *   no-ops on a non-window handle, matching this port's "harmless dead
+     *   code" convention.
+     *
+     *   do_create() is normally called via WM_CREATE during CreateWindowEx;
+     *   with no window creation to trigger it, call it explicitly here, at
+     *   the same point in the sequence (for a top-level window, before its
+     *   GLFW m_window is made, matching the old ordering).
+     */
+    handle_ = reinterpret_cast<HWND>(this);
+    do_create();
+
     if (parent == nullptr) {
         m_window = sysifc->syswin_create_system_window(
             title, get_winstyle(), pos->left, pos->top,
@@ -1818,18 +1832,12 @@ void CTadsWin::do_resize(int mode, int x, int y)
  */
 void CTadsWin::synth_resize()
 {
-    RECT rc;
-
-    /* get our current size */
-    GetWindowRect(handle_, &rc);
-
-    /* run through the normal resizing code at our current size */
-    do_resize(is_win_maximized()
-              ? SIZE_MAXIMIZED
-              : IsIconic(handle_)
-              ? SIZE_MINIMIZED
-              : SIZE_RESTORED,
-              rc.right - rc.left, rc.top - rc.bottom);
+    /*
+     *   There's no real HWND to query (GetWindowRect/IsIconic), and every
+     *   window's size is re-synced from its layout / the GLFW viewport each
+     *   frame (calc_banner_layout(), CHtmlSys_mainwin::do_render()), so a
+     *   synthesized resize has nothing to do.
+     */
 }
 
 /*
@@ -1883,22 +1891,22 @@ void CTadsWin::do_destroy()
     /* tell the system interface object about it */
     sysifc_->syswin_do_destroy();
 
-    /* forget my 'this' pointer */
-    sysifc_->forget_this_ptr(handle_);
-
-    /* if we still have a toolbar timer, kill it */
+    /*
+     *   handle_ is just an opaque token now (see create_system_window()), so
+     *   there's no window-class 'this' pointer to forget and no real
+     *   SetWindowLongPtr()/drop-target state to unwind - only our own
+     *   per-window timer schedules to drop.
+     */
     if (tb_timer_id_ != 0)
     {
-        KillTimer(handle_, tb_timer_id_);
+        win_kill_timer(tb_timer_id_);
         free_timer_id(tb_timer_id_);
         tb_timer_id_ = 0;
     }
+    timer_scheds_.clear();
 
-    /* if we're registered as a drop target, unregister now */
+    /* if we're registered as a drop target, unregister now (no-op today) */
     drop_target_unregister();
-
-    /* reset the pointer attached to the window handle */
-    SetWindowLongPtr(handle_, 0, 0);
 
     /* our window handle is no longer valid */
     handle_ = 0;
@@ -2040,7 +2048,89 @@ int CTadsWin::alloc_timer_id()
 }
 
 /*
- *   Free a timer ID 
+ *   Per-window periodic timers - the guit3 replacement for
+ *   SetTimer(handle_, id, ms, 0) / KillTimer(handle_, id).  There's no
+ *   message loop to deliver WM_TIMER, so tick_timers() (driven once per frame
+ *   from CHtmlSys_mainwin::event_loop()) fires do_timer(id) for each schedule
+ *   that has come due, then reschedules it (WM_TIMER is periodic).
+ */
+void CTadsWin::win_set_timer(UINT_PTR id, unsigned int interval_ms)
+{
+    double now = glfwGetTime() * 1000.0;
+
+    /* if this id is already scheduled, just update it */
+    for (size_t i = 0 ; i < timer_scheds_.size() ; ++i)
+    {
+        if (timer_scheds_[i].id == id)
+        {
+            timer_scheds_[i].interval_ms = (double)interval_ms;
+            timer_scheds_[i].next_ms = now + (double)interval_ms;
+            return;
+        }
+    }
+
+    /* new schedule */
+    tadswin_timer_sched s;
+    s.id = id;
+    s.interval_ms = (double)interval_ms;
+    s.next_ms = now + (double)interval_ms;
+    timer_scheds_.push_back(s);
+}
+
+void CTadsWin::win_kill_timer(UINT_PTR id)
+{
+    for (auto it = timer_scheds_.begin() ; it != timer_scheds_.end() ; ++it)
+    {
+        if (it->id == id)
+        {
+            timer_scheds_.erase(it);
+            return;
+        }
+    }
+}
+
+void CTadsWin::tick_timers(double now_ms)
+{
+    if (timer_scheds_.empty())
+        return;
+
+    /*
+     *   Collect the ids that have come due and reschedule them first, before
+     *   firing any - do_timer() can add or remove timers (e.g. a one-shot
+     *   timer kills itself), and we don't want that to disturb this pass.
+     *   Cap catch-up at one interval so a stall doesn't unleash a burst.
+     */
+    std::vector<UINT_PTR> due;
+    for (size_t i = 0 ; i < timer_scheds_.size() ; ++i)
+    {
+        tadswin_timer_sched &t = timer_scheds_[i];
+        if (now_ms >= t.next_ms)
+        {
+            due.push_back(t.id);
+            t.next_ms = now_ms + (t.interval_ms > 0.0 ? t.interval_ms : 1.0);
+        }
+    }
+
+    for (size_t i = 0 ; i < due.size() ; ++i)
+        do_timer((int)due[i]);
+}
+
+void CTadsWin::tick_timers_tree(double now_ms)
+{
+    tick_timers(now_ms);
+
+    /*
+     *   Recurse into children.  Snapshot the list first: a timer callback can
+     *   create or destroy windows (e.g. a game timer that clears a banner),
+     *   which would otherwise invalidate this iteration.
+     */
+    std::vector<CTadsWin *> kids(m_children);
+    for (size_t i = 0 ; i < kids.size() ; ++i)
+        kids[i]->tick_timers_tree(now_ms);
+}
+
+/*
+ *   Free a timer ID
  */
 void CTadsWin::free_timer_id(int id)
 {
@@ -2114,7 +2204,7 @@ int CTadsWin::track_context_menu_ext(HMENU menuhdl, int x, int y, DWORD flags)
     /* get screen coordinates for the popup menu */
     pt.x = x;
     pt.y = y;
-    ClientToScreen(handle_, &pt);
+    client_to_screen(&pt);
 
     /* note that we're in the menu */
     begin_tracking_popup_menu();
@@ -2226,13 +2316,8 @@ void CTadsWin::add_toolbar_proc(HWND toolbar)
     if (toolbar_cnt_ == 1)
     {
         tb_timer_id_ = alloc_timer_id();
-        if (tb_timer_id_ != 0
-            && SetTimer(handle_, tb_timer_id_, 500, (TIMERPROC)0) == 0)
-        {
-            /* couldn't set the timer with Windows - free it */
-            free_timer_id(tb_timer_id_);
-            tb_timer_id_ = 0;
-        }
+        if (tb_timer_id_ != 0)
+            win_set_timer(tb_timer_id_, 500);
     }
 }
 
@@ -2261,7 +2346,7 @@ void CTadsWin::rem_toolbar_proc(HWND toolbar)
     if (toolbar_cnt_ == 0 && tb_timer_id_ != 0)
     {
         /* tell Windows to stop the timer */
-        KillTimer(handle_, tb_timer_id_);
+        win_kill_timer(tb_timer_id_);
 
         /* we're done with the timer ID, so deallocate it */
         free_timer_id(tb_timer_id_);
@@ -3266,7 +3351,7 @@ LRESULT CALLBACK CTadsWinScroll::sb_filter_proc(int code, WPARAM wpar,
 void CTadsWinScroll::get_scroll_area(RECT *rc, int /*vertical*/) const
 {
     /* start off with the entire client area */
-    GetClientRect(handle_, rc);
+    get_client_rect(rc);
 
     /* subtract out the scrollbars if present */
     if (vscroll_is_visible())
@@ -3347,7 +3432,7 @@ void CTadsWinScroll::start_drag_scroll()
         return;
 
     /* set up to receive timer events */
-    SetTimer(handle_, drag_scroll_timer_id_, 20, 0);
+    win_set_timer(drag_scroll_timer_id_, 20);
 
     /* set the time for the next drag scroll */
     drag_scroll_time_ = GetTickCount() + TADSWIN_DRAG_SCROLL_WAIT;
@@ -3432,7 +3517,7 @@ void CTadsWinScroll::end_drag_scroll()
     /* remove the timer */
     if (drag_scroll_timer_id_ != 0)
     {
-        KillTimer(handle_, drag_scroll_timer_id_);
+        win_kill_timer(drag_scroll_timer_id_);
         free_timer_id(drag_scroll_timer_id_);
     }
 
@@ -3461,7 +3546,7 @@ int CTadsWinScroll::do_timer(int timer_id)
          *   been 
          */
         GetCursorPos(&pt);
-        ScreenToClient(handle_, &pt);
+        screen_to_client(&pt);
         get_scroll_area(&vrc, TRUE);
         get_scroll_area(&hrc, FALSE);
         if (ImGui::GetCurrentContext()->CurrentWindow != nullptr) {

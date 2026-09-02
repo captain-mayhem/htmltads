@@ -202,6 +202,13 @@ CHtmlSysWin_win32::CHtmlSysWin_win32(CHtmlFormatter *formatter,
     /* formatting width is unknown */
     fmt_width_ = 0;
 
+    /* no deferred reformat/resize/game-chest-reload work pending yet */
+    reformat_pending_ = FALSE;
+    onresize_pending_ = FALSE;
+    reload_gc_pending_ = FALSE;
+    reformat_flags_ = 0;
+    onresize_width_ = 0;
+
     /* remember the formatter */
     formatter_ = formatter;
 
@@ -1348,7 +1355,7 @@ int CHtmlSysWin_win32::do_copy()
     HGLOBAL memhdl;
 
     /* take over the clipboard */
-    if (!OpenClipboard(handle_))
+    if (!OpenClipboard(NULL))
         return FALSE;
 
     /* delete the current clipboard contents */
@@ -1435,7 +1442,7 @@ int CHtmlSysWin_win32::can_paste()
         return FALSE;
 
     /* get access to the clipboard */
-    if (!OpenClipboard(handle_))
+    if (!OpenClipboard(NULL))
         return FALSE;
 
     /* see if "text" is on the clipboard */
@@ -1475,7 +1482,7 @@ int CHtmlSysWin_win32::do_paste()
         return FALSE;
 
     /* get access to the clipboard */
-    if (!OpenClipboard(handle_))
+    if (!OpenClipboard(NULL))
         return FALSE;
 
     /* if there's no text in the clipboard, we can't do any pasting */
@@ -1654,7 +1661,7 @@ int CHtmlSysWin_win32::do_setcursor(HWND hwnd, int /*hittest*/,
 
     /* get the mouse position */
     GetCursorPos(&pt);
-    ScreenToClient(handle_, &pt);
+    screen_to_client(&pt);
 
     /*
      *   if I'm over the vertical scrollbar, ignore it; this can happen
@@ -3304,12 +3311,7 @@ int CHtmlSysWin_win32::do_keydown(int vkey, long /*keydata*/)
             if (temp_link_timer_id_ != 0)
             {
                 /* start the timer for a short delay */
-                if (SetTimer(handle_, temp_link_timer_id_, 275,
-                             (TIMERPROC)0) == 0)
-                {
-                    free_timer_id(temp_link_timer_id_);
-                    temp_link_timer_id_ = 0;
-                }
+                win_set_timer(temp_link_timer_id_, 275);
             }
         }
         return TRUE;
@@ -3766,8 +3768,8 @@ void CHtmlSysWin_win32::set_is_banner_win(int is_banner,
  */
 void CHtmlSysWin_win32::close_banner_window()
 {
-    /* close my window handle */
-    SendMessage(handle_, WM_CLOSE, 0, 0);
+    /* close this window (was: post WM_CLOSE to handle_) */
+    request_close();
 }
 
 /*
@@ -3900,7 +3902,7 @@ void CHtmlSysWin_win32::calc_banner_layout(RECT *parent_rc,
     RECT border_rc;
 
     /* get our current on-screen area */
-    GetClientRect(handle_, &old_rc);
+    get_client_rect(&old_rc);
 
     /*
      *   Start off assuming we'll take the entire parent area.  If we're a
@@ -4157,21 +4159,19 @@ void CHtmlSysWin_win32::calc_banner_layout(RECT *parent_rc,
      *   unnecessarily.  
      */
     if (memcmp(&new_rc, &old_rc, sizeof(new_rc)) != 0) {
+        /*
+         *   Update m_pos/m_size *before* calling do_resize(): do_resize()
+         *   computes disp_width_/disp_height_ (the HTML formatter's wrap
+         *   width) via get_scroll_area(), which now reads our client rect
+         *   from m_size (get_client_rect()) - it must already hold the new
+         *   size for this pass.  (This used to be a MoveWindow(handle_, ...)
+         *   call to resize the real child HWND before GetClientRect() read
+         *   it back; there's no HWND now, so we just set m_size directly.)
+         */
         m_pos.x = new_rc.left;
         m_pos.y = new_rc.top;
         m_size.x = new_rc.right - new_rc.left;
         m_size.y = new_rc.bottom - new_rc.top;
-        /*
-         *   Resize handle_ before calling do_resize(): do_resize() computes
-         *   disp_width_/disp_height_ (the HTML formatter's wrap width) via
-         *   get_scroll_area(), which reads handle_'s *current* client rect
-         *   with GetClientRect() - calling it while handle_ still has its
-         *   old size fed the formatter a stale width for this pass.
-         */
-        MoveWindow(handle_,
-            new_rc.left, new_rc.top,
-            new_rc.right - new_rc.left,
-            new_rc.bottom - new_rc.top, TRUE);
         do_resize(0, new_rc.right - new_rc.left, new_rc.bottom - new_rc.top);
     }
 
@@ -4418,7 +4418,7 @@ void CHtmlSysWin_win32::inval_more_area()
 
     /* invalidate from the clip position down */
     get_moreprompt_rect(&more_rc);
-    GetClientRect(handle_, &client_rc);
+    get_client_rect(&client_rc);
     client_rc.top = doc_to_screen_y(clip_ypos_);
     if (more_rc.top < client_rc.top) client_rc.top = more_rc.top;
     InvalidateRect(handle_, &client_rc, FALSE);
@@ -4463,7 +4463,7 @@ void CHtmlSysWin_win32::get_moreprompt_rect(RECT *rc)
     x = doc_to_screen_x(0);
 
     /* set the appropriate font */
-    dc = GetDC(handle_);
+    dc = GetDC(NULL);
     select_font(dc, get_default_font());
 
     /* get the size of the prompt */
@@ -4477,7 +4477,7 @@ void CHtmlSysWin_win32::get_moreprompt_rect(RECT *rc)
     SetRect(rc, x, y - txtsiz.cy, rc->right, y);
 
     /* done with the device context */
-    ReleaseDC(handle_, dc);
+    ReleaseDC(NULL, dc);
     ImGui::PopFont();
 }
 
@@ -4851,7 +4851,7 @@ int CHtmlSysWin_win32::do_notify(int control_id, int notify_code,
     case TTN_NEEDTEXT:
         /* get the mouse position */
         GetCursorPos(&pt);
-        ScreenToClient(handle_, &pt);
+        screen_to_client(&pt);
 
         /* figure out what we're over */
         pos = screen_to_doc(CHtmlPoint(pt.x, pt.y));
@@ -4886,7 +4886,7 @@ int CHtmlSysWin_win32::do_notify(int control_id, int notify_code,
     case TTN_SHOW:
         /* get the mouse position */
         GetCursorPos(&pt);
-        ScreenToClient(handle_, &pt);
+        screen_to_client(&pt);
 
         /* figure out what we're over */
         pos = screen_to_doc(CHtmlPoint(pt.x, pt.y));
@@ -5016,7 +5016,7 @@ void CHtmlSysWin_win32::do_exitsizemove()
      *   example), so reformat any time the window size changes in either
      *   dimension.  
      */
-    GetClientRect(handle_, &rc);
+    get_client_rect(&rc);
     new_width = rc.right - rc.left;
     if (/* new_width != fmt_width_ && */ formatter_ != 0)
         format_after_resize(new_width);
@@ -5059,7 +5059,7 @@ int CHtmlSysWin_win32::do_timer(int timer_id)
         set_temp_show_links(TRUE);
 
         /* turn off the timer - it's done its job */
-        KillTimer(handle_, temp_link_timer_id_);
+        win_kill_timer(temp_link_timer_id_);
         free_timer_id(temp_link_timer_id_);
         temp_link_timer_id_ = 0;
 
@@ -5165,15 +5165,14 @@ void CHtmlSysWin_win32::do_resize(int mode, int x, int /*y*/)
         if (x != fmt_width_ && formatter_ != 0
             && !doing_resize_reformat_)
         {
-            MSG msg;
-
-            /* if we haven't already scheduled reformatting, do so now */
-            if (!PeekMessage(&msg, handle_, HTMLM_ONRESIZE, HTMLM_ONRESIZE,
-                             PM_NOREMOVE))
-            {
-                /* haven't scheduled it yet - post a message to myself */
-                PostMessage(handle_, HTMLM_ONRESIZE, 0, (LPARAM)x);
-            }
+            /*
+             *   Defer the reformat to the next frame (run_pending_deferred()),
+             *   rather than reformatting synchronously inside the resize
+             *   handler - a resize drag produces a flurry of these and we only
+             *   want to reflow once, at the final width.  The last width wins.
+             */
+            onresize_width_ = x;
+            onresize_pending_ = TRUE;
         }
 
         /* done */
@@ -5471,13 +5470,8 @@ void CHtmlSysWin_win32::do_create()
      *   background tasks 
      */
     bg_timer_id_ = alloc_timer_id();
-    if (bg_timer_id_ != 0
-        && SetTimer(handle_, bg_timer_id_, 500, (TIMERPROC)0) == 0)
-    {
-        /* that failed - free our timer ID */
-        free_timer_id(bg_timer_id_);
-        bg_timer_id_ = 0;
-    }
+    if (bg_timer_id_ != 0)
+        win_set_timer(bg_timer_id_, 500);
 
     /* 
      *   Determine the link toggle settings.  If links are currently on,
@@ -5514,7 +5508,7 @@ void CHtmlSysWin_win32::do_destroy()
     /* remove our miscellaneous background timer if we have one */
     if (bg_timer_id_ != 0)
     {
-        KillTimer(handle_, bg_timer_id_);
+        win_kill_timer(bg_timer_id_);
         free_timer_id(bg_timer_id_);
     }
     
@@ -5862,7 +5856,7 @@ CHtmlPoint CHtmlSysWin_win32::measure_text(CHtmlSysFont *font,
     TEXTMETRIC tm;
 
     /* get my device context */
-    dc = GetDC(handle_);
+    dc = GetDC(NULL);
 
     /* select the font */
     select_font(dc, font);
@@ -5899,7 +5893,7 @@ CHtmlPoint CHtmlSysWin_win32::measure_text(CHtmlSysFont *font,
         *ascent = tm.tmAscent;
 
     /* done with the DC */
-    ReleaseDC(handle_, dc);
+    ReleaseDC(NULL, dc);
 
     ImGui::PopFont();
 
@@ -5916,9 +5910,9 @@ size_t CHtmlSysWin_win32::get_max_chars_in_width(
     HDC dc;
 
     /* get the device context and select the font (also pushes the ImGui font) */
-    dc = GetDC(handle_);
+    dc = GetDC(NULL);
     select_font(dc, font);
-    ReleaseDC(handle_, dc);
+    ReleaseDC(NULL, dc);
 
     /*
      *   Measure against the same FreeType-rendered font draw_text()/
@@ -6332,7 +6326,7 @@ void CHtmlSysWin_win32::set_timer(CHtmlSysTimer *timer0,
     CHtmlSysTimer_win32 *timer = (CHtmlSysTimer_win32 *)timer0;
 
     /* set the timer */
-    SetTimer(handle_, timer->get_id(), interval_ms, (TIMERPROC)0);
+    win_set_timer(timer->get_id(), (unsigned int)interval_ms);
 
     /* set the repeating mode */
     timer->set_repeating(repeat);
@@ -6352,7 +6346,7 @@ void CHtmlSysWin_win32::cancel_timer(CHtmlSysTimer *timer0)
     if (timer->is_active())
     {
         /* kill the system timer */
-        KillTimer(handle_, timer->get_id());
+        win_kill_timer(timer->get_id());
 
         /* mark it inactive */
         timer->set_active(FALSE);
@@ -6419,12 +6413,7 @@ void CHtmlSysWin_win32::start_sys_timer()
         return;
     
     /* start a system timer to go off once per second */
-    if (SetTimer(handle_, cb_timer_id_, 1000, (TIMERPROC)0) == 0)
-    {
-        /* that failed - free our timer ID and give up */
-        free_timer_id(cb_timer_id_);
-        cb_timer_id_ = 0;
-    }
+    win_set_timer(cb_timer_id_, 1000);
 }
 
 /*
@@ -6456,7 +6445,7 @@ void CHtmlSysWin_win32::unregister_timer_func(void (*timer_func)(void *),
             if (timer_list_head_ == 0)
             {
                 /* remove the system timer */
-                KillTimer(handle_, cb_timer_id_);
+                win_kill_timer(cb_timer_id_);
 
                 /* release the timer identifier */
                 free_timer_id(cb_timer_id_);
@@ -6984,7 +6973,7 @@ void CHtmlSysWin_win32::inval_doc_coords(const CHtmlRect *doc_area)
     screen_area = doc_to_screen(*doc_area);
 
     /* check for max values and adjust accordingly */
-    GetClientRect(handle_, &rc);
+    get_client_rect(&rc);
     if (doc_area->right == HTMLSYSWIN_MAX_RIGHT)
         screen_area.right = rc.right;
     if (doc_area->bottom == HTMLSYSWIN_MAX_BOTTOM)
@@ -7066,25 +7055,18 @@ void CHtmlSysWin_win32::do_reformat(int show_status, int freeze_display,
 void CHtmlSysWin_win32::schedule_reformat(int show_status, int freeze_display,
                                           int reset_sounds)
 {
-    MSG msg;
-    WPARAM wpar;
-    
-    /* 
-     *   if we already have a reformat message pending, ignore this
-     *   request
+    /*
+     *   Mark a reformat as pending; run_pending_deferred() picks it up on the
+     *   next frame.  If one is already pending we merge in the new flags
+     *   rather than dropping the request (the old code dropped duplicates,
+     *   but merging is strictly safer - e.g. a later request that also wants
+     *   the sounds reset shouldn't be lost just because an earlier plain
+     *   reformat is still queued).
      */
-    if (PeekMessage(&msg, handle_, HTMLM_REFORMAT, HTMLM_REFORMAT,
-                    PM_NOREMOVE))
-        return;
-
-    /* build the WPARAM from the flags */
-    wpar = 0;
-    if (show_status) wpar |= HTML_F_SHOW_STAT;
-    if (freeze_display) wpar |= HTML_F_FREEZE_DISP;
-    if (reset_sounds) wpar |= HTML_F_RESET_SND;
-
-    /* post a REFORMAT message to myself */
-    PostMessage(handle_, HTMLM_REFORMAT, wpar, 0);
+    if (show_status) reformat_flags_ |= HTML_F_SHOW_STAT;
+    if (freeze_display) reformat_flags_ |= HTML_F_FREEZE_DISP;
+    if (reset_sounds) reformat_flags_ |= HTML_F_RESET_SND;
+    reformat_pending_ = TRUE;
 }
 
 /*
@@ -7126,15 +7108,41 @@ void CHtmlSysWin_win32::notify_sound_pref_change()
  */
 void CHtmlSysWin_win32::schedule_reload_game_chest()
 {
-    MSG msg;
+    /* mark it pending; run_pending_deferred() picks it up next frame */
+    reload_gc_pending_ = TRUE;
+}
 
-    /* if we already have a reload pending, ignore this request */
-    if (PeekMessage(&msg, handle_, HTMLM_RELOAD_GC, HTMLM_RELOAD_GC,
-                    PM_NOREMOVE))
-        return;
+/*
+ *   Run any deferred reformat / resize-reformat / game-chest-reload work.
+ *   Called once per frame per window from CHtmlSys_mainwin::event_loop(),
+ *   before ImGui::NewFrame().  See the header comment on the pending flags.
+ */
+void CHtmlSysWin_win32::run_pending_deferred()
+{
+    if (onresize_pending_)
+    {
+        onresize_pending_ = FALSE;
+        format_after_resize(onresize_width_);
+    }
 
-    /* post a REFORMAT message to myself */
-    PostMessage(handle_, HTMLM_RELOAD_GC, 0, 0);
+    if (reformat_pending_)
+    {
+        unsigned int flags = reformat_flags_;
+        reformat_pending_ = FALSE;
+        reformat_flags_ = 0;
+        owner_->reformat_all_html((flags & HTML_F_SHOW_STAT) != 0,
+                                  (flags & HTML_F_FREEZE_DISP) != 0,
+                                  (flags & HTML_F_RESET_SND) != 0);
+    }
+
+    /*
+     *   reload_gc_pending_ is only meaningful for the input subwindow (it's
+     *   the only window that handled HTMLM_RELOAD_GC); CHtmlSysWin_win32_Input
+     *   overrides this method to drain it.  Nothing sets it on a plain
+     *   CHtmlSysWin_win32, but clear it defensively so a stray flag can't
+     *   wedge.
+     */
+    reload_gc_pending_ = FALSE;
 }
 
 /*
@@ -7181,7 +7189,7 @@ int CHtmlSysWin_win32::do_formatting(int show_status, int update_win,
      *   assuming that it won't be there, we'll be maximally conservative
      *   about redrawing the whole area.  
      */
-    GetClientRect(handle_, &rc);
+    get_client_rect(&rc);
     win_bottom = screen_to_doc_y(rc.bottom);
     
     /* we don't have enough formatting done yet to draw the window */
@@ -7419,7 +7427,7 @@ void CHtmlSysWin_win32::inval_html_bg_image(unsigned int x, unsigned int y,
         return;
 
     /* get our entire window's client area */
-    GetClientRect(handle_, &clirc);
+    get_client_rect(&clirc);
 
     /* get the visible area in document coordinates */
     area.set(clirc.left, clirc.top, clirc.right, clirc.bottom);
@@ -7794,7 +7802,7 @@ void CHtmlSysWin_win32::set_temp_show_links(int flag)
      */
     if (!flag && temp_link_timer_id_ != 0)
     {
-        KillTimer(handle_, temp_link_timer_id_);
+        win_kill_timer(temp_link_timer_id_);
         free_timer_id(temp_link_timer_id_);
         temp_link_timer_id_ = 0;
     }
@@ -8207,6 +8215,24 @@ int CHtmlSysWin_win32_Input::do_user_message(
 }
 
 /*
+ *   Drain deferred work.  Adds the game-chest reload (the old HTMLM_RELOAD_GC
+ *   message, which only this window type handled) on top of the base class's
+ *   reformat / resize-reformat draining.
+ */
+void CHtmlSysWin_win32_Input::run_pending_deferred()
+{
+    if (reload_gc_pending_)
+    {
+        reload_gc_pending_ = FALSE;
+        if (in_game_chest_)
+            owner_->owner_maybe_reload_game_chest();
+    }
+
+    /* do the common reformat/resize draining */
+    CHtmlSysWin_win32::run_pending_deferred();
+}
+
+/*
  *   handle timer events 
  */
 int CHtmlSysWin_win32_Input::do_timer(int timer_id)
@@ -8576,8 +8602,7 @@ int CHtmlSysWin_win32_Input::wait_for_keystroke(
     {
         /* start a timer for the timeout period */
         input_timer_id_ = alloc_timer_id();
-        SetTimer(handle_, input_timer_id_, (DWORD)(timeout * 1000L),
-                 (TIMERPROC)0);
+        win_set_timer(input_timer_id_, (unsigned int)(timeout * 1000L));
     }
 
     /* 
@@ -8726,7 +8751,7 @@ int CHtmlSysWin_win32_Input::get_input_event(unsigned long timeout,
     {
         /* start a timer for the timeout period */
         input_timer_id_ = alloc_timer_id();
-        SetTimer(handle_, input_timer_id_, (DWORD)timeout, (TIMERPROC)0);
+        win_set_timer(input_timer_id_, (unsigned int)timeout);
     }
 
     /* 
@@ -8752,7 +8777,7 @@ int CHtmlSysWin_win32_Input::get_input_event(unsigned long timeout,
     /* if we started a timer, stop it */
     if (use_timeout)
     {
-        KillTimer(handle_, input_timer_id_);
+        win_kill_timer(input_timer_id_);
         free_timer_id(input_timer_id_);
         input_timer_id_ = 0;
     }
@@ -8836,7 +8861,7 @@ int CHtmlSysWin_win32_Input::get_input_timeout(
     {
         /* start a timer for the timeout period */
         input_timer_id_ = alloc_timer_id();
-        SetTimer(handle_, input_timer_id_, (DWORD)timeout, (TIMERPROC)0);
+        win_set_timer(input_timer_id_, (unsigned int)timeout);
     }
 
     /* keep a self-reference to ensure we aren't deleted in the event loop */
@@ -8858,7 +8883,7 @@ int CHtmlSysWin_win32_Input::get_input_timeout(
     /* if we started an event timer, we can kill it now */
     if (use_timeout)
     {
-        KillTimer(handle_, input_timer_id_);
+        win_kill_timer(input_timer_id_);
         free_timer_id(input_timer_id_);
         input_timer_id_ = 0;
     }
@@ -10003,7 +10028,7 @@ HRESULT STDMETHODCALLTYPE
 
     /* convert the mouse position into client coordinates */
     POINT loc = { pt.x, pt.y };
-    ScreenToClient(handle_, &loc);
+    screen_to_client(&loc);
 
     /* perform drag-scrolling if appropriate */
     maybe_drag_scroll(loc.x, loc.y, 16, 16);
@@ -10083,7 +10108,7 @@ void CHtmlSysWin_win32_Input::set_drop_caret(POINTL pt)
     /* convert the mouse position into client coordinates */
     loc.x = pt.x;
     loc.y = pt.y;
-    ScreenToClient(handle_, &loc);
+    screen_to_client(&loc);
 
     /* figure out where we're pointing, and show the caret there */
     docpt = screen_to_doc(CHtmlPoint(loc.x, loc.y));
@@ -10946,12 +10971,14 @@ void CHtmlSys_mainwin::do_create()
     hist_panel_->create_system_window(this, FALSE, "HistoryPanel", &panel_pos);
 
     /* create the main panel's system window */
-    GetClientRect(handle_, &panel_pos);
+    get_client_rect(&panel_pos);
     main_panel_->create_system_window(this, TRUE, "MainPanel", &panel_pos);
 
-    /* load my menu */
-    SetMenu(handle_, LoadMenu(CTadsApp::get_app()->get_instance(),
-                              MAKEINTRESOURCE(IDR_MAIN_MENU)));
+    /*
+     *   The native menu bar is gone - render_menu_bar() draws an ImGui menu
+     *   bar instead (migration.md §3.1), and there's no real HWND to SetMenu()
+     *   on anyway.
+     */
 
     /* load the context menu container */
     popup_container_ = LoadMenu(CTadsApp::get_app()->get_instance(),
@@ -10981,13 +11008,8 @@ void CHtmlSys_mainwin::do_create()
 
     /* create an idle timer to update the elapsed time display */
     idle_timer_id_ = alloc_timer_id();
-    if (idle_timer_id_ != 0
-        && SetTimer(handle_, idle_timer_id_, 1000, (TIMERPROC)0) == 0)
-    {
-        /* we failed to set the timer - free our timer ID */
-        free_timer_id(idle_timer_id_);
-        idle_timer_id_ = 0;
-    }
+    if (idle_timer_id_ != 0)
+        win_set_timer(idle_timer_id_, 1000);
 }
 
 /*
@@ -11181,7 +11203,7 @@ IDirectSound *CHtmlSys_mainwin::get_directsound()
                  *   set our DirectSound cooperative level to "normal", since
                  *   we don't need anything fancy 
                  */
-                directsound_->SetCooperativeLevel(handle_, DSSCL_NORMAL);
+                directsound_->SetCooperativeLevel(GetDesktopWindow(), DSSCL_NORMAL);
 
                 /* presume the version will be incorrect */
                 vsnok = FALSE;
@@ -12232,7 +12254,7 @@ void CHtmlSys_mainwin::render_quit_confirm()
          *   and proceed straight to actually closing
          */
         quit_confirmed_ = TRUE;
-        PostMessage(handle_, WM_CLOSE, 0, 0);
+        request_close();
     }
 }
 
@@ -12876,7 +12898,7 @@ void CHtmlSys_mainwin::show_directx_warning(int init,
 
     /* run the dialog */
     dlg = new CTadsDlg_dxwarn(prefs_, warn_type);
-    dlg->run_modal(DLG_DIRECTX_WARNING, handle_,
+    dlg->run_modal(DLG_DIRECTX_WARNING, NULL,
                    CTadsApp::get_app()->get_instance());
     delete dlg;
 
@@ -13082,7 +13104,7 @@ void CHtmlSys_mainwin::do_destroy()
     /* remove our background timer */
     if (idle_timer_id_ != 0)
     {
-        KillTimer(handle_, idle_timer_id_);
+        win_kill_timer(idle_timer_id_);
         free_timer_id(idle_timer_id_);
     }
 
@@ -13211,7 +13233,7 @@ int CHtmlSys_mainwin::do_notify(int /*control_id*/, int notify_code,
             
             /* get the mouse position */
             GetCursorPos(&pt);
-            ScreenToClient(handle_, &pt);
+            screen_to_client(&pt);
 
             /* run the statusline popup menu */
             track_context_menu(statusline_popup_, pt.x, pt.y);
@@ -13260,7 +13282,7 @@ int CHtmlSys_mainwin::do_notify(int /*control_id*/, int notify_code,
                 pt.x = brc.left;
                 pt.y = brc.bottom;
                 ClientToScreen(toolbar_, &pt);
-                ScreenToClient(handle_, &pt);
+                screen_to_client(&pt);
 
                 /* mark this as the active profile menu */
                 profile_menu_ = mnu;
@@ -13279,7 +13301,7 @@ int CHtmlSys_mainwin::do_notify(int /*control_id*/, int notify_code,
                  *   command before we can go on to destroy the menu. 
                  */
                 if (cmd != 0)
-                    SendMessage(handle_, WM_COMMAND, cmd, 0);
+                    do_command(0, cmd, 0);
 
                 /* done with the menu - destroy it */
                 DestroyMenu(mnu);
@@ -13387,7 +13409,7 @@ int CHtmlSys_mainwin::do_erase_bkg(HDC hdc)
         /* get the toolbar's area relative to our client area */
         GetWindowRect(toolbar_, &tbrc);
         pt.x = pt.y = 0;
-        ClientToScreen(handle_, &pt);
+        client_to_screen(&pt);
         OffsetRect(&tbrc, -pt.x, -pt.y);
 
         /* 
@@ -13395,7 +13417,7 @@ int CHtmlSys_mainwin::do_erase_bkg(HDC hdc)
          *   toolbar (but all the way across our window) with the system
          *   button face color 
          */
-        GetClientRect(handle_, &rc);
+        get_client_rect(&rc);
         rc.bottom = tbrc.bottom;
         FillRect(hdc, &rc, GetSysColorBrush(COLOR_3DFACE));
     }
@@ -13427,7 +13449,7 @@ void CHtmlSys_mainwin::do_paint_content(HDC hdc, const RECT *paintrc)
         /* get the toolbar's area relative to our client area */
         GetWindowRect(toolbar_, &tbrc);
         pt.x = pt.y = 0;
-        ClientToScreen(handle_, &pt);
+        client_to_screen(&pt);
         OffsetRect(&tbrc, -pt.x, -pt.y);
 
         /* adjust our offset by the toolbar's height */
@@ -13441,7 +13463,7 @@ void CHtmlSys_mainwin::do_paint_content(HDC hdc, const RECT *paintrc)
     oldpen = SelectObject(hdc, GetStockObject(BLACK_PEN));
 
     /* get the area left over between the main panel and the status line */
-    GetClientRect(handle_, &clientrc);
+    get_client_rect(&clientrc);
     GetClientRect(statusline_->get_handle(), &panelrc);
     clientrc.top = clientrc.bottom - panelrc.bottom - 3;
     clientrc.bottom = clientrc.top + 2;
@@ -13568,7 +13590,7 @@ void CHtmlSys_mainwin::recalc_banner_layout()
      *   status line.
      */
     int statusline_ht = (statusline_ != 0 ? (int)statusline_->get_height() : 0);
-    GetClientRect(handle_, &rc);
+    get_client_rect(&rc);
     //rc.left = 0;
     rc.right = m_size.x;
     rc.bottom = m_size.y;
@@ -13623,10 +13645,10 @@ void CHtmlSys_mainwin::adjust_statusbar_layout()
             ++parts;
 
             /* get the available area */
-            GetClientRect(handle_, &cli_rc);
+            get_client_rect(&cli_rc);
 
             /* get the desktop dc */
-            dc = GetDC(handle_);
+            dc = GetDC(NULL);
 
             /* calculate the width we need for the time panel */
             oldfont = SelectObject(dc, GetStockObject(DEFAULT_GUI_FONT));
@@ -13637,7 +13659,7 @@ void CHtmlSys_mainwin::adjust_statusbar_layout()
 
             /* restore drawing context */
             SelectObject(dc, oldfont);
-            ReleaseDC(handle_, dc);
+            ReleaseDC(NULL, dc);
 
             /* 
              *   add the timer to the widths - give the timer a fixed
@@ -13740,7 +13762,7 @@ int CHtmlSys_mainwin::do_command(int notify_code,
     {
     case ID_FILE_EXIT:
         /* send myself a Close message */
-        PostMessage(handle_, WM_CLOSE, 0, 0);
+        request_close();
 
         /* handled */
         return TRUE;
@@ -13758,7 +13780,7 @@ int CHtmlSys_mainwin::do_command(int notify_code,
             /* make sure they want to quit immediately */
             LoadString(CTadsApp::get_app()->get_instance(),
                        IDS_REALLY_GO_GC_MSG, buf, sizeof(buf));
-            id = MessageBox(handle_, buf, "TADS",
+            id = MessageBox(NULL, buf, "TADS",
                             MB_YESNO | MB_ICONQUESTION | MB_DEFBUTTON2);
 
             /* if they answered "yes", proceed */
@@ -13823,7 +13845,7 @@ int CHtmlSys_mainwin::do_command(int notify_code,
             strcpy(os_get_root_name(buf), "htmltads.chm::/overview.htm");
             
             /* show the help */
-            HtmlHelp(handle_, buf, HH_DISPLAY_TOPIC, 0);
+            HtmlHelp(NULL, buf, HH_DISPLAY_TOPIC, 0);
         }
 
         /* handled */
@@ -14591,7 +14613,7 @@ void CHtmlSys_mainwin::view_script()
     char fullname[MAX_PATH];
 
     /* set up to get the filename */
-    info.hwndOwner = handle_;
+    info.hwndOwner = NULL;
     info.hInstance = CTadsApp::get_app()->get_instance();
     info.lpstrFilter = "Text Files\0*.txt\0"
                        "Log Files\0*.log\0"
@@ -15176,7 +15198,7 @@ int CHtmlSys_mainwin::close_owner_window(int force)
         return 0;
     }
     else
-        return !SendMessage(handle_, WM_CLOSE, 0, 0);
+        return request_close() ? 0 : 1;
 }
 
 /*
@@ -15187,18 +15209,19 @@ void CHtmlSys_mainwin::bring_owner_to_front()
     /* show the window in its normal visible state */
     show_normal();
 
-    /* make it the top window */
-    BringWindowToTop(handle_);
+    /* make it the top window (the one real OS window is the GLFW window) */
+    if (m_window != 0)
+        glfwFocusWindow(m_window);
 }
 
 /*
- *   show the window in its normal visible, un-minimized state 
+ *   show the window in its normal visible, un-minimized state
  */
 void CHtmlSys_mainwin::show_normal()
 {
     /* if the window is minimized, restore it */
-    if (IsIconic(handle_))
-        ShowWindow(handle_, SW_RESTORE);
+    if (m_window != 0 && glfwGetWindowAttrib(m_window, GLFW_ICONIFIED))
+        glfwRestoreWindow(m_window);
 
     /* if it's hidden, show it */
     if (!isVisible())
@@ -15243,7 +15266,7 @@ CHtmlSysWin *CHtmlSys_mainwin::
      *   since this will be changed by the formatter anyway, but give it
      *   the correct initial width 
      */
-    GetClientRect(handle_, &rc);
+    get_client_rect(&rc);
     rc.right -= 2;
     rc.bottom = rc.top;
     subwin->create_system_window(this, TRUE, "Banner", &rc);
@@ -15393,6 +15416,35 @@ void CHtmlSys_mainwin::reformat_all_html(int show_status, int freeze_display,
         (*cur)->do_reformat(show_status, freeze_display, FALSE);
 }
 
+/*
+ *   Drain deferred work for every HTML window we own.  Mirrors the iteration
+ *   in reformat_all_html().  Note that if any one window has a reformat
+ *   pending, its run_pending_deferred() calls reformat_all_html(), which
+ *   reflows every panel - so the per-window walk here is really about giving
+ *   each window's own resize-reformat / game-chest-reload flag a chance to
+ *   run.
+ */
+void CHtmlSys_mainwin::run_pending_deferred_all()
+{
+    CHtmlSysWin_win32 **cur;
+    int i;
+
+    if (main_panel_ != 0)
+        main_panel_->run_pending_deferred();
+    if (hist_panel_ != 0)
+        hist_panel_->run_pending_deferred();
+    for (i = 0, cur = banners_ ; i < banner_cnt_ ; ++i, ++cur)
+        (*cur)->run_pending_deferred();
+
+    /* the debug log window's HTML panel, if a debug window is open */
+    if (dbgwin_ != 0)
+    {
+        CHtmlSysWin_win32 *sub = dbgwin_->get_html_panel();
+        if (sub != 0)
+            sub->run_pending_deferred();
+    }
+}
+
 /* 
  *   Add a window to our list of windows waiting at a [MORE] prompt 
  */
@@ -15533,6 +15585,29 @@ int CHtmlSys_mainwin::event_loop(int* flag) {
         {
             ImGui_ImplGlfw_Sleep(10);
             return TRUE;
+        }
+
+        /*
+         *   Run any deferred reformat / resize-reformat / game-chest-reload
+         *   work.  In the Win32 app these were self-posted window messages
+         *   (HTMLM_REFORMAT etc.) picked up by the message loop; guit3 has no
+         *   message loop, so we drain the pending flags here, once per frame,
+         *   before the ImGui frame starts (this does formatting work, not
+         *   ImGui drawing).
+         */
+        run_pending_deferred_all();
+
+        /*
+         *   Fire any per-window timers that have come due (the guit3
+         *   replacement for WM_TIMER - see CTadsWin::win_set_timer()).  Walk
+         *   the whole window tree from the main window, plus the debug log
+         *   window if one is open (it's a separate top-level tree).
+         */
+        {
+            double now_ms = glfwGetTime() * 1000.0;
+            tick_timers_tree(now_ms);
+            if (dbgwin_ != 0)
+                dbgwin_->tick_timers_tree(now_ms);
         }
 
         // Start the Dear ImGui frame
@@ -15830,9 +15905,17 @@ void CHtmlSys_mainwin::set_paste_accel(textchar_t paste_key)
     HMENU edit_menu;
     textchar_t buf[128];
     textchar_t *p;
-    
-    /* get the old menu label */
+
+    /*
+     *   There's no native menu any more (render_menu_bar() draws an ImGui one
+     *   that shows shortcut text directly), so there's nothing to relabel.
+     */
     edit_menu = GetSubMenu(GetMenu(handle_), 1);
+    if (edit_menu == 0)
+        return;
+
+    /* get the old menu label */
+    buf[0] = '\0';
     GetMenuString(edit_menu, ID_EDIT_PASTE, buf, sizeof(buf), MF_BYCOMMAND);
 
     /* find the tab */
@@ -16930,7 +17013,7 @@ void CHtmlSys_dbgwin::do_create()
     CHtmlSys_framewin::do_create();
     
     /* create the main panel's system window */
-    GetClientRect(handle_, &pos);
+    get_client_rect(&pos);
     html_panel_->create_system_window(this, TRUE, "HtmlPanel", &pos);
 
     /* load my menu */
@@ -17004,7 +17087,7 @@ int CHtmlSys_dbgwin::close_owner_window(int force)
         return 0;
     }
     else
-        return !SendMessage(handle_, WM_CLOSE, 0, 0);
+        return request_close() ? 0 : 1;
 }
 
 /*
@@ -17012,15 +17095,11 @@ int CHtmlSys_dbgwin::close_owner_window(int force)
  */
 void CHtmlSys_dbgwin::bring_owner_to_front()
 {
-    HWND f;
-    
-    /* make me the top window */
-    BringWindowToTop(handle_);
-
-    /* if I don't have focus, move focus to my panel */
-    f = GetFocus();
-    if (f != handle_ && !IsChild(handle_, f))
-        SetFocus(html_panel_->get_handle());
+    /*
+     *   Nothing to do: the debug window has no real OS window (it's an ImGui
+     *   overlay drawn after the main window every frame, so it's already on
+     *   top), and there's no Win32 focus to move.
+     */
 }
 
 /*
@@ -17191,9 +17270,11 @@ void CHtmlSys_dbglogwin::init_html_panel(CHtmlFormatter *formatter)
  */
 void CHtmlSys_dbglogwin::load_menu()
 {
-    /* load our menu */
-    SetMenu(handle_, LoadMenu(CTadsApp::get_app()->get_instance(),
-                              MAKEINTRESOURCE(IDR_DEBUGWIN_MENU)));
+    /*
+     *   No native menu: render_menu_bar() draws an ImGui menu bar for the
+     *   debug window (migration.md §3.1), and there's no real HWND to
+     *   SetMenu() on.
+     */
 }
 
 /*
@@ -17987,7 +18068,7 @@ void CHtmlSys_aboutgamewin::do_create()
     CTadsWin::do_create();
 
     /* create the dismiss button */
-    GetClientRect(handle_, &rc);
+    get_client_rect(&rc);
     okbtn_ = CreateWindow("BUTTON", "OK",
                           WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON,
                           (rc.right - okbtn_wid)/2,
@@ -18040,7 +18121,7 @@ void CHtmlSys_aboutgamewin::create_html_subwin(CHtmlFormatter *formatter)
                                          FALSE, FALSE, prefs_);
 
     /* create the panel's system window */
-    GetClientRect(handle_, &rc);
+    get_client_rect(&rc);
     rc.bottom -= okbtn_ht + 2;
     html_subwin_->create_system_window(this, TRUE, "HtmlSubwin", &rc);
 }
@@ -18085,7 +18166,7 @@ void CHtmlSys_aboutgamewin::run_aboutbox(CTadsWin *owner)
     ctx = CTadsDialog::modal_dlg_pre(owner->get_handle(), TRUE);
 
     /* get my size */
-    GetClientRect(handle_, &rc);
+    get_client_rect(&rc);
     wid = rc.right - rc.left;
     ht = rc.bottom - rc.top;
 
@@ -18171,7 +18252,7 @@ void CHtmlSys_aboutgamewin::do_resize(int mode, int x, int y)
             CTadsWin::do_resize(mode, x, y);
             
             /* move the "OK" button */
-            GetClientRect(handle_, &rc);
+            get_client_rect(&rc);
             MoveWindow(okbtn_, (rc.right - okbtn_wid) / 2,
                        rc.bottom - okbtn_ht - 2,
                        okbtn_wid, okbtn_ht, TRUE);
@@ -18283,7 +18364,7 @@ void CHtmlSys_top_win::do_create()
     create_html_subwin();
 
     /* give the subwindow the entire area, minus the scrollbars if any */
-    GetClientRect(handle_, &rc);
+    get_client_rect(&rc);
     if (panel_has_vscroll())
         rc.right -= GetSystemMetrics(SM_CXVSCROLL);
     if (panel_has_hscroll())
@@ -18372,7 +18453,7 @@ void CHtmlSys_top_win::do_resize(int mode, int x, int y)
         CTadsWin::do_resize(mode, x, y);
             
         /* get the client area, and adjust to our desired subwindow size */
-        GetClientRect(handle_, &rc);
+        get_client_rect(&rc);
         adjust_subwin_rect(&rc);
 
         /* move the subwindow to its new area */
@@ -18456,7 +18537,7 @@ void CHtmlSys_abouttadswin::run_dlg(CTadsWin *parent)
      */
     SetFocus(parent->get_handle());
     ending_ = TRUE;
-    PostMessage(handle_, WM_CLOSE, 0, 0);
+    request_close();
 }
 
 /*
@@ -18529,7 +18610,7 @@ void CHtmlSys_abouttadswin::process_command(
 
             LoadString(CTadsApp::get_app()->get_instance(),
                        IDS_CANNOT_OPEN_HREF, buf, sizeof(buf));
-            MessageBox(handle_, buf, "TADS", MB_OK | MB_ICONEXCLAMATION);
+            MessageBox(NULL, buf, "TADS", MB_OK | MB_ICONEXCLAMATION);
         }
     }
 }
@@ -19096,7 +19177,7 @@ int CHtmlSysWin_win32_Popup::do_mousemove(int keys, int x, int y)
     /* convert the mouse click's client coordinates to screen coordinates */
     pt.x = x;
     pt.y = y;
-    ClientToScreen(handle_, &pt);
+    client_to_screen(&pt);
 
     /* 
      *   if the mouse is over our window, handle this with the normal
@@ -19206,7 +19287,7 @@ int CHtmlSysWin_win32_Popup::dismiss_on_click(int x, int y, DWORD flags)
     /* convert the mouse click's client coordinates to screen coordinates */
     pt.x = x;
     pt.y = y;
-    ClientToScreen(handle_, &pt);
+    client_to_screen(&pt);
 
     /* if the click is outside of our window, it's a summary dismissal */
     if (WindowFromPoint(pt) == handle_)

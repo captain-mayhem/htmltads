@@ -37,8 +37,10 @@ highlighting. This is genuinely useful progress, and now the application chrome 
 ImGui-native pieces too: the menu bar, toolbar, and status bar (§3.1, §3.2) are all done, and so are
 all five dialogs - Options, Customize Theme, the file open/save dialog, the Find dialog, and the folder
 picker (§3.3). The banner border, scrollbars, size-grip, and tooltip are no longer real child `HWND`s
-either (§3.4). Window creation itself - every window's own `handle_`, top-level or not - is still 100%
-Win32, just permanently hidden.
+either (§3.4), and — as of §3.4a — **neither is `handle_` itself**: every `CTadsWin`'s `handle_` is now
+just an opaque token, there are no real Win32 windows in guit3 at all (only the one `GLFWwindow`), and the
+timer / deferred-reformat / self-`WM_CLOSE` mechanisms that used to ride on it were reimplemented per
+frame.
 
 ## 2. Root cause: "both windows open"
 
@@ -1221,10 +1223,10 @@ several places (`do_resize()`, `do_create()`, a visibility change in
 `CHtmlSysWin_win32::adjust_scrollbar_ranges()`) that would otherwise all need updating for no behavioral
 gain.
 
-**What's still real**: every `CTadsWin`'s own `handle_` (top-level or not) is still a real, permanently-
-hidden Win32 `HWND` - this section only removed the *extra* child controls nested one level below that.
-Actually deleting the stray top-level Win32 frame (§2's "real fix") still needs that larger change; see
-the scope note above.
+**What's still real**: ~~every `CTadsWin`'s own `handle_` (top-level or not) is still a real, permanently-
+hidden Win32 `HWND`~~ **- no longer true as of §3.4a below. There are now NO real Win32 windows in guit3
+at all** (except the one `GLFWwindow`). This section (§3.4) removed the *extra* child controls; §3.4a
+removed `handle_` itself.
 
 **Verified** by launching `guit3.exe tests/ditch3.t3` (built clean with these changes) and screenshotting
 (recipe in §6): the status banner's bottom border (`OS_BANNER_STYLE_BORDER`, "Control Room / Exits: west"
@@ -1235,6 +1237,99 @@ content and moved the scrollbar thumb correctly, both before and after this chan
 storage swap - confirming `win_get_scroll_info()`/`win_set_scroll_info()`'s clamping matches the real
 API's behavior closely enough that the thumb math from §4 (which depends on exact `SCROLLINFO`
 semantics) still holds.
+
+### 3.4a The `handle_` HWND itself is gone — every `CTadsWin` now uses an opaque token
+
+This is §2's "real fix", finished: `CTadsWin::create_system_window()` ([tadswin.cpp:499](tadswin.cpp#L499))
+no longer calls `CreateWindowEx` for **any** window, top-level or child. `handle_` is set to
+`reinterpret_cast<HWND>(this)` — an opaque, non-null, unique token, the same trick §3.4 already used for
+`vscroll_`/`hscroll_` — so every `handle_ != 0` / `hwnd == handle_` comparison in the still-partly-ported
+tree keeps working unchanged, while every Win32 call that actually *touches a window* was replaced. The
+`CTadsWin` window-class registration, `s_winproc`, and `common_msg_handler` are now dead (nothing creates
+a window of that class) but were left in place. MDI (`client_handle_`, `CreateWindowEx("MDICLIENT")`) is
+untouched — it's Workbench-only dead code in the client (§4).
+
+**Why this had to be all-or-nothing, not "top-level frames only".** The first attempt tokenised only the
+two top-level windows (`CHtmlSys_mainwin`, `CHtmlSys_dbglogwin`) and kept child windows real. That breaks
+immediately: children are created with `CreateWindowEx(..., parent = mainwin->get_handle(), WS_CHILD,
+...)`, and `WS_CHILD` + an invalid parent HWND makes `CreateWindowEx` *fail* — the game-text panels get no
+window, and the content area renders solid black. Child code (`CHtmlSysWin_win32::do_resize()` etc.) also
+calls `GetClientRect(handle_)` on live layout paths. So the children had to lose their HWNDs too.
+
+**`do_create()` is now called explicitly.** It used to run via `WM_CREATE` during `CreateWindowEx`; with
+no window creation, `create_system_window()` calls `do_create()` directly, at the same point in the
+sequence (for a top-level window, before its GLFW `m_window` is created — matching the old ordering).
+`do_destroy()` is likewise no longer driven by `WM_DESTROY`: `guimain.cpp`'s shutdown
+`DestroyWindow(...get_handle())` calls became `->destroy_now()` (new `CTadsWin` method = call
+`do_destroy()` directly). `CHtmlSys_mainwin::do_destroy()` still ends in `PostQuitMessage(0)`, which GLFW's
+`glfwPollEvents()` picks up as `WM_QUIT` and turns into `glfwWindowShouldClose` — that's the real
+termination path, and it still works.
+
+**The GLFW incidental pump — the thing this change actually had to replace.** `glfwPollEvents()` on Win32
+runs `while (PeekMessage(&msg, NULL, ...)) { TranslateMessage; DispatchMessage; }` — it pumps the *whole
+thread queue*, not just GLFW's own windows. So with the old permanently-hidden real `handle_`, messages
+posted to it — `WM_TIMER` from `SetTimer(handle_, ...)`, the `HTMLM_REFORMAT`/`HTMLM_ONRESIZE`/
+`HTMLM_RELOAD_GC` self-posts, `PostMessage(handle_, WM_CLOSE)` — *were* being delivered to
+`common_msg_handler` via that incidental pump. (§2's "there is no message pump" is true for
+`GetMessage`/`DispatchMessage` written in our code, but misses this.) Tokenising `handle_` cuts that path,
+so each of those had to be reimplemented:
+
+- **Timers** → `CTadsWin::win_set_timer(id, ms)` / `win_kill_timer(id)` / `tick_timers(now)`
+  ([tadswin.h](tadswin.h)/[tadswin.cpp](tadswin.cpp)), a per-window active-timer list. `event_loop()`
+  calls `tick_timers_tree(glfwGetTime()*1000)` once per frame over the whole window tree (from
+  `main_win_`, and from `dbgwin_` if open); a due timer fires `do_timer(id)` and reschedules (WM_TIMER is
+  periodic). Every `SetTimer(handle_, ...)` / `KillTimer(handle_, ...)` call site was converted — the
+  input-timeout timer (`input_timer_id_`), the real-time event callback (`cb_timer_id_`), the TADS
+  `os_setTimer` timers (`CHtmlSysWin_win32::set_timer()`), bg-image animation, temp-link display,
+  drag-scroll auto-scroll, and the elapsed-time idle timer.
+- **`HTMLM_REFORMAT` / `HTMLM_ONRESIZE` / `HTMLM_RELOAD_GC`** → per-window pending flags
+  (`reformat_pending_` + `reformat_flags_`, `onresize_pending_` + `onresize_width_`, `reload_gc_pending_`)
+  on `CHtmlSysWin_win32`, drained once per frame by `run_pending_deferred()` (virtual; overridden in
+  `CHtmlSysWin_win32_Input` for the game-chest reload). `CHtmlSys_mainwin::run_pending_deferred_all()`
+  walks main/history/banner panels + the debug log's HTML panel and is called from `event_loop()` right
+  before `ImGui::NewFrame()` (this is formatting work, not ImGui drawing). `schedule_reformat()` /
+  `schedule_reload_game_chest()` / the `do_resize()` width-change block just set the flags now.
+- **`PostMessage(handle_, WM_CLOSE)` self-posts** → `CTadsWin::request_close()` (`if (do_close())
+  do_destroy()`). Used by File > Exit, the deferred quit-confirm's "Yes", `close_banner_window()`, and
+  `close_owner_window()`.
+- **`SendMessage(handle_, WM_COMMAND, cmd, 0)`** → `do_command(0, cmd, 0)` directly.
+
+**Geometry / DC / coordinate replacements** (all mechanical):
+- `GetClientRect(handle_, &rc)` → `get_client_rect(&rc)` (new `CTadsWin` helper: `rc = {0, 0,
+  (LONG)m_size.x, (LONG)m_size.y}` — our client area is just our current size, kept fresh every frame by
+  `calc_banner_layout()` / `do_render()`). `calc_banner_layout()`'s old `MoveWindow(handle_, ...)`
+  before `do_resize()` is gone — it set `m_size` directly instead.
+- `ScreenToClient`/`ClientToScreen(handle_, &pt)` → `screen_to_client()`/`client_to_screen()` (new
+  helpers, offset by `get_screen_pos()` — GLFW client-area pixel space, the same space `io.MousePos` uses).
+- `GetDC(handle_)` / `ReleaseDC(handle_, dc)` → `GetDC(NULL)` / `ReleaseDC(NULL, dc)` (screen DC — still
+  valid for the GDI font-metric measurement these do).
+- `OpenClipboard(handle_)` → `OpenClipboard(NULL)`.
+- `show_normal()` / `bring_owner_to_front()` → `glfwRestoreWindow` / `glfwFocusWindow` /
+  `glfwGetWindowAttrib(GLFW_ICONIFIED)` on `m_window`. `CHtmlSys_dbgwin::bring_owner_to_front()` is a
+  no-op (the debug overlay is drawn last each frame — already on top).
+- Dead no-ops left in place (the "harmless dead code" convention): `InvalidateRect(handle_, ...)`,
+  `UpdateWindow`, `BeginPaint`/`EndPaint`, `ScrollWindow`, `SetFocus(handle_)` (guit3 focus is ImGui's
+  per §5), `GetWindow(handle_, GW_CHILD)` enumerations, `SendMessage(handle_, WM_PALETTECHANGED)`, the
+  native `TrackPopupMenu`/`track_context_menu*` paths (§3.1a replaced them), `CreateToolbarEx(handle_)`
+  (§3.1 replaced it — returns NULL, all `if (toolbar_ != 0)` guards skip). Dead native-menu calls
+  (`SetMenu(handle_, LoadMenu(...))`) were deleted outright to avoid leaking the `HMENU`.
+  `MessageBox`/`HtmlHelp`/`run_modal`/`OPENFILENAME::hwndOwner` owner args became `NULL`.
+
+**About / Credits / License / in-game popup-menu windows** (`CHtmlSys_aboutgamewin`,
+`CHtmlSys_abouttadswin`, `CHtmlSys_creditswin`, `CHtmlSysWin_win32_Popup` in the 18k–19k line range of
+`htmlgui.cpp`) are `CTadsWin` subclasses that were never ImGui-ported and don't render in guit3 today
+regardless. They compile with the token + the no-op conversions above; making them actually work is
+separate future work. (`CTadsDlg_dxwarn` and the other `CTadsDialog` subclasses have their *own* real
+dialog `handle_` from `DialogBoxParam` — unaffected by this change.)
+
+**Verified**: `guit3.exe tests/ditch3.t3` — `EnumWindows` filtered to the PID shows **no `TADS_Window`
+-class window at all** (before: one, `IsWindowVisible == FALSE`), only `GLFW30`. The title screen renders
+(banner image, body text, hyperlinks, blinking caret); clicking the "begin the game" link starts the game
+and the Control Room banner + intro text (em-dash included) render correctly; resizing the GLFW window to
+760px wide re-wraps the text to the new width (exercises the new `onresize_pending_` path); the
+elapsed-time status field ticks every second (the reimplemented idle timer). `guit3.exe -debugwin
+tests/ditch3.t3` shows the "HTML Debug Log" ImGui overlay with its menu bar, and `EnumWindows` still shows
+only `GLFW30` (before this migration, `-debugwin` had a second real `TADS_Window` HWND).
 
 ### 3.5 Fonts — GDI metrics/DPI queries replaced, font-loading and enumeration deliberately left
 `tadsfont.cpp` already used `imgui/misc/freetype/imgui_freetype.h` for glyph rendering (cross-platform).
@@ -1690,16 +1785,16 @@ the WAV/OGG/MP3 path by ear.
 
 1. **Stop the double window** (§2) — **done** (short-term fix: hide the Win32 HWND permanently, keep
    the GLFW window as the one true visible window, and stop GLFW from showing itself before
-   `setVisible(true)` is called). The real fix (eliminating the Win32 frame entirely) still depends on
-   §3.4.
+   `setVisible(true)` is called). **The real fix — eliminating the Win32 `handle_` entirely — is now
+   also done, see §3.4a.**
 2. **Menu bar, toolbar** (§3.1) **and status bar** (§3.2) — **all done**. All were self-contained,
    didn't block on the dialog framework, and remove three of the four still-native chrome pieces
    (dialogs remain).
-3. **Child windows** (§3.4): the *extra* child HWNDs (banner border, scrollbars, size-grip, tooltip) are
-   **done** — none of them are real windows any more. Actually deleting the top-level HWND still needs
-   the larger change §3.4 now describes as still-real: every window's own `handle_` (not just these
-   four control types) is still a real, permanently-hidden `HWND`. Skip MDI-frame/MDI-client child-window
-   paths entirely (§4) — the client doesn't need them.
+3. **Child windows** (§3.4) **and `handle_` itself** (§3.4a) — **done**. The *extra* child HWNDs (banner
+   border, scrollbars, size-grip, tooltip) went first (§3.4); then `handle_` on every `CTadsWin` (child
+   and top-level) became an opaque token (§3.4a), with timers, deferred reformats, and self-`WM_CLOSE`
+   reimplemented per frame. There are no real Win32 windows in guit3 now except the one `GLFWwindow`.
+   MDI-frame/MDI-client paths (§4) were skipped — the client doesn't need them.
 4. **Dialogs** (§3.3): biggest chunk by file count. The Options dialog (Edit > Options), the
    "Customize Theme" Fonts/Colors/More/Media property sheet (`run_appearance_dlg()`), the file open/save
    dialog, the Find dialog (Edit > Find Text on Current Page...), and the folder-picker dialog (Options >

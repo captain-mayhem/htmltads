@@ -697,6 +697,16 @@ public:
     /* schedule reloading the game chest data */
     void schedule_reload_game_chest();
 
+    /*
+     *   Run any work deferred via schedule_reformat() / the resize handler /
+     *   schedule_reload_game_chest().  Called once per frame per window from
+     *   CHtmlSys_mainwin::event_loop(), before the ImGui frame is started
+     *   (these do formatting work, not ImGui drawing).  Replaces the old
+     *   HTMLM_REFORMAT / HTMLM_ONRESIZE / HTMLM_RELOAD_GC self-posted window
+     *   messages, which guit3 has no pump to deliver.
+     */
+    virtual void run_pending_deferred();
+
     /* apply the given profile to the current game */
     void set_game_specific_profile(const char *profile);
 
@@ -1196,6 +1206,22 @@ protected:
      */
     long fmt_width_;
 
+    /*
+     *   Deferred-work flags.  In the original Win32 app schedule_reformat(),
+     *   the resize handler, and schedule_reload_game_chest() posted an
+     *   HTMLM_REFORMAT / HTMLM_ONRESIZE / HTMLM_RELOAD_GC message to our own
+     *   HWND to be picked up on the next pass through the message loop.  guit3
+     *   has no message loop and no HWND, so instead we set a flag here and
+     *   drain it once per frame from run_pending_deferred(), which
+     *   CHtmlSys_mainwin::event_loop() calls for every window before starting
+     *   the ImGui frame.
+     */
+    unsigned int reformat_pending_ : 1;
+    unsigned int onresize_pending_ : 1;
+    unsigned int reload_gc_pending_ : 1;
+    unsigned int reformat_flags_;   /* HTML_F_xxx bits for the pending reformat */
+    long onresize_width_;           /* new width for the pending resize reformat */
+
     /* default font */
     class CHtmlSysFont_win32 *default_font_;
 
@@ -1609,6 +1635,9 @@ public:
 
     /* begin command line input editing mode */
     void get_input_begin(size_t bufsiz);
+
+    /* also drain a pending game-chest reload (HTMLM_RELOAD_GC replacement) */
+    virtual void run_pending_deferred();
 
     /* 
      *   cancel input previously started with get_input_timeout() and
@@ -2972,6 +3001,14 @@ public:
     /* reformat all HTML windows */
     virtual void reformat_all_html(int show_status, int freeze_display,
                                    int reset_sounds);
+
+    /*
+     *   Drain deferred reformat/resize/game-chest-reload work for every HTML
+     *   window (main panel, history panel, banners, and the debug log's HTML
+     *   subwindow).  Called once per frame from event_loop().  See
+     *   CHtmlSysWin_win32::run_pending_deferred().
+     */
+    void run_pending_deferred_all();
 
     /* set the accelerator key for Paste */
     virtual void set_paste_accel(textchar_t paste_key);
