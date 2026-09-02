@@ -888,6 +888,25 @@ protected:
     int do_rightbtn_down(int keys, int x, int y, int clicks);
     int do_rightbtn_up(int keys, int x, int y);
 
+    /*
+     *   True if the absolute screen coordinate (x, y) - the space
+     *   event_loop()'s manual mouse routing works in - lies within this
+     *   subwindow's current on-screen rect.  do_leftbtn_down()/do_setcursor()
+     *   use this to decline events aimed at a sibling: CTadsWin's recursive
+     *   child dispatch offers each event to every visible subwindow in turn,
+     *   nothing upstream bounds-checks, and these handlers otherwise always
+     *   claim the event (returning TRUE / grabbing mouse capture), so the
+     *   first subwindow in the child list - normally main_panel_ - would
+     *   swallow clicks meant for a later one, e.g. the "Exits: west" links
+     *   in a room/status banner.
+     */
+    int pt_in_screen_rect(int x, int y) const
+    {
+        ImVec2 o = get_screen_pos();
+        return x >= o.x && x < o.x + m_size.x
+            && y >= o.y && y < o.y + m_size.y;
+    }
+
     /* handle focus */
     void do_setfocus(HWND prev_focus);
     void do_killfocus(HWND next_focus);

@@ -693,6 +693,39 @@ correctly and closes the popup cleanly, leaving the main window's command line f
 follow-up right-click on the game text area still opens the unrelated `"EditContextMenu"` correctly (no
 regression from the new `do_rightbtn_down()` override intercepting clicks it shouldn't).
 
+### 3.2a Banner subwindow clicks (room-exit links etc.) were swallowed by `main_panel_`
+
+**Symptom** (user report): clicking the `west` hyperlink in a room/status banner - e.g. `ditch3.t3`'s
+"Control Room / Exits: **west**" banner at the top of the window - did nothing. The same click as a
+typed `west` command worked fine.
+
+**Root cause**: the exact bounds-check gap already called out in §3.2's right-click writeup ("that leaf
+handler doesn't bounds-check the click against its own rect ... so it unconditionally claims capture for
+*any* click anywhere in the window"), but for plain left-clicks and therefore never worked around.
+`event_loop()`'s manual mouse routing calls `do_leftbtn_down()` on `CHtmlSys_mainwin`, which flows into
+`CTadsWin::do_leftbtn_down()`'s recursive child dispatch: it offers the same absolute click to every
+visible subwindow in child-creation order, stopping at the first that returns `TRUE`. `main_panel_` is
+created before any game-created banner, and `CHtmlSysWin_win32::do_leftbtn_down()` returns `TRUE` (and
+grabs mouse capture) for essentially every click it's handed - it only ever declined the
+vertical-scrollbar strip (`x >= rc.right`). So `main_panel_` consumed the click before the banner
+subwindow behind it in the list was ever asked, and the banner's link hit-test never ran.
+
+**Fix**: added `CHtmlSysWin_win32::pt_in_screen_rect(x, y)` ([htmlgui.h](htmlgui.h), right after the
+mouse-event-handler declarations) - a plain geometric test of the incoming absolute coordinate against
+this subwindow's own `get_screen_pos()`/`m_size` rect, the same technique `CHtmlSys_mainwin::over_statusbar()`
+uses. `CHtmlSysWin_win32::do_leftbtn_down()` and `do_setcursor(int, int)` now return `FALSE` up front
+when the point isn't inside them, so the recursive dispatch continues to the sibling that actually
+contains it. `do_rightbtn_down()` forwards to `do_leftbtn_down()` so it's covered too;
+`do_mousemove()`/`do_leftbtn_up()` were left alone because `event_loop()` dispatches those straight to
+the capture-holding window (a text-selection drag that leaves the subwindow must keep receiving them),
+never through this recursive search.
+
+**Verified** by screenshot + simulated clicks (§6 recipe): launched `guit3.exe tests/ditch3.t3`, clicked
+"begin the game", then clicked `west` in the "Exits:" banner - the command line echoed `>west` and the
+game replied "You simply can't leave until you get the SCU-1100DX working" (turn counter ticked
+0/0 -> 0/1). The "begin the game" click in `main_panel_` itself still worked in the same run, confirming
+no regression to ordinary in-panel link clicks.
+
 ### 3.3 Dialogs (preferences, find/replace, folder picker, generic app dialogs)
 All dialog infrastructure (`tadsdlg.cpp`/`tadsdlg2.cpp`, `htmlpref.cpp`, `foldsel2.cpp`,
 `guifndlg.cpp`) is built on `CreateDialogParam`/`DialogBoxParam` with resource-defined (`.rc`) layouts,

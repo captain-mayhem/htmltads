@@ -1732,6 +1732,15 @@ int CHtmlSysWin_win32::do_setcursor(int x,
     unsigned long sel_start, sel_end;
 
     ImVec2 screen_pos = get_screen_pos();
+
+    /*
+     *   Same recursive-dispatch situation as do_leftbtn_down(): decline a
+     *   setcursor for a position outside our rect so a sibling subwindow
+     *   (e.g. a banner) gets a chance to set the cursor for its own links.
+     */
+    if (!pt_in_screen_rect(x, y))
+        return FALSE;
+
     x = x - screen_pos.x;
     y = y - screen_pos.y;
 
@@ -1879,6 +1888,16 @@ int CHtmlSysWin_win32::do_leftbtn_down(int keys, int x, int y, int clicks)
     unsigned long startofs2, endofs2;
     CHtmlDispLink *link;
     ImVec2 screen_pos = get_screen_pos();
+
+    /*
+     *   This click is offered to us by CTadsWin's recursive child dispatch
+     *   whether or not it actually landed in our area; if it didn't, decline
+     *   it so the dispatch moves on to the sibling that contains it (e.g. a
+     *   banner behind main_panel_ in the child list).  See pt_in_screen_rect().
+     */
+    if (!pt_in_screen_rect(x, y))
+        return FALSE;
+
     x = x - screen_pos.x;
     y = y - screen_pos.y;
 
