@@ -33,7 +33,12 @@ add_executable(guit3
 	../win32/mpegamp/getbits.cpp
 	../win32/mpegamp/huffman.cpp
 	../win32/mpegamp/transform.cpp
-	../win32/mpegamp/mpegamp_w32.cpp
+	# guit3-local fork of the amp MPEG driver: same as
+	# ../win32/mpegamp/mpegamp_w32.cpp but with the DirectSound/HWND params
+	# dropped from CMpegAmpW32's ctor (miniaudio output path).  See
+	# migration.md 3.7.  The rest of win32/mpegamp/* is unchanged and shared.
+	mpegamp_w32.cpp
+	mpegamp_w32.h
 
 	# miniaudio - single-file cross-platform audio output backend, compiled
 	# straight into guit3 (its only consumer).  See migration.md 3.7.
