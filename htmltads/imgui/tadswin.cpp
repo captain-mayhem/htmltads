@@ -1798,7 +1798,10 @@ void CTadsWin::do_render_content_begin()
         ImGui::SetNextWindowPos(m_pos, ImGuiCond_FirstUseEver);
         ImGui::SetNextWindowSize(m_size, ImGuiCond_FirstUseEver);
         ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0.0f, 0.0f));
-        ImGui::Begin(m_title.c_str(), nullptr, ImGuiWindowFlags_NoResize);
+        bool *p_open = get_titlebar_open_flag();
+        ImGui::Begin(m_title.c_str(), p_open, ImGuiWindowFlags_NoResize);
+        if (p_open != nullptr && !*p_open)
+            on_titlebar_close();
         m_pos = ImGui::GetWindowPos();
         m_size = ImGui::GetWindowSize();
     }
@@ -3346,7 +3349,7 @@ LRESULT CALLBACK CTadsWinScroll::sb_filter_proc(int code, WPARAM wpar,
 }
 
 /*
- *   Get the scrolling area 
+ *   Get the scrolling area
  */
 void CTadsWinScroll::get_scroll_area(RECT *rc, int /*vertical*/) const
 {
@@ -3359,6 +3362,29 @@ void CTadsWinScroll::get_scroll_area(RECT *rc, int /*vertical*/) const
 
     if (hscroll_is_visible())
         rc->bottom -= GetSystemMetrics(SM_CYHSCROLL);
+
+    /*
+     *   Never go negative.  get_client_rect() reflects m_size, which for a
+     *   window that's part of the banner layout tree (e.g. the main game
+     *   panel) is only established once calc_banner_layout() has run for it
+     *   at least once - but adjust_scrollbar_ranges() can run before that
+     *   first pass (e.g. right after creation), so rc can start out {0,0},
+     *   go negative here, and feed a bogus negative width into
+     *   CHtmlSysWin_win32::get_scroll_info()'s horizontal-scrollbar math
+     *   (int-divided by get_hscroll_units(), then stored into an unsigned
+     *   SCROLLINFO::nPage - wrapping to near UINT_MAX).  That one bad frame
+     *   is enough to permanently latch the panel into showing a phantom
+     *   horizontal scrollbar shifted a few pixels open with nothing to
+     *   scroll to (get_scroll_info()'s "|| hscroll_ofs_ != 0" keeps it
+     *   visible forever after), silently clipping the first several pixels
+     *   of every line for the rest of the session.  A real Win32
+     *   GetClientRect() can never report a negative width or height, so
+     *   this ported equivalent shouldn't either.
+     */
+    if (rc->right < rc->left)
+        rc->right = rc->left;
+    if (rc->bottom < rc->top)
+        rc->bottom = rc->top;
 }
 
 /*

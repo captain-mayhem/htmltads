@@ -568,6 +568,13 @@ public:
     }
 
     /*
+     *   Get my current size (m_size is protected, so a sibling class that
+     *   only has a plain CTadsWin* - e.g. a dialog centering itself on its
+     *   parent's content area - needs this to read it).
+     */
+    ImVec2 get_win_size() const { return m_size; }
+
+    /*
      *   set my parent window - this only sets our internal parent, not
      *   the Windows parent handle; a caller that reparents this window
      *   must take care of reparenting the Windows handle separately 
@@ -1237,6 +1244,22 @@ protected:
      */
     virtual void do_render_content_begin();
     virtual void do_render_content_end();
+
+    /*
+     *   For a floating (parent_==nullptr) window, should ImGui draw a
+     *   title-bar close button ("X")?  If so, return a pointer to a bool
+     *   this window owns; do_render_content_begin() passes it to
+     *   ImGui::Begin() as its p_open, and calls on_titlebar_close() the
+     *   frame ImGui sets it to false (i.e. the X was clicked).  Default:
+     *   no close button - the debug log window, the only other floating
+     *   CTadsWin so far, is dismissed via its menu checkbox, not an inline
+     *   X, so this only needs overriding where a title-bar close is
+     *   actually wanted (e.g. CHtmlSys_abouttadswin).
+     */
+    virtual bool *get_titlebar_open_flag() { return nullptr; }
+
+    /* called once, the frame the title-bar close button is clicked */
+    virtual void on_titlebar_close() { }
 
     /*
      *   ImGui child-window flags for our content area.  By default we

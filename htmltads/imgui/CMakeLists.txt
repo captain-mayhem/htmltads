@@ -160,6 +160,16 @@ add_custom_command(
 		COMMAND ${CMAKE_COMMAND} -E make_directory $<TARGET_FILE_DIR:guit3>/charmap
 		COMMAND ${CMAKE_COMMAND} -E copy_if_different ${CMAKE_SOURCE_DIR}/tads3/charmap/cmaplib.t3r $<TARGET_FILE_DIR:guit3>/charmap/)
 
+# Private HTML resources (the "About" box background image, etc.) - same
+# source image and .t3r layout as htmlt3's make_t3r() call, but unlike
+# htmlt3 we deliberately do NOT follow this up with make_trx() to bind the
+# .t3r into the .exe via maketrx32: guit3.t3r is instead left as a loose
+# file next to guit3.exe, which CHtmlSys_mainwin::load_exe_resources()
+# falls back to reading directly when it doesn't find resources embedded in
+# the executable (see htmlgui.cpp).
+make_t3r(guit3 ../win32/about3.jpg=about.jpg)
+add_dependencies(guit3 build_guit3.t3r)
+
 tads_source_group(guit3 ${HTMLTADS_DIR})
 
 install(TARGETS guit3
@@ -169,4 +179,9 @@ install(TARGETS guit3
 install(FILES
 	${CMAKE_SOURCE_DIR}/tads3/charmap/cmaplib.t3r
 	DESTINATION charmap
+)
+
+install(FILES
+	${CMAKE_CURRENT_BINARY_DIR}/guit3.t3r
+	DESTINATION .
 )

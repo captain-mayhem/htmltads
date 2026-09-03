@@ -292,6 +292,35 @@ public:
     void set_auto_vscroll(int f) { auto_vscroll_ = f; }
 
     /*
+     *   Establish disp_width_/disp_height_ (the formatter's wrap
+     *   dimensions - see do_resize()) for a freshly created window that
+     *   isn't part of the banner layout tree (calc_banner_layout() calls
+     *   do_resize() itself for banner children, but a dialog's own
+     *   html_subwin_ - e.g. CHtmlSys_top_win::do_create() - isn't one).
+     *   do_resize() itself is protected; this just exposes calling it with
+     *   mode SIZE_RESTORED for that one case, since there's no WM_SIZE
+     *   equivalent to establish these before the caller's first, synchronous
+     *   do_reformat() otherwise.
+     *
+     *   do_resize() also schedules a *deferred* reformat-after-resize
+     *   (onresize_pending_) whenever the width passed in differs from
+     *   fmt_width_ - true here, since fmt_width_ starts out at 0 before
+     *   anything has ever been formatted.  That's redundant with (and, worse,
+     *   runs one frame after, so actively fights) the caller's own upcoming
+     *   synchronous do_reformat() - reproduced as a fully blank dialog next
+     *   frame (background image, title and body text all gone, only the
+     *   links that happen to be independently re-rendered by the same pass
+     *   surviving) once that second, unwanted reformat pass ran on top of
+     *   the first. Clear the flag it sets so only our caller's deliberate
+     *   reformat actually runs.
+     */
+    void establish_disp_size(int wid, int ht)
+    {
+        do_resize(SIZE_RESTORED, wid, ht);
+        onresize_pending_ = FALSE;
+    }
+
+    /*
      *   Set the banner flag.  This should be set for windows that are
      *   being used as banners. 
      */
@@ -3174,7 +3203,66 @@ public:
 
     int event_loop(int* flag);
 
+    /*
+     *   Queue a dialog-opening callback to run at the next safe point
+     *   between frames, rather than calling it immediately.
+     *
+     *   A caller like ID_HELP_ABOUT's command handler runs from deep inside
+     *   an already-in-progress frame (do_command(), called from
+     *   render_menu_bar(), called from do_render(), called from a
+     *   still-open ImGui::NewFrame()/Render() bracket for THIS frame).
+     *   CHtmlSys_abouttadswin::run_dlg() pumps its own dialog by calling
+     *   event_loop() again - the exact same function, reentered - which
+     *   calls ImGui::NewFrame() a second time before the outer frame's
+     *   matching Render()/EndFrame() ever ran.  Dear ImGui's own sanity
+     *   checks (ErrorCheckNewFrameSanityChecks(), IM_ASSERT-gated so it
+     *   only fires in a debug ImGui build) catch exactly this and assert
+     *   ("Forgot to call Render() or EndFrame() at the end of the previous
+     *   frame?").  event_loop() itself drains this queue once per
+     *   iteration, right after glfwPollEvents() and before the NewFrame()
+     *   for that iteration - i.e. between two logical frames, at every
+     *   nesting depth (the same drain code runs whether it's the top-level
+     *   event_loop() or one already nested inside a dialog's own, so e.g.
+     *   opening Credits from within the About dialog queues onto and
+     *   drains from the About dialog's own nested loop, not the outer
+     *   one). This is the same "defer past the point where an ImGui frame
+     *   is unsafe to enter" pattern already used for the File > Open New
+     *   Game / File > Exit confirmation prompts (see render_new_game_confirm()/
+     *   render_quit_confirm()) - just applied to a dialog that pumps its
+     *   own nested event_loop() instead of being drawn from the render_*()
+     *   callback list.
+     */
+    void queue_deferred_dialog(std::function<void()> fn)
+        { pending_dialogs_.push_back(fn); }
+
+    /*
+     *   Register/unregister a floating top-level dialog (About, Credits, ...
+     *   see CHtmlSys_abouttadswin::run_dlg()) as "currently open," so
+     *   event_loop() knows to render it and route mouse input to it each
+     *   iteration.  Unlike the debug log window (dbgwin_, a single fixed
+     *   slot event_loop() already knows about directly), these are created
+     *   and destroyed dynamically and can nest (Credits opened from within
+     *   an already-open About), so they need an actual stack; push on open,
+     *   pop on close, always in strict LIFO order (guaranteed by run_dlg(),
+     *   the sole caller: it pops right after its own nested event_loop()
+     *   returns, before doing anything else).
+     */
+    void push_active_dialog(class CHtmlSys_top_win *w)
+        { active_dialogs_.push_back(w); }
+    void pop_active_dialog()
+        { active_dialogs_.pop_back(); }
+
 private:
+    /* run and clear any dialog-opening callbacks queued via
+       queue_deferred_dialog() - called once per event_loop() iteration */
+    void run_pending_deferred_dialogs();
+
+    /* callbacks queued by queue_deferred_dialog(), awaiting a safe point */
+    std::vector<std::function<void()>> pending_dialogs_;
+
+    /* currently-open floating dialogs - see push_active_dialog() */
+    std::vector<class CHtmlSys_top_win *> active_dialogs_;
+
     /* finish command line input */
     void get_input_done();
 
@@ -4425,6 +4513,25 @@ protected:
 
     /* make it a dialog frame */
     DWORD get_winstyle_ex() { return WS_EX_DLGMODALFRAME; }
+
+    /*
+     *   We're a real floating ImGui::Begin() window now (run_dlg() passes a
+     *   null parent), which draws its own title bar and border natively -
+     *   no need for the hand-drawn border this class used while it was
+     *   still a plain BeginChild() panel.  Add a title-bar close button
+     *   ("X") tied to the same closing_ flag the "Close" link
+     *   (process_command()) already sets.
+     */
+    bool *get_titlebar_open_flag() override
+    {
+        titlebar_open_ = TRUE;
+        return &titlebar_open_;
+    }
+    void on_titlebar_close() override { closing_ = TRUE; }
+
+private:
+    /* backing store for get_titlebar_open_flag() */
+    bool titlebar_open_;
 };
 
 /* ------------------------------------------------------------------------ */

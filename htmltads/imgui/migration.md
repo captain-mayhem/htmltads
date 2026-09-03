@@ -309,6 +309,196 @@ button and confirm the parent survives, or trace `g.BeginPopupStack`/`g.OpenPopu
   `render_yesno_confirm_popup()` and use an `..._opened_` bool so `OpenPopup()` is called once per request.
   Enter/Escape activate **No**, matching the originals' `MB_DEFBUTTON2`.
 
+### 3.3a Help > About HTML TADS crashed — missing-resource path had no null check
+
+**Symptom**: Help > About HTML TADS crashed the whole app instantly (`STATUS_STACK_BUFFER_OVERRUN` /
+`0xc0000409`, a `/GS` failure inside `ucrtbase.dll`'s `fopen`).
+
+**Cause**: the About box's background image is loaded via the private `exe:about.jpg` resource scheme (see
+`CHtmlSys_abouttadswin::build_contents()`, [htmlgui.cpp](htmlgui.cpp)) — normally an EXRS chunk that
+`htmlt3`/`htmltdb3` bind into their `.exe` at link time via `maketrx32` (`make_t3r()`/`make_trx()` in the
+top-level [CMakeLists.txt](../CMakeLists.txt)). `guit3`'s build never did this, so `guit3.exe` has no EXRS
+chunk and no `about.jpg` anywhere. `CHtmlResCache::find_or_create()` ([htmlrc.cpp](../htmlrc.cpp), shared by
+every port) still called the image loader (`CHtmlSysImageJpeg::create_jpeg()`) with a null filename when the
+resource search came up empty instead of just failing the load like the rest of the function already assumes
+— the loader passed that straight to `fopen()`, and the CRT's `/GS` cookie check turned the null-pointer
+access into a hard process-kill rather than a normal crash/exception. Fixed with a null check before the
+call in `find_or_create()`; this is shared code, so it protects every port from any future missing-resource
+case, not just this one.
+
+**Fallback added**: `CHtmlSys_mainwin::load_exe_resources()` now falls back to opening a stand-alone
+`<exe-basename>.t3r` file next to the `.exe` (`os_remext()`/`os_addext()` on the exe path) when it can't find
+an embedded EXRS chunk, reading it exactly like the embedded case (same `T3-image`/`MRES` header parsing) —
+it only needed `exe_fname_` to end up holding whichever file the resources actually came from.
+[imgui/CMakeLists.txt](CMakeLists.txt) builds `guit3.t3r` next to `guit3.exe` via the same `make_t3r()` call
+`htmlt3` uses, but deliberately skips `make_trx()` (no `maketrx32` embedding step) and installs the `.t3r`
+alongside the `.exe` instead.
+
+**Also not centered, and no border**: once it stopped crashing, the dialog was positioned wrong and had no
+visible outline - two more legacy-Win32 leftovers in the same class, worth recording together since the
+underlying mechanics are non-obvious:
+
+- *Centering*: `CHtmlSys_abouttadswin::run_dlg()` is never a real top-level window - `create_system_window()`
+  adds it as a child in `parent`'s `m_children` list, and `CTadsWin::do_render_content_begin()` renders it as
+  a `BeginChild()` panel positioned relative to `parent`'s own on-screen position. The inherited Win32 code
+  centered against `GetWindowRect(GetDesktopWindow(), ...)` - meaningless once position is parent-relative
+  instead of absolute. Fixed by centering against `parent->get_win_size()` instead (a new small public
+  accessor on `CTadsWin` - `m_size` itself is `protected`, inaccessible through a plain `CTadsWin*` from a
+  sibling class).
+- *Border*: the natural fix, adding `ImGuiChildFlags_Borders` to `get_content_child_flags()`, has an
+  unexplained side effect: with it set, the dialog's HTML header text (the version string and
+  Credits/License/Close links, positioned only a few pixels from the top edge) stops rendering entirely -
+  reproduced with `ImGuiStyleVar_WindowPadding` pushed to zero (ruling out the flag's padding side effect) and
+  with `ImGuiChildFlags_AutoResizeX/Y` both on and off (ruling out an auto-fit interaction). Root cause not
+  tracked down. A hand-drawn `AddRect()` on our own `GetWindowDrawList()` avoids that flag entirely but hits a
+  *different* problem: it renders, but gets silently painted over by `html_subwin_`'s opaque background-image
+  child (drawn later in the same `do_render()` child loop) - reproduced adding the rect in both
+  `do_render_content_begin()` (before children render) and `do_render_content_end()` (after). The fix that
+  actually works: draw on `ImGui::GetForegroundDrawList()` instead, in `do_render_content_end()` - the
+  foreground list composites after every window regardless of clip rects or submission order within the
+  frame, so it can't be painted over or clipped by our own or our children's content. **If a future dialog in
+  this port needs a border, reach for this technique first** rather than re-deriving it.
+
+**Also the text/link layout was wrong** compared to `htmlt3` (run it side by side to compare - `cmake --build
+--preset default --target htmlt3`, then `Help > About HTML TADS`, or send it `WM_COMMAND`/`ID_HELP_ABOUT`
+(40251) directly since it's a real HWND and doesn't need real menu navigation): the version/credits line
+wrapped across several lines and stacked top-left instead of laying out along one right-aligned line at the
+bottom, and the Credits/License/Close links stacked one-per-line instead of running in a single row.
+
+**Cause**: `get_disp_width()`/`get_disp_height()` (`CHtmlSysWin_win32::disp_width_`/`disp_height_` -
+everything layout-sensitive in the formatter reads these: `width=100%` tables, `<tab align=right>`, ...) are
+established by `do_resize()`, which a banner/game subwindow always gets via `calc_banner_layout()`. This
+dialog's own `html_subwin_` isn't part of that banner tree, though - `CHtmlSys_top_win::do_create()` creates
+it directly and calls `create_system_window()`, which only sets `m_pos`/`m_size`, with no WM_SIZE-equivalent
+to establish `disp_width_`/`disp_height_` the way a real child HWND creation used to. They were left holding
+whatever they were on construction (never explicitly initialized) when `build_contents()`'s `do_reformat()`
+call ran the very first, synchronous formatting pass against them.
+
+**Fix**: `do_create()` now calls a new `CHtmlSysWin_win32::establish_disp_size()` right after creating
+`html_subwin_`, before formatting anything. It can't just call `do_resize()` directly two ways: that's
+`protected` (a plain `CTadsWin*`/sibling class can't reach it - same reason `get_win_size()` above exists),
+and `do_resize()` also schedules a *deferred* reformat-after-resize (`onresize_pending_`) whenever the width
+passed in differs from `fmt_width_` - always true here, since `fmt_width_` starts at 0 before anything has
+ever been formatted. That's redundant with (and, worse, runs a frame after, so actively fights) the caller's
+own upcoming synchronous `do_reformat()` - reproduced as a fully blank dialog (background image, title and
+body text all gone, only the links independently re-rendered by that second pass surviving) next frame if
+left in place. `establish_disp_size()` calls `do_resize()` then immediately clears `onresize_pending_` to
+suppress it.
+
+**A red herring worth recording**: chasing that second problem burned real time on a false lead - the
+background image and title/body text really did vanish in one build, but it turned out to be nothing to do
+with the fix at all: an earlier cleanup pass had deleted `guit3.t3r` from the `tests/` scratch deployment
+folder (see §3.3a) and it never got copied back in. Confirmed the same way as the disappearing-border
+investigation above - temporary `fprintf()`-to-a-log-file instrumentation traced it to
+`CHtmlResCacheObject::get_image()` returning null for a `bg_image_` that was otherwise set (i.e. the resource
+lookup itself was failing, not anything downstream) - worth checking `guit3.t3r` sits next to `guit3.exe`
+*before* going looking for a rendering bug when content vanishes like this.
+
+**Also asserted on open, in a debug ImGui build only**: `ImGui::ErrorCheckNewFrameSanityChecks()` -
+`"Forgot to call Render() or EndFrame() at the end of the previous frame?"` - reported against
+`build/vs`'s `Debug` config (`cmake --build build/vs --target guit3 --config Debug`); the `default`
+preset's `Release` build never showed it, because `/DNDEBUG` compiles out the plain `assert()` Dear ImGui's
+`IM_ASSERT` maps to here. **Always sanity-check a reported assert/crash against a Debug build of the same
+target before concluding a fix works** - Release testing throughout this dialog's earlier fixes above never
+would have caught this.
+
+**Cause**: `ID_HELP_ABOUT`'s command handler called `CHtmlSys_abouttadswin::run_dlg()` directly, synchronously,
+from `do_command()` - itself called from `render_menu_bar()`, from `do_render()`, from *inside* an
+already-open `ImGui::NewFrame()`/`Render()` bracket for the current frame. `run_dlg()` pumps its dialog by
+calling `event_loop()` again (the same function, reentered) - which calls `ImGui::NewFrame()` a second time
+before the outer frame's matching `Render()`/`EndFrame()` ever ran. This is the exact same class of bug
+already identified and fixed for File > Open New Game / File > Exit (see the confirmation-prompt bullet in
+§3.3) - just a different, not-yet-covered call site hitting it.
+
+**Fix**: `CHtmlSys_mainwin::queue_deferred_dialog(std::function<void()>)` queues a callback instead of
+running it immediately; `event_loop()` drains the queue itself, once per iteration, right after
+`glfwPollEvents()` and before that iteration's `NewFrame()` - i.e. at a point between two logical frames, at
+*every* nesting depth, since the same drain code runs whether it's the outermost `event_loop()` or one
+already nested inside a dialog's own (so opening Credits from a link click *inside* the About dialog - itself
+mid-frame relative to the About dialog's own nested loop - queues onto and drains from that inner loop, not
+the outer one). `ID_HELP_ABOUT` and `CHtmlSys_abouttadswin::show_credits_dlg()` both went through this queue.
+Verified against the `Debug` build specifically, per the note above.
+
+**Found while verifying this, fixed in §3.3b below**: at the time, none of the About dialog's own links
+(Credits, License, Close) responded to clicks in either build config - `event_loop()`'s mouse routing had no
+notion of a currently-open modal `CHtmlSys_top_win` dialog. Turned out to be a symptom of the same root cause
+§3.3b fixes (the dialog wasn't a real floating window yet), not a separate bug - see there.
+
+### 3.3b About HTML TADS had no title bar/close button, and Credits rendered garbled on top of it
+
+**Symptom**: following up on §3.3a's fixes, the About dialog still didn't look like a real dialog - no title
+bar, no close ("X") button, just the bordered content panel. Once added (below), a second symptom appeared:
+opening Credits from within About rendered both dialogs' HTML content garbled together in the same
+overlapping rectangle, with only one title bar between them.
+
+**Cause and fix, title bar**: `CHtmlSys_abouttadswin::run_dlg()` had been rendering as a `BeginChild()` panel
+nested inside the main window (`create_system_window(parent, ...)` - `parent` non-null), the same as any
+banner - fine for a border (§3.3a) but a `BeginChild()` can never have Dear ImGui's own title bar or close
+button, only a real `ImGui::Begin()` window can. `CTadsWin::do_render_content_begin()` already had exactly
+that "floating overlay window" code path (used by the debug log window, `dbgwin_`) for a null `parent_` - the
+fix was to actually route through it: `run_dlg()` now passes a null parent, and two new virtuals,
+`get_titlebar_open_flag()`/`on_titlebar_close()` (default: no close button, matching `dbgwin_`'s existing
+behavior), let `CHtmlSys_abouttadswin` opt in a close button wired to the same `closing_` flag the "Close"
+link already sets. Being a real `Begin()` window also draws its own border and title bar natively, so the
+hand-drawn `GetForegroundDrawList()` border from §3.3a became dead weight - removed.
+
+A floating window isn't automatically part of anything, though - it needed two more pieces of plumbing that
+`dbgwin_` gets for free from being a single, fixed, mainwin_-known slot: `CHtmlSys_mainwin::push_active_dialog()`/
+`pop_active_dialog()` (an actual stack, since these dialogs are created and destroyed dynamically and nest -
+Credits opened from within an already-open About) so `event_loop()` knows to `do_render()` it each frame, and
+an extension to the same `mouse_over_dbgwin`-style rect test in `event_loop()`'s mouse routing so clicks
+reach the dialog's content instead of falling through - and, symmetrically, get swallowed instead of leaking
+through to the game underneath when they land elsewhere while a dialog is open (approximating
+`modal_dlg_pre()`'s original intent of disabling the windows behind a modal dialog - inert now that none of
+these are real HWNDs to disable). **This is what actually fixed the "links don't respond to clicks" gap
+flagged in §3.3a** - it was never a separate bug, just downstream of the dialog not being a real window yet.
+
+**Cause and fix, Credits garbled**: `CHtmlSys_creditswin` doesn't override `get_dlg_title()`, so it returns
+the exact same `"About HTML TADS"` string as the class it inherits from - harmless for two distinct native
+HWNDs (which is what both were when this code was written), but Dear ImGui uses a window's title as its
+*identity*, not just its label - so with both dialogs now real `Begin()` windows, an open About and an open
+Credits were literally the same ImGui window, `Begin()`'d twice in the same frame. Fixed by building the
+title `run_dlg()` actually passes to `create_system_window()` as `"<display text>##dlg<this pointer>"` - the
+`##`-suffix is a Dear ImGui idiom for "make the ID unique without changing the displayed label," and the
+object's own address is a convenient always-distinct-per-instance token since nothing else reliably
+differs between the two classes.
+
+**Also had to fix while making Credits a real window**: centering. `run_dlg()` had been centering each dialog
+against `parent->get_win_size()` (`parent` being whichever `CTadsWin` opened it - mainwin_ for About, but the
+About window itself for Credits). That's fine while `BeginChild()`-clipped, but once real, a 500-tall Credits
+centered inside a 279-tall About box computes a negative top - Credits' title bar ended up rendered behind
+About's rather than in a sensible place on screen. Centering against `mainwin_->get_win_size()` unconditionally
+instead (matching the original Win32 code, which centered every one of these dialogs against the *desktop*
+regardless of which one was being opened or from where) fixed it - both now land centered on the app window,
+which is this app's closest equivalent to "the screen" now that there's no real desktop to ask.
+
+### 3.3c Game text was missing its first several pixels/characters on every line
+
+**Symptom**: reported after §3.3b's fixes, but unrelated to them - reproduced from a clean `imgui.ini`, so not
+accumulated test-session state either. The main game panel's text was consistently missing its first
+character (sometimes more) on every line, with a sliver of unrelated content bleeding in at the opposite
+edge - visible from the very first frame of a fresh launch, not something that developed over time.
+
+**Cause**: `CHtmlSysWin_win32::get_scroll_info()`'s horizontal-scrollbar branch divides the visible width
+(`rc.right`, from `CTadsWinScroll::get_scroll_area()`) by `get_hscroll_units()` (16) to compute `SCROLLINFO::nPage`,
+an `unsigned` field. `get_scroll_area()` starts from `get_client_rect()`, which just echoes `m_size` - and for
+the main panel (part of the banner layout tree), `m_size` is only ever set once `calc_banner_layout()` has
+run for it at least once. `adjust_scrollbar_ranges()` can run *before* that first pass, though (right after
+creation), with `m_size` still `{0,0}` - `get_client_rect()` then returns a zero-width rect, and subtracting
+the vertical scrollbar's width (`GetSystemMetrics(SM_CXVSCROLL)`, ~17px) from it goes negative. Dividing that
+negative `rc.right` by 16 and storing the (negative) result into `nPage` - `unsigned` - wraps it to just under
+`UINT_MAX`, which then feeds bogus values through the rest of the scrollbar-range math (`win_set_scroll_info()`'s
+clamping, `do_scroll()`), landing the panel's `hscroll_ofs_` on `1` (one scroll *unit*, i.e. 16px) instead of
+`0`. One bad frame is enough: `get_scroll_info()`'s visibility check (`... || hscroll_ofs_ != 0`) then keeps
+the (invisible - nothing ever draws a horizontal scrollbar for this panel) scrolled state latched for the
+rest of the session, silently shifting every subsequent frame's content left by 16px.
+
+**Fix**: `CTadsWinScroll::get_scroll_area()` now clamps its result to never go negative in either dimension -
+matching the real Win32 `GetClientRect()` it stands in for, which can never report a negative width or height
+either. Found via the same `fprintf()`-to-a-log-file technique as always (§ below): logging
+`get_scroll_info()`'s inputs/outputs for the main panel showed `rc.right=-17` and `nPage` as a huge
+`unsigned` value on the very first frames, immediately pointing at `get_scroll_area()`.
+
 ### 3.4 Child "windows" (banner border, scrollbars, size-grip, tooltip) — removed
 
 All four extra child controls nested below each window's `handle_` were either purely decorative (never
@@ -975,6 +1165,10 @@ Run it with a test game from `tads-runner/tests/`, with the working directory se
   leaked size constraint (§3.2).
 - **`glReadPixels` on the real backbuffer** (after `ImGui_ImplOpenGL3_RenderDrawData`, before
   `glfwSwapBuffers`) samples exact rendered colors — but see §3.8 for the coordinate-space trap.
+- **A reported assert that doesn't reproduce in the `default` preset's `Release` build may still be real** -
+  check it against a `Debug` build (`cmake --build build/vs --target guit3 --config Debug`) before writing it
+  off. `/DNDEBUG` in Release compiles out the plain `assert()` Dear ImGui's `IM_ASSERT` maps to here, so a
+  violated invariant (§3.3a's reentrant-`NewFrame()` bug) can run right through Release without a symptom.
 
 ### The one coordinate-space bug that keeps coming back
 

@@ -5356,7 +5356,7 @@ int CHtmlSysWin_win32::get_scroll_info(int vert, SCROLLINFO *info)
 
             /*
              *   if the max is below the current position, raise the max
-             *   temporarily 
+             *   temporarily
              */
             if (info->nMax < info->nPos + (int)info->nPage - 1)
                 info->nMax = info->nPos + info->nPage - 1;
@@ -13846,8 +13846,16 @@ int CHtmlSys_mainwin::do_command(int notify_code,
 #endif
 
     case ID_HELP_ABOUT:
-        /* run the "about" box */
-        (new CHtmlSys_abouttadswin(this))->run_dlg(this);
+        /*
+         *   Run the "about" box.  Deferred (see queue_deferred_dialog()) -
+         *   we're still mid-frame here (do_command(), called from
+         *   render_menu_bar(), called from do_render()), and run_dlg()
+         *   pumps its own nested event_loop(), which would call
+         *   ImGui::NewFrame() again before this frame's matching Render()
+         *   ever ran.
+         */
+        queue_deferred_dialog([this]
+            { (new CHtmlSys_abouttadswin(this))->run_dlg(this); });
         return TRUE;
 
     case ID_HELP_WWWTADSORG:
@@ -15464,8 +15472,34 @@ void CHtmlSys_mainwin::run_pending_deferred_all()
     }
 }
 
-/* 
- *   Add a window to our list of windows waiting at a [MORE] prompt 
+/*
+ *   Run and clear any dialog-opening callbacks queued via
+ *   queue_deferred_dialog() - see its comment (htmlgui.h) for why this has
+ *   to happen here, between frames, rather than at the point a menu command
+ *   or link click wants to open the dialog.
+ *
+ *   Swap the queue into a local vector before running anything: a callback
+ *   normally blocks here for a while (it typically pumps its own nested
+ *   event_loop() until its dialog closes, which re-enters and drains this
+ *   same queue on its own from the inside, for e.g. Credits opened from
+ *   within About), so iterating pending_dialogs_ directly while a callback
+ *   can still append to it would be undefined behavior on most vector
+ *   implementations (a reallocation while a range-for holds iterators into
+ *   the same vector).
+ */
+void CHtmlSys_mainwin::run_pending_deferred_dialogs()
+{
+    if (pending_dialogs_.empty())
+        return;
+
+    std::vector<std::function<void()>> dlgs;
+    dlgs.swap(pending_dialogs_);
+    for (auto &fn : dlgs)
+        fn();
+}
+
+/*
+ *   Add a window to our list of windows waiting at a [MORE] prompt
  */
 void CHtmlSys_mainwin::add_more_prompt_win(CHtmlSysWin_win32 *win)
 {
@@ -15567,6 +15601,14 @@ int CHtmlSys_mainwin::event_loop(int* flag) {
         // - When io.WantCaptureKeyboard is true, do not dispatch keyboard input data to your main application, or clear/overwrite your copy of the keyboard data.
         // Generally you may always pass all inputs to dear imgui, and hide them from your application based on those two flags.
         glfwPollEvents();
+
+        /*
+         *   Run any dialogs queued via queue_deferred_dialog() (e.g. Help >
+         *   About HTML TADS) now, before this iteration's NewFrame() - see
+         *   queue_deferred_dialog()'s comment (htmlgui.h) for why this must
+         *   not happen mid-frame.
+         */
+        run_pending_deferred_dialogs();
 
         /*
          *   Run any pending audio 'done' callbacks on the main thread.  The
@@ -15673,10 +15715,35 @@ int CHtmlSys_mainwin::event_loop(int* flag) {
             && io.MousePos.x < dbgwin_->m_pos.x + dbgwin_->m_size.x
             && io.MousePos.y >= dbgwin_->m_pos.y
             && io.MousePos.y < dbgwin_->m_pos.y + dbgwin_->m_size.y;
-        CTadsWin *uncaptured_target = mouse_over_dbgwin
+
+        /*
+         *   While any floating dialog (About, Credits, ... - see
+         *   push_active_dialog()) is open, it's modal: route to the
+         *   topmost one when it's hovered (same reasoning as
+         *   mouse_over_dbgwin above - it's a real decorated window, so
+         *   hovering it sets io.WantCaptureMouse, which would otherwise
+         *   make us skip forwarding events into its content), and
+         *   otherwise swallow the event rather than letting it fall
+         *   through to the game underneath - matching modal_dlg_pre()'s
+         *   original intent (disabling the windows behind a modal dialog),
+         *   which no longer does anything on its own now that none of
+         *   these are real HWNDs.
+         */
+        CHtmlSys_top_win *topdlg =
+            active_dialogs_.empty() ? nullptr : active_dialogs_.back();
+        bool mouse_over_topdlg = topdlg != nullptr && topdlg->isVisible()
+            && io.MousePos.x >= topdlg->m_pos.x
+            && io.MousePos.x < topdlg->m_pos.x + topdlg->m_size.x
+            && io.MousePos.y >= topdlg->m_pos.y
+            && io.MousePos.y < topdlg->m_pos.y + topdlg->m_size.y;
+
+        CTadsWin *uncaptured_target = mouse_over_topdlg
+            ? static_cast<CTadsWin *>(topdlg)
+            : mouse_over_dbgwin
             ? static_cast<CTadsWin *>(dbgwin_) : static_cast<CTadsWin *>(this);
 
-        if (!io.WantCaptureMouse || mouse_over_dbgwin) {
+        if (mouse_over_topdlg || mouse_over_dbgwin
+            || (topdlg == nullptr && !io.WantCaptureMouse)) {
             if (ImGui::IsMouseClicked(ImGuiMouseButton_Left)) {
                 uncaptured_target->do_leftbtn_down(1, io.MousePos.x, io.MousePos.y, ImGui::GetMouseClickedCount(ImGuiMouseButton_Left));
             }
@@ -15726,6 +15793,15 @@ int CHtmlSys_mainwin::event_loop(int* flag) {
         if (dbgwin_) {
             dbgwin_->do_render();
         }
+
+        /*
+         *   Render every currently-open floating dialog (About, Credits, ...
+         *   see push_active_dialog()), bottom to top - they're no longer
+         *   children of main_win_ (see CHtmlSys_abouttadswin::run_dlg()), so
+         *   nothing else renders them.
+         */
+        for (CHtmlSys_top_win *dlg : active_dialogs_)
+            dlg->do_render();
 
         // Rendering
         ImGui::Render();
@@ -15787,18 +15863,46 @@ void CHtmlSys_mainwin::load_exe_resources(const char *exefile)
     unsigned int cnt;
     unsigned int i;
     unsigned long mres_ofs;
-    
-    /* 
+    CStringBuf resfile;
+
+    /*
      *   We keep our embedded HTML resources in an .exe file chunk tagged
      *   with the identifier "EXRS", using our private executable-embedding
-     *   system.  Look for the EXRS chunk.  If we don't find an EXRS chunk,
-     *   there are no embedded HTML resources, so there's nothing for us to
-     *   do here.  
+     *   system.  Look for the EXRS chunk.
      */
-    if ((fp = os_exeseek(exefile, "EXRS")) == 0)
-        return;
+    if ((fp = os_exeseek(exefile, "EXRS")) != 0)
+    {
+        /* found it - we'll read the resources from the .exe file itself */
+        resfile.set(exefile);
+    }
+    else
+    {
+        /*
+         *   There's no "EXRS" chunk embedded in the executable.  As a
+         *   fallback, look for a stand-alone .t3r resource file with the
+         *   same base name as our executable, in the same folder.  This is
+         *   the same private-resources .t3r file that htmlt3 builds and
+         *   then binds directly into its .exe via maketrx32 (see
+         *   CMakeLists.txt's make_t3r()/make_trx()) - guit3's build (see
+         *   imgui/CMakeLists.txt) builds the same .t3r file next to the
+         *   .exe instead of embedding it, so we need to be able to load it
+         *   as an ordinary external file too.
+         */
+        char resname[OSFNMAX];
+        strcpy(resname, exefile);
+        os_remext(resname);
+        os_addext(resname, "t3r");
 
-    /* 
+        if ((fp = osfoprb(resname, OSFTBIN)) == 0)
+        {
+            /* no stand-alone resource file either - nothing to load */
+            return;
+        }
+
+        resfile.set(resname);
+    }
+
+    /*
      *   Our embedded resource file must be a .t3r (T3 resource format) file
      *   containing a single MRES block.  Load the T3 image file header and
      *   verify that it has a valid signature.
@@ -15810,11 +15914,11 @@ void CHtmlSys_mainwin::load_exe_resources(const char *exefile)
     if (osfrb(fp, buf, 10) || memcmp(buf, "MRES", 4) != 0)
         goto done;
 
-    /* 
-     *   it looks like we have some resources, so remember the .exe file name
-     *   - we'll need this whenever we load a resource from the file 
+    /*
+     *   it looks like we have some resources, so remember the file name -
+     *   we'll need this whenever we load a resource from the file
      */
-    exe_fname_.set(exefile);
+    exe_fname_.set(resfile.get());
 
     /* create a hash table to store the table of contents for the resources */
     exe_res_table_ = new CHtmlHashTable(64, new CHtmlHashFuncCI());
@@ -18392,6 +18496,24 @@ void CHtmlSys_top_win::do_create()
     /* create the system window for the HTML panel */
     html_subwin_->create_system_window(this, TRUE, "HtmlWindow", &rc);
 
+    /*
+     *   Establish disp_width_/disp_height_ (CHtmlSysWin_win32::do_resize())
+     *   before formatting anything below.  A banner/game subwindow gets
+     *   this for free from calc_banner_layout(), which always calls
+     *   do_resize() as part of laying it out - but html_subwin_ here isn't
+     *   part of that banner tree, and create_system_window() (see there)
+     *   only sets m_pos/m_size directly, with no WM_SIZE-equivalent to
+     *   trigger a resize handler the way a real child HWND creation used
+     *   to.  Without this, disp_width_/disp_height_ are left holding
+     *   whatever they were on construction (never explicitly initialized)
+     *   when build_contents()'s do_reformat() call below runs the very
+     *   first, synchronous formatting pass - every width/height-dependent
+     *   layout decision (a `width=100%` table, `<tab align=right>`, ...)
+     *   comes out wrong, e.g. the About box's version/credits line wrapping
+     *   and stacking instead of laying out along one right-aligned row.
+     */
+    html_subwin_->establish_disp_size(rc.right - rc.left, rc.bottom - rc.top);
+
     /* build, parse, and format our contents */
     build_contents(&txtbuf);
     parser_->parse(&txtbuf, mainwin_);
@@ -18510,38 +18632,86 @@ int CHtmlSys_abouttadswin::do_char(TCHAR ch, long /*keydata*/)
 void CHtmlSys_abouttadswin::run_dlg(CTadsWin *parent)
 {
     void *ctx;
-    RECT drc;
     RECT rc;
     int wid, ht;
 
-    /* 
+    /*
      *   disable existing windows owned by the parent window while the
-     *   dialog is running 
+     *   dialog is running
      */
     ctx = CTadsDialog::modal_dlg_pre(parent->get_handle(), TRUE);
 
     /* set the width and height */
     get_dlg_size(&wid, &ht);
 
-    /* center the window on the screen */
-    GetWindowRect(GetDesktopWindow(), &drc);
-    rc.left = (drc.right + drc.left - wid)/2;
+    /*
+     *   Center the dialog against the main app window - not necessarily
+     *   'parent' (e.g. Credits' parent is the About window itself, not
+     *   mainwin_).  The original Win32 code this was ported from centered
+     *   uniformly against the desktop regardless of which dialog was being
+     *   opened or from where, so About and Credits both landed centered on
+     *   screen rather than Credits nesting inside About's own (smaller,
+     *   differently-shaped) box; mainwin_'s own window is this app's closest
+     *   equivalent to "the screen" now that we don't have a real desktop to
+     *   ask.  (Using 'parent' here instead - i.e. About's own box, for
+     *   Credits - visibly regressed once Credits became a real floating
+     *   window instead of a clipped BeginChild(): a 500-tall dialog centered
+     *   in a 279-tall box computes a negative top, so Credits' title bar
+     *   ended up rendered behind About's, both fighting for the same
+     *   screen space, an overlapping mess instead of two clearly separate
+     *   windows.)
+     */
+    ImVec2 mainwin_size = mainwin_->get_win_size();
+    rc.left = (LONG)((mainwin_size.x - wid) / 2);
+    rc.top = (LONG)((mainwin_size.y - ht) / 2);
     rc.right = rc.left + wid;
-    rc.top = (drc.bottom + drc.top - ht)/2;
     rc.bottom = rc.top + ht;
 
-    /* create the window */
-    create_system_window(parent, TRUE, get_dlg_title(), &rc);
+    /*
+     *   Create the window.  Pass a null parent (rather than 'parent') so
+     *   CTadsWin::do_render_content_begin() takes its "floating overlay
+     *   window" branch - a real, decorated ImGui::Begin() window (title bar,
+     *   border, and, per get_titlebar_open_flag() below, a close button) -
+     *   instead of an undecorated BeginChild() panel nested inside parent's
+     *   own content.  Register ourselves with mainwin_ so event_loop() knows
+     *   to render us and route mouse input to us each frame (we're not
+     *   parent's child any more, so nothing else would); unregister before
+     *   returning, in the same strict push-then-pop order our nested
+     *   event_loop() call below guarantees (parent, if it's itself a dialog
+     *   like About opening Credits, is still on the stack under us the whole
+     *   time).
+     *
+     *   The title passed here doubles as this ImGui window's identity, not
+     *   just its displayed caption - unlike a real HWND's title, which is
+     *   only ever a label.  CHtmlSys_creditswin doesn't override
+     *   get_dlg_title(), so it returns the exact same "About HTML TADS"
+     *   string as this class - harmless for two distinct native windows,
+     *   but Dear ImGui would then treat an open About and an open Credits
+     *   as literally the *same* window (matching IDs), Begin()'d twice in
+     *   one frame - garbled, overlapping content from both, and no second
+     *   title bar for Credits at all.  Append a `##`-prefixed suffix (an
+     *   ImGui idiom for "make the ID unique without changing the displayed
+     *   label") built from this object's own address, since nothing else
+     *   about the two classes reliably differs.
+     */
+    char dlg_title[128];
+    _snprintf(dlg_title, sizeof(dlg_title), "%s##dlg%p", get_dlg_title(),
+             (void *)this);
+    dlg_title[sizeof(dlg_title) - 1] = '\0';
+    create_system_window(0, TRUE, dlg_title, &rc);
+    mainwin_->push_active_dialog(this);
 
     /* enter a recursive event loop until the window is closed */
     if (!CTadsApp::get_app()->event_loop(&closing_))
     {
-        /* 
+        /*
          *   terminating - post another quit message to the enclosing event
-         *   loop 
+         *   loop
          */
         PostQuitMessage(0);
     }
+
+    mainwin_->pop_active_dialog();
 
     /* re-enable the windows we disabled before running the dialog */
     CTadsDialog::modal_dlg_post(ctx);
@@ -18635,12 +18805,22 @@ void CHtmlSys_abouttadswin::process_command(
 }
 
 /*
- *   show the "Credits" dialog 
+ *   show the "Credits" dialog
  */
 void CHtmlSys_abouttadswin::show_credits_dlg()
 {
-    /* create and run our Credits dialog */
-    (new CHtmlSys_creditswin(mainwin_))->run_dlg(this);
+    /*
+     *   Deferred for the same reason as ID_HELP_ABOUT (see
+     *   queue_deferred_dialog(), htmlgui.h): this runs from a link click,
+     *   mid-frame relative to our own already-running run_dlg() event
+     *   loop.  mainwin_ is the same CHtmlSys_mainwin the whole app shares,
+     *   so this queues onto (and is drained by) whichever event_loop() -
+     *   ours or an outer one - is innermost right now.
+     */
+    CTadsWin *parent = this;
+    CHtmlSys_mainwin *mainwin = mainwin_;
+    mainwin->queue_deferred_dialog([mainwin, parent]
+        { (new CHtmlSys_creditswin(mainwin))->run_dlg(parent); });
 }
 
 /*
