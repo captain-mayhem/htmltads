@@ -136,6 +136,17 @@ The native `LoadMenu`/`SetMenu`/`create_toolbar()` code is left in place as harm
   color key into a real alpha channel (GL has no color-key equivalent). Each button samples a `1/19` UV
   slice via `ImGui::ImageButton()`. Use **`GL_NEAREST`** — the icons are packed edge-to-edge with no
   padding and linear filtering visibly bleeds neighbours.
+- **`ID_THEMES_DROPDOWN` is a native split button, not a plain dropdown button.** The original toolbar
+  (`TBSTYLE_BUTTON | TBSTYLE_DROPDOWN`, win32/htmlw32.cpp) has two independent hit regions sharing one slot:
+  clicking the icon sends `WM_COMMAND`/`ID_THEMES_DROPDOWN` straight through (opens Customize Theme, same as
+  `do_command()`'s `ID_APPEARANCE_OPTIONS` case), while a separate small arrow region sends `TBN_DROPDOWN`
+  (shows the theme-list popup). `render_toolbar()` used to treat the whole slot as one `ImageButton()` that
+  always opened the popup, losing the "click the icon to customize" half. Fixed by drawing the arrow as its
+  own adjacent button (`ImGui::SameLine(0, 0)` + a fixed-width `ImGui::Button()`, with a hand-drawn triangle
+  via `AddTriangleFilled()` since there's no separate arrow glyph in the icon strip) — the icon keeps calling
+  `do_command()` on click, the arrow calls `OpenPopup()`. **The triangle needs a fixed dark color**
+  (`IM_COL32(32,32,32,255)`), not `ImGuiCol_Text` — same near-white-on-light-grey contrast problem as the
+  menu label bullet below, caught by screenshotting rather than just compiling.
 - **Chrome color**: menu bar and toolbar each push `ImGuiCol_WindowBg` (+ `ImGuiCol_MenuBarBg`) to the
   status bar's grey `IM_COL32(212,212,212,255)`. The base style is `StyleColorsDark()`, whose light text
   is unreadable on that, so a `menu(label)` helper pushes `ImGuiCol_Text` black *just around the top-level

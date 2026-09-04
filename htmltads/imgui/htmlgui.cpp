@@ -12421,22 +12421,59 @@ void CHtmlSys_mainwin::render_toolbar()
 
             if (b.cmd == ID_THEMES_DROPDOWN)
             {
-                /* same profile-list popup as the Themes menu (§ render_themes_menu_items) -
-                 * this mirrors the native TBN_DROPDOWN handler, which showed
-                 * the very same load_menu_with_profiles() content as a popup */
+                /*
+                 *   Native split button: the icon itself is a plain command
+                 *   button (WM_COMMAND/ID_THEMES_DROPDOWN opens the Customize
+                 *   Theme dialog via do_command(), same as any other toolbar
+                 *   button) and a separate, narrow arrow region beside it
+                 *   drops down the theme list (TBN_DROPDOWN in the original -
+                 *   see win32/htmlw32.cpp).  This used to render as a single
+                 *   dropdown-only hit region, losing the "click the icon to
+                 *   customize" half - reproduce the arrow as its own button.
+                 */
                 if (clicked)
-                    ImGui::OpenPopup("##ToolbarThemesDropdown");
-                if (ImGui::BeginPopup("##ToolbarThemesDropdown"))
-                {
-                    render_themes_menu_items();
-                    ImGui::EndPopup();
-                }
+                    do_command(0, b.cmd, 0);
 
                 char fmt[128], tip[256];
                 LoadString(CTadsApp::get_app()->get_instance(),
                           IDS_THEMES_DROPDOWN, fmt, sizeof(fmt));
                 sprintf(tip, fmt, prefs_->get_active_profile_name());
                 ImGui::SetItemTooltip("%s", tip);
+
+                ImGui::SameLine(0, 0);
+                float arrow_w = 10.0f * ui_scale;
+                ImGui::BeginDisabled(!enabled);
+                bool arrow_clicked = ImGui::Button(
+                    "##tbThemesArrow", ImVec2(arrow_w, button_height));
+                ImGui::EndDisabled();
+                ImGui::SetItemTooltip("%s", tip);
+
+                /*
+                 *   Hand-drawn down-arrow glyph, centered in the arrow
+                 *   button.  Fixed dark grey/black, not ImGuiCol_Text - the
+                 *   dark theme's near-white text is unreadable against this
+                 *   toolbar's light grey chrome, the same contrast problem
+                 *   render_menu_bar()'s menu() label helper works around
+                 *   (§3.1).
+                 */
+                ImVec2 amin = ImGui::GetItemRectMin();
+                ImVec2 amax = ImGui::GetItemRectMax();
+                ImVec2 c((amin.x + amax.x) * 0.5f, (amin.y + amax.y) * 0.5f);
+                float ah = 3.0f * ui_scale;
+                ImGui::GetWindowDrawList()->AddTriangleFilled(
+                    ImVec2(c.x - ah, c.y - ah * 0.5f),
+                    ImVec2(c.x + ah, c.y - ah * 0.5f),
+                    ImVec2(c.x, c.y + ah * 0.7f),
+                    enabled ? IM_COL32(32, 32, 32, 255)
+                            : IM_COL32(150, 150, 150, 255));
+
+                if (arrow_clicked)
+                    ImGui::OpenPopup("##ToolbarThemesDropdown");
+                if (ImGui::BeginPopup("##ToolbarThemesDropdown"))
+                {
+                    render_themes_menu_items();
+                    ImGui::EndPopup();
+                }
             }
             else
             {
