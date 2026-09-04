@@ -288,20 +288,6 @@ public:
     }
 
     /*
-     *   Add a modeless dialog to our list.  Each modeless dialog that's
-     *   running must be added to this list in order for keyboard events
-     *   to be properly distributed to it.
-     */
-    void add_modeless(HWND win);
-
-    /* 
-     *   Remove a modeless dialog from our list.  A dialog that's been
-     *   added to our list must be removed before its window is destroyed,
-     *   so that we don't refer to it after it's gone.
-     */
-    void remove_modeless(HWND win);
-
-    /*
      *   Set the MDI frame window.  This should be called when the MDI
      *   frame is first created to set the MDI window.  This should also
      *   be called with a null argument before the MDI window is

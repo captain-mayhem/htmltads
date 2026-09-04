@@ -3441,10 +3441,14 @@ private:
     /* current page's state structure link */
     CHtmlSys_mainwin_state_link *cur_page_state_;
 
-    /* direct sound interface */
+    /*
+     *   "digitized audio available" cache: 0 if unknown/unavailable, a
+     *   non-null sentinel (never dereferenced) once get_directsound() has
+     *   confirmed a working playback backend - see get_directsound()
+     */
     struct IDirectSound *directsound_;
 
-    /* error that caused DirectSound initialization to fail */
+    /* error that caused the audio-availability check to fail */
     htmlw32_directx_err_t directsound_init_err_;
 
     /* debug window */
@@ -3543,9 +3547,6 @@ private:
 
     /* head of list of active downloads */
     class CHtmlGameChestDownloadDlg *download_head_;
-
-    /* menu icon handler - this adds toolbar-type icons to the menus */
-    class IconMenuHandler *iconmenu_;
 
     /* flag: pause_for_exit is enabled */
     unsigned int exit_pause_enabled_ : 1;

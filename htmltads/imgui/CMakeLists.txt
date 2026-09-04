@@ -3,6 +3,13 @@ if (NOT WIN32)
 	return()
 endif()
 
+# Embedded Web UI (IE ActiveX browser control embedding + Game Chest) support.
+# Phase two (see migration.md section 4 and 5.4/O): off by default, so it just
+# compiles out cleanly rather than being ported or deleted.  tadswebctl.cpp/
+# tadscom.cpp implement it and are excluded from the build when this is off;
+# guinogch.cpp supplies the no-op Game Chest stubs used in that case instead.
+option(TADS_WEBUI_ENABLED "Enable guit3's embedded Web UI / Game Chest support (Windows-only, unimplemented off Windows)" OFF)
+
 add_executable(guit3
 	../tadshtml.cpp
 	../tadsrtyp.cpp
@@ -83,24 +90,30 @@ add_executable(guit3
 	tadswav.cpp
 	tadsole.cpp
 	oem_w32.c
-	foldsel2.cpp
-	guifndlg.cpp
-	iconmenu.cpp
-	tadswebctl.cpp
-	tadscom.cpp
-	
+
 	tadsapp.h
-	
+
 	hos_gui.h
-	
+
 	guitr.cpp
-	guinogch.cpp
 	guitrt3.cpp
 	t3main.cpp
 	guit3.cpp
 
 	../win32/htmlt3.rc
 )
+
+if (TADS_WEBUI_ENABLED)
+	target_sources(guit3 PRIVATE
+		tadswebctl.cpp
+		tadscom.cpp
+	)
+	target_compile_definitions(guit3 PRIVATE TADS_WEBUI_ENABLED)
+else()
+	# no-op Game Chest stubs, used whenever the real (Web UI-dependent)
+	# implementation isn't built in - see migration.md 5.4/O
+	target_sources(guit3 PRIVATE guinogch.cpp)
+endif()
 
 target_compile_definitions(guit3 PRIVATE
   IMGUI
@@ -128,7 +141,6 @@ target_include_directories(guit3 PRIVATE
 target_link_libraries(guit3 PRIVATE
 	Vorbis::vorbisfile
 
-	Htmlhelp.lib
 	Comctl32.lib
 	# Winmm.lib is still needed for tadsmidi.cpp's midiStream* MIDI sequencer,
 	# which is gated to _WIN32 until a portable software synth replaces it.
@@ -138,11 +150,6 @@ target_link_libraries(guit3 PRIVATE
 	Mpr.lib
 	Version.lib
 	Shlwapi.lib
-	# still referenced only by CHtmlSys_mainwin::get_directsound()'s vestigial
-	# DirectSound-availability probe in htmlgui.cpp (IID_IDirectSoundNotify).
-	# Audio output itself no longer uses DirectSound; that probe can be
-	# removed in a follow-up, and this line with it.
-	dxguid.lib
 )
 
 target_link_libraries(guit3 PRIVATE
@@ -152,6 +159,9 @@ target_link_libraries(guit3 PRIVATE
 
 if (WIN32)
 	target_link_libraries(guit3 PRIVATE Opengl32.lib)
+	# HtmlHelp (.chm) support - only the Windows ID_HELP_CONTENTS path uses
+	# this; off Windows it's replaced by an online-docs link (htmlgui.cpp).
+	target_link_libraries(guit3 PRIVATE Htmlhelp.lib)
 endif()
 
 # copy the charmap library next to the built exe, same as t3run's CMakeLists.txt does -

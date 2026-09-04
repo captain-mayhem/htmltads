@@ -205,12 +205,11 @@ public:
             delete this;
     }
     
-    /* run the dialog */
-    void run_preferences_dlg(HWND owner, class CHtmlWinWithPrefs *win);
-
     /*
      *   Open the ImGui-native "Options" dialog (the guit3 replacement for
-     *   run_preferences_dlg()'s native property sheet).  This just marks the
+     *   the old run_preferences_dlg() native property sheet, removed once
+     *   this dialog was fully ported - see migration.md 5.5/M1).  This
+     *   just marks the
      *   dialog as pending open and snapshots the current preference values
      *   into the dialog's working state; the dialog itself is drawn every
      *   frame by render_options_dialog(), called from

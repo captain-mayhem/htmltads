@@ -325,6 +325,16 @@ CTadsAudioDevice *CTadsAudioDevice::create()
     return new CTadsAudioDevice_miniaudio();
 }
 
+bool CTadsAudioDevice::is_available()
+{
+    ma_context ctx;
+    if (ma_context_init(NULL, 0, NULL, &ctx) != MA_SUCCESS)
+        return false;
+
+    ma_context_uninit(&ctx);
+    return true;
+}
+
 
 /* ------------------------------------------------------------------------ */
 /*

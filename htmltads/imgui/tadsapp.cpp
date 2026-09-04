@@ -326,53 +326,7 @@ void CTadsApp::delete_app()
 }
 
 /*
- *   Add a modeless dialog to our list of modeless dialogs 
- */
-void CTadsApp::add_modeless(HWND win)
-{
-    /* allocate more space in our list if necessary */
-    if (modeless_dlg_cnt_ == modeless_dlg_alloc_)
-    {
-        modeless_dlg_alloc_ += 10;
-        modeless_dlgs_ = (HWND *)
-                         th_realloc(modeless_dlgs_,
-                                    modeless_dlg_alloc_ * sizeof(HWND));
-    }
-
-    /* add this to the end of our list */
-    modeless_dlgs_[modeless_dlg_cnt_++] = win;
-}
-
-/*
- *   Remove a modeless dialog from our list of modeless dialogs 
- */
-void CTadsApp::remove_modeless(HWND win)
-{
-    HWND *winp;
-    int i;
-    
-    /* find the window in our list */
-    for (i = 0, winp = modeless_dlgs_ ; i < modeless_dlg_cnt_ ; ++i, ++winp)
-    {
-        /* see if this is the one */
-        if (*winp == win)
-        {
-            /* move everything following down a slot */
-            if (i + 1 < modeless_dlg_cnt_)
-                memmove(winp, winp + 1,
-                        (modeless_dlg_cnt_ - i - 1) * sizeof(HWND *));
-
-            /* that's one less dialog in our list */
-            --modeless_dlg_cnt_;
-
-            /* done */
-            return;
-        }
-    }
-}
-
-/*
- *   main event loop 
+ *   main event loop
  */
 int CTadsApp::event_loop(int *flag)
 {

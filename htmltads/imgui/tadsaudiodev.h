@@ -95,6 +95,15 @@ public:
      *   initialised.
      */
     static CTadsAudioDevice *create();
+
+    /*
+     *   Cheaply check whether a working playback backend is available,
+     *   without opening a stream.  Used only as a presence signal (e.g. to
+     *   warn the user and disable sound in preferences) - the guit3
+     *   replacement for the old DirectSound-availability probe in
+     *   CHtmlSys_mainwin::get_directsound() (see migration.md, 5.4/I).
+     */
+    static bool is_available();
 };
 
 

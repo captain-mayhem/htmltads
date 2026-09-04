@@ -21,7 +21,6 @@ Modified
 */
 
 #include <windows.h>
-#include <dsound.h>
 #include <commctrl.h>
 #include <htmlhelp.h>
 
@@ -118,9 +117,6 @@ Modified
 #ifndef HTMLHASH_H
 #include "htmlhash.h"
 #endif
-#ifndef ICONMENU_H
-#include "iconmenu.h"
-#endif
 
 
 /* ------------------------------------------------------------------------ */
@@ -152,16 +148,6 @@ Modified
 /*
  *   HTML window panel implementation 
  */
-
-/* ------------------------------------------------------------------------ */
-/*
- *   direct sound constants not defined in all dsound.h headers (arg...)
- */
-#ifndef DSBCAPS_CTRLDEFAULT
-#define DSBCAPS_CTRLDEFAULT \
-    ((DSBCAPS_CTRLVOLUME) | (DSBCAPS_CTRLPAN) | (DSBCAPS_CTRLFREQUENCY))
-#endif
-
 
 /* ------------------------------------------------------------------------ */
 /*
@@ -10406,12 +10392,6 @@ CHtmlSys_mainwin::CHtmlSys_mainwin(CHtmlFormatterInput *formatter,
     HDC hdc;
     TEXTMETRIC tm;
 
-    /* create our menu icon handler */
-    iconmenu_ = new IconMenuHandler(TOOLBAR_ICON_WIDTH, TOOLBAR_ICON_HEIGHT);
-
-    /* register it globally */
-    CTadsApp::get_app()->register_menu_handler(iconmenu_);
-
     /* remember whether we're running under the debugger */
     in_debugger_ = in_debugger;
 
@@ -10698,9 +10678,8 @@ CHtmlSys_mainwin::~CHtmlSys_mainwin()
         delete link;
     }
 
-    /* release our DirectSound interface */
-    if (directsound_ != 0)
-        directsound_->Release();
+    /* clear our audio-availability flag (not a real COM object to release) */
+    directsound_ = 0;
 
     /* delete the popup menu, if we loaded one */
     if (popup_container_ != 0)
@@ -10717,9 +10696,6 @@ CHtmlSys_mainwin::~CHtmlSys_mainwin()
     /* if we have an .exe resource hash table, delete it */
     if (exe_res_table_ != 0)
         delete exe_res_table_;
-
-    /* delete our menu icon handler */
-    delete iconmenu_;
 
     if (m_window) {
         // Cleanup
@@ -11212,177 +11188,45 @@ void CHtmlSys_mainwin::load_menu_with_profiles(HMENU menuhdl)
 }
 
 /*
- *   Get the DirectSound interface object.  We'll return the existing
- *   interface if we've already obtained it; if we haven't obtained it yet,
- *   we'll try to get it now.  
+ *   Get the "digitized audio available" signal.  We'll return the cached
+ *   result if we've already checked; if not, we'll check now.
+ *
+ *   This used to create a real Win32 DirectSound interface object, purely
+ *   to probe for DirectX availability - audio playback itself has used
+ *   miniaudio, not DirectSound, since the guit3 port (see migration.md
+ *   3.7).  The two callers of this function only ever compare the result
+ *   against 0, so we keep the same IDirectSound* signature and cache a
+ *   non-null sentinel (never dereferenced) for "available", but the probe
+ *   itself now just asks miniaudio whether it can find a playback backend
+ *   (migration.md 5.4/I).
  */
 IDirectSound *CHtmlSys_mainwin::get_directsound()
 {
-    HINSTANCE dsound;
-    int warned;
-
-    /* if we've already obtained the DirectSound interface, return it */
+    /* if we've already obtained the result, return it */
     if (directsound_ != 0)
         return directsound_;
 
-    /* 
-     *   if we've previously tried to create the DirectSound object and
-     *   failed during this session, don't bother trying again 
+    /*
+     *   if we've previously tried and failed during this session, don't
+     *   bother trying again
      */
     if (directsound_init_err_ != HTMLW32_DIRECTX_OK)
         return 0;
 
-    /* we haven't issued a warning yet */
-    warned = FALSE;
-
-    /* load the DirectSound DLL and get the DirectSoundCreate function */
-    dsound = LoadLibrary("DSOUND.DLL");
-    if (dsound != 0)
+    /* probe miniaudio for a working playback backend */
+    if (CTadsAudioDevice::is_available())
     {
-        HRESULT (WINAPI *dscproc)(LPGUID, LPDIRECTSOUND *, LPUNKNOWN);
-
-        dscproc = (HRESULT (WINAPI *)(LPGUID, LPDIRECTSOUND *, LPUNKNOWN))
-                  GetProcAddress(dsound, "DirectSoundCreate");
-        if (dscproc != 0)
-        {
-            /* create the Windows DirectSound interface */
-            if ((*dscproc)(0, &directsound_, 0) == DS_OK)
-            {
-                WAVEFORMATEX fmt;
-                DSBUFFERDESC bufdesc;
-                IDirectSoundBuffer *buf;
-                IDirectSoundNotify *inotify;
-                int vsnok;
-
-                /* 
-                 *   set our DirectSound cooperative level to "normal", since
-                 *   we don't need anything fancy 
-                 */
-                directsound_->SetCooperativeLevel(GetDesktopWindow(), DSSCL_NORMAL);
-
-                /* presume the version will be incorrect */
-                vsnok = FALSE;
-
-                /*
-                 *   We've created the DirectSound interface object
-                 *   successfully, but there's still the matter of the
-                 *   DirectX version.  We need to be able to use the
-                 *   IDirectSoundNotify interface, which only exists in
-                 *   DirectX version 5 and higher.  Try creating a sound
-                 *   buffer and creating a Notify interface; if that fails,
-                 *   we can't use this DirectSound system because it's too
-                 *   old a version.  Note that we're just making up a fake
-                 *   sound descriptor here so that we can create a sound
-                 *   buffer; this is a simple sound descriptor that should be
-                 *   compatible with any directx installation.  
-                 */
-                memset(&bufdesc, 0, sizeof(bufdesc));
-                bufdesc.dwSize = sizeof(bufdesc);
-                bufdesc.dwFlags = DSBCAPS_CTRLPOSITIONNOTIFY
-                                  | DSBCAPS_CTRLDEFAULT
-                                  | DSBCAPS_GETCURRENTPOSITION2;
-                bufdesc.dwBufferBytes = 10000;
-                fmt.wFormatTag = WAVE_FORMAT_PCM;
-                fmt.nChannels = 1;
-                fmt.nSamplesPerSec = 8000;
-                fmt.nAvgBytesPerSec = 8000;
-                fmt.nBlockAlign = 1;
-                fmt.wBitsPerSample = 8;
-                fmt.cbSize = 0;
-                bufdesc.lpwfxFormat = &fmt;
-                if (directsound_->CreateSoundBuffer(&bufdesc, &buf, 0)
-                    == DS_OK)
-                {
-                    /* 
-                     *   we have a sound buffer - ask it for the
-                     *   IDirectSoundNotify interface 
-                     */
-                    if (buf->QueryInterface(IID_IDirectSoundNotify,
-                                            (void **)&inotify) == DS_OK)
-                    {
-                        /* we're done with the notifier - release it */
-                        inotify->Release();
-
-                        /* success */
-                        vsnok = TRUE;
-
-                        /*
-                         *   If DirectX initialization failed in the past,
-                         *   note that it's working now, and turn on sounds.
-                         *   If there wasn't an error last time, respect the
-                         *   sound settings from last time.  
-                         */
-                        if (prefs_->get_directx_error_code()
-                            != HTMLW32_DIRECTX_OK)
-                        {
-                            /* remember that there's no error */
-                            prefs_->
-                                set_directx_error_code(HTMLW32_DIRECTX_OK);
-
-                            /* turn on sounds */
-                            prefs_->set_sounds_on(TRUE);
-                        }
-                    }
-                    else
-                    {
-                        OSVERSIONINFO os_info;
-
-                        /*
-                         *   We couldn't create the IDirectSoundNotify
-                         *   interface.  As a special case, if we're running
-                         *   on NT 4, allow this (since we evidently have a
-                         *   DirectSound installation that we can otherwise
-                         *   use) without even warning about it, since NT 4
-                         *   users can't have DirectX 5 even if they want it
-                         *   (Microsoft doesn't support it).  
-                         */
-                        os_info.dwOSVersionInfoSize = sizeof(os_info);
-                        GetVersionEx(&os_info);
-                        if (os_info.dwPlatformId == VER_PLATFORM_WIN32_NT
-                            && os_info.dwMajorVersion == 4)
-                            vsnok = TRUE;
-                    }
-
-                    /* we're done with the buffer - release it */
-                    buf->Release();
-                }
-
-                /*
-                 *   If the version check failed, and notify the user of the
-                 *   problem.  However, do keep the IDirectSound interface,
-                 *   since we can use it in DirectX 3 mode.  This doesn't
-                 *   work as well as DirectX 5 mode, which is why we take the
-                 *   trouble to warn the user about it, but we'll still be
-                 *   able to operate correctly anyway.  
-                 */
-                if (!vsnok)
-                {
-                    /* warn the user */
-                    show_directx_warning(TRUE, HTMLW32_DIRECTX_BADVSN);
-                    
-                    /* we've warned the user */
-                    warned = TRUE;
-                }
-            }
-        }
+        /* success - cache a non-null sentinel */
+        directsound_ = reinterpret_cast<IDirectSound *>(1);
     }
-
-    /* check to see if direct sound initialization failed */
-    if (directsound_ == 0)
+    else
     {
-        /* if we haven't warned yet, do so now */
-        if (!warned)
-            show_directx_warning(TRUE, HTMLW32_DIRECTX_MISSING);
-
-        /* turn off sound in the preferences */
+        /* no audio backend available - warn the user and disable sound */
+        show_directx_warning(TRUE, HTMLW32_DIRECTX_MISSING);
         prefs_->set_sounds_on(FALSE);
-
-        /* if we successfully loaded the library, free it */
-        if (dsound != 0)
-            FreeLibrary(dsound);
     }
 
-    /* return the interface, if we got one */
+    /* return the result, if any */
     return directsound_;
 }
 
@@ -11669,20 +11513,6 @@ void CHtmlSys_mainwin::create_toolbar()
         /* set up the toolbar to do idle status updating */
         add_toolbar_proc(toolbar_);
     }
-
-    /* set up the icon menu handler with the same icons as the toolbar */
-    int menu_icon_base = iconmenu_->add_bitmap(
-        CTadsApp::get_app()->get_instance(), IDB_TERP_TOOLBAR);
-
-    /* add the toolbar button command/icon associations to the menus */
-    iconmenu_->map_commands(buttons, i, menu_icon_base);
-
-    /* add some other associations */
-    iconmenu_->map_command(ID_EDIT_UNDO, menu_icon_base + 6);
-    iconmenu_->map_command(ID_EDIT_DELETE, menu_icon_base + 16);
-    iconmenu_->map_command(ID_APPEARANCE_OPTIONS, menu_icon_base + 13);
-    iconmenu_->map_command(ID_HELP_CONTENTS, menu_icon_base + 17);
-    iconmenu_->map_command(ID_HELP_WWWTADSORG, menu_icon_base + 18);
 }
 
 int CHtmlSys_mainwin::do_render() {
@@ -12391,10 +12221,11 @@ void CHtmlSys_mainwin::render_themes_menu_items()
  *   304x15, 4bpp indexed .bmp of nineteen 16x15 icon frames, the same
  *   resource create_toolbar()'s native CreateToolbarEx() call used) into a
  *   single GL texture atlas.  The bitmap has no alpha channel; like the
- *   native ImageList (see IconMenuHandler::add_bitmap(),
- *   ImageList_AddMasked() in iconmenu.cpp), its top-left pixel is the
- *   color-key transparency mask, which we convert into a real alpha channel
- *   here since GL has no equivalent of ImageList's masking.
+ *   native ImageList's ImageList_AddMasked() (the old owner-drawn menu
+ *   icon path this used to share the bitmap with - see migration.md
+ *   5.5/M1), its top-left pixel is the color-key transparency mask, which
+ *   we convert into a real alpha channel here since GL has no equivalent
+ *   of ImageList's masking.
  */
 void CHtmlSys_mainwin::load_toolbar_texture()
 {
@@ -13917,17 +13748,29 @@ int CHtmlSys_mainwin::do_command(int notify_code,
         return TRUE;
 
     case ID_HELP_CONTENTS:
+#ifdef _WIN32
         {
             char buf[OSFNMAX];
-            
+
             /* build the help file's name */
             GetModuleFileName(CTadsApp::get_app()->get_instance(),
                               buf, sizeof(buf));
             strcpy(os_get_root_name(buf), "htmltads.chm::/overview.htm");
-            
+
             /* show the help */
             HtmlHelp(NULL, buf, HH_DISPLAY_TOPIC, 0);
         }
+#else
+        /*
+         *   no local .chm help off Windows - point at the online docs
+         *   instead.  guit3 is still Windows-only for now (see
+         *   migration.md 5.1), so this branch isn't reachable or built
+         *   yet; verify the URL against tads.org's actual doc layout
+         *   before this is ever exercised for real (M4).
+         */
+        system("xdg-open https://www.tads.org/ 2>/dev/null "
+               "|| open https://www.tads.org/ 2>/dev/null");
+#endif
 
         /* handled */
         return TRUE;
