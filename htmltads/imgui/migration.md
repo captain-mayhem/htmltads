@@ -193,9 +193,9 @@ up front when the point isn't inside, so dispatch continues to the sibling that 
 untouched — `event_loop()` sends those straight to the capture holder, since a selection drag that leaves
 the subwindow must keep receiving them.
 
-### 3.3 Dialogs — done, all five
+### 3.3 Dialogs — done, all six
 
-All five app dialogs are ImGui-native. The general `CTadsDialog`-mirroring base class this section once
+All six app dialogs are ImGui-native. The general `CTadsDialog`-mirroring base class this section once
 recommended turned out to be unnecessary — each dialog follows the same small shape directly.
 
 | Dialog | Implementation | Replaces |
@@ -205,6 +205,7 @@ recommended turned out to be unnecessary — each dialog follows the same small 
 | File open/save | `CTadsFileDialog` ([tadsfiledlg.h](tadsfiledlg.h)/[.cpp](tadsfiledlg.cpp)) | every live `GetOpenFileName()` call site |
 | Find | `CTadsFindDialog` ([tadsfinddlg.h](tadsfinddlg.h)/[.cpp](tadsfinddlg.cpp)) | `CTadsDialogFind` (`guifndlg.cpp`) |
 | Folder picker | `CTadsFolderDialog` ([tadsfolderdlg.h](tadsfolderdlg.h)/[.cpp](tadsfolderdlg.cpp)) | `CTadsDialogFolderSel2` (`foldsel2.cpp`) |
+| License (Help > About HTML TADS > License) | `CTadsLicenseDlg` ([tadslicensedlg.h](tadslicensedlg.h)/[.cpp](tadslicensedlg.cpp)) | `LicenseDlg : CTadsDialog` (inline in `htmlgui.cpp`, `DLG_LICENSE` resource) |
 
 The superseded native code (`tadsdlg.cpp`, `tadsdlg2.cpp`, `foldsel2.cpp`, `guifndlg.cpp`, the property-page
 classes) is left compiled but unused. `guifndlg.cpp`'s `CTadsDialogFindReplace`/`CTadsDialogFindRegex`
@@ -499,6 +500,38 @@ either. Found via the same `fprintf()`-to-a-log-file technique as always (§ bel
 `get_scroll_info()`'s inputs/outputs for the main panel showed `rc.right=-17` and `nPage` as a huge
 `unsigned` value on the very first frames, immediately pointing at `get_scroll_area()`.
 
+### 3.3d The License dialog (Help > About HTML TADS > License) never opened
+
+**Symptom**: clicking the "License" link inside the About HTML TADS box did nothing - no window, no error.
+Unlike the plain-broken-link symptom §3.3a/§3.3b fixed for About/Credits (which turned out to be downstream
+of About not being a real window yet), the License link's handler, `CHtmlSys_abouttadswin::show_license_dlg()`,
+was never touched by that fix: it drove a completely different, still-native code path -
+`LicenseDlg : CTadsDialog` (defined inline in `htmlgui.cpp` just above it) calling
+`CTadsDialog::run_modal(DLG_LICENSE, ...)`, a real Win32 `DialogBoxParam()` native modal. guit3 has no
+message loop to pump a native dialog's `WM_INITDIALOG`/`WM_COMMAND` messages (see §5.4/N), so the call
+silently did nothing observable - not a crash, just a dialog that never appeared.
+
+**Fix**: ported to `CTadsLicenseDlg` ([tadslicensedlg.h](tadslicensedlg.h)/[.cpp](tadslicensedlg.cpp)),
+following the same `open()`/`render()` deferred pattern as `CTadsFindDialog` (§3.3's table) rather than the
+About/Credits "real floating `Begin()` window" pattern - License doesn't need HTML layout or nested-dialog
+support, just a read-only scrollable text box and an OK button, the same shape as the other `open()`/`render()`
+dialogs. `render()` is called from the same root-level spot in `CHtmlSys_mainwin::do_render()` as
+`CTadsFindDialog::render()`/`CTadsFileDialog::render()`, **not** from inside About's window block - and that
+turns out to matter: About is a plain `ImGui::Begin()` floating window (§3.3b), not a `BeginPopupModal()`, so
+it never enters `g.BeginPopupStack` at all. The "nested modals" trap described in §3.3 (a child `OpenPopup()`
+called from outside its parent's still-open `BeginPopupModal` block evicts the parent) only applies between
+two real popups - opening a genuine popup from a link click inside a plain `Begin()` window doesn't trigger
+it, confirmed by the two staying open simultaneously in testing (License stacked on top of About, About still
+present and interactive behind it).
+
+The license text itself still comes from the `IDX_LICENSE_TEXT` `TEXTFILE` resource
+(`../notes3/license.txt`, embedded via the shared `../win32/htmlt3.rc` - see §5.4/B for the eventual
+embedded-byte-array replacement) via a plain `FindResource`/`LoadResource`/`LockResource` lookup, same as the
+old dialog - still fine since guit3 is Windows-only for now. One improvement over the original: the new code
+sizes the text with `SizeofResource()` instead of assuming the resource bytes are null-terminated (the old
+`EM_REPLACESEL` call handed the raw resource pointer to `SendMessage` as if it were a C string, which
+happened to work but wasn't guaranteed by the `TEXTFILE` resource format).
+
 ### 3.4 Child "windows" (banner border, scrollbars, size-grip, tooltip) — removed
 
 All four extra child controls nested below each window's `handle_` were either purely decorative (never
@@ -577,9 +610,10 @@ place. MDI (`client_handle_`, `CreateWindowEx("MDICLIENT")`) is untouched — Wo
   `SetFocus(handle_)`, `GetWindow(handle_, GW_CHILD)`, `SendMessage(WM_PALETTECHANGED)`, the native
   `TrackPopupMenu` paths, `CreateToolbarEx(handle_)` (returns NULL, all guards skip).
 - **About / Credits / License / in-game popup windows** (`CHtmlSys_aboutgamewin`, `CHtmlSys_abouttadswin`,
-  `CHtmlSys_creditswin`, `CHtmlSysWin_win32_Popup`, in the 18k–19k line range of `htmlgui.cpp`) are
-  `CTadsWin` subclasses that were never ImGui-ported and **do not render in guit3 today**. They compile with
-  the token plus the no-op conversions. Making them work is outstanding (§5.4).
+  `CHtmlSys_creditswin`, `CHtmlSysWin_win32_Popup`, in the 18k–19k line range of `htmlgui.cpp`) were
+  `CTadsWin` subclasses that never ImGui-ported and didn't render in guit3. About and Credits are now real
+  floating ImGui windows (§3.3a/§3.3b) and License is now a real ImGui popup (§3.3d); `CHtmlSys_aboutgamewin`
+  and `CHtmlSysWin_win32_Popup` are still outstanding (§5.4).
 
 ### 3.5 Fonts
 
@@ -706,8 +740,9 @@ touched them:
   HTML laid out with the content scale baked in, so `CHtmlSys_abouttadswin::run_dlg()` now multiplies the
   `get_dlg_size()` result by `CTadsFont::get_dpi_scale()` before centring/creating the window — one spot,
   covering both classes. (The "About this game" box, `CHtmlSys_aboutgamewin`, is still on the legacy
-  `MoveWindow(handle_)` path — a no-op in guit3 — and the License dialog is still a native resource dialog;
-  neither is covered here. See §5.4.)
+  `MoveWindow(handle_)` path — a no-op in guit3 — and isn't covered here. The License dialog was a native
+  resource dialog too, but has since been ported to a plain popup, not a scaled `get_dlg_size()` window — see
+  §3.3d. See §5.4 for `CHtmlSys_aboutgamewin`.)
   - *Unrelated pre-existing bug fixed in passing:* `CHtmlSys_top_win::do_create()` subtracted
     `SM_CXVSCROLL`/`SM_CYHSCROLL` from the sub-window rect for a scrolling panel (in practice only Credits,
     `panel_has_vscroll() == TRUE`). `CHtmlSysWin_win32` reserves its own scrollbar strip internally now
@@ -953,7 +988,7 @@ across the files `guit3` actually compiles, largest first:
 | File | Refs | Lines | Nature of what's left |
 |---|---:|---:|---|
 | `tadswin.h` | 144 | 2386 | Mostly **types in signatures** (`HWND`, `HMENU`, `LRESULT`, `RECT`, `SCROLLINFO`) — the handles are already opaque tokens (§3.4a). Plus dead MDI. |
-| `htmlgui.cpp` | 135 | 19402 | The long tail: cursors, clipboard, `LoadString`, `GetSysColor`, `ShellExecute`, `HtmlHelp`, codepage conversion, `GetTickCount`, the toolbar bitmap loader, the unported About/Credits/License windows. |
+| `htmlgui.cpp` | 135 | 19402 | The long tail: cursors, clipboard, `LoadString`, `GetSysColor`, `ShellExecute`, `HtmlHelp`, codepage conversion, `GetTickCount`, the toolbar bitmap loader, the still-unported "About this game"/`CHtmlSysWin_win32_Popup` windows. |
 | `tadswin.cpp` | 127 | 4255 | Same as `tadswin.h` plus the dead window-class registration and MDI. |
 | `htmlgui.h` | 98 | 4583 | Types in signatures. |
 | `htmlpref.cpp` | 80 | 5393 | Registry (theme profiles), `GetCurrentDirectory`, `EnumFontFamiliesEx`, plus the dead property-page classes. |
@@ -987,7 +1022,7 @@ the cheapest possible progress and shrinks everything downstream (link libs, inc
 | `guifndlg.cpp` | 908 | Superseded by `CTadsFindDialog` (§3.3). `CTadsDialogFindReplace`/`FindRegex` are Workbench-only. Drop. |
 | `foldsel2.cpp` | 1011 | Superseded by `CTadsFolderDialog` (§3.3). Drop. |
 | `iconmenu.cpp` | 432 | Owner-drawn menu icons — dead, but `htmlgui.cpp:10396` still `new`s an `IconMenuHandler` in `do_create()`. Remove that one construction, then drop the file. |
-| `tadsdlg.cpp`/`.h`/`tadsdlg2.cpp` | 2463 | Dead **except** `CTadsDialog::modal_dlg_pre()`/`modal_dlg_post()`, `set_filedlg_center_hook()` and `LicenseDlg : CTadsDialog` — all four used only by the unported About/Credits/License windows (§5.4/N). Port those windows, then drop these. |
+| `tadsdlg.cpp`/`.h`/`tadsdlg2.cpp` | 2463 | Dead **except** `CTadsDialog::modal_dlg_pre()`/`modal_dlg_post()` and `set_filedlg_center_hook()`, still used by `CHtmlSys_abouttadswin`/`CHtmlSys_creditswin::run_dlg()` and (once ported) `CHtmlSys_aboutgamewin` (§5.4/N). `LicenseDlg : CTadsDialog`, the last of the four, is gone now that License is ported (§3.3d). Port `CHtmlSys_aboutgamewin`/`CHtmlSysWin_win32_Popup`, then drop these. |
 | `tadsole.cpp` | 430 | `CTadsDataObjText`, used by `htmlgui.cpp:1585`'s `get_data_object()` (OLE drag-and-drop source). Gate with the Web UI/COM flag (§5.4/O) or drop drag-out support off-Windows. |
 | `tadswebctl.cpp`/`tadscom.cpp`/`guinogch.cpp` | ~470 | Web UI / COM — gate behind `TADS_WEBUI_ENABLED` (§4, §5.4/O). |
 | MDI in `tadswin.h`/`.cpp` | — | `CTadsSyswinMdiFrame`/`MdiClient`, `client_handle_`. Workbench-only (§4). Strip while doing §5.4/A1. |
@@ -1124,13 +1159,15 @@ false in general) — decide explicitly whether to keep that assumption.
 `GetModuleHandle`, `init_debug_console`/`close_debug_console`, and the `CreateFile`/`WriteFile` crash-dump
 writer (`tadscrsh.txt`, ~line 292) → `osfile`/`stdio`.
 
-**N. The four windows that don't render at all.** `CHtmlSys_aboutgamewin`, `CHtmlSys_abouttadswin`,
-`CHtmlSys_creditswin` and `CHtmlSysWin_win32_Popup` (`htmlgui.cpp`, 18k–19k line range) compile but produce
-nothing in guit3 (§3.4a). They are `CTadsWin`/`CTadsWinScroll` subclasses displaying HTML, so most of the
-ImGui path already exists — **`CHtmlSys_dbglogwin` is the working precedent** for a secondary top-level
-window rendered as an ImGui overlay, including its own menu bar and the coordinate-space trap (§2). Doing
-this also retires the last live entry points in `tadsdlg.cpp` (`modal_dlg_pre`/`post`,
-`set_filedlg_center_hook`, `LicenseDlg`/`DLG_LICENSE`), which is what lets §5.3 drop those files.
+**N. The windows that don't render at all.** `CHtmlSys_aboutgamewin` and `CHtmlSysWin_win32_Popup`
+(`htmlgui.cpp`, 18k–19k line range) compile but produce nothing in guit3. (`CHtmlSys_abouttadswin` and
+`CHtmlSys_creditswin`, the other two originally in this bucket, are now real floating ImGui windows — §3.3a/
+§3.3b — and License, originally a `LicenseDlg : CTadsDialog` native modal driven from inside About, is now a
+real ImGui popup — §3.3d.) The two remaining are `CTadsWin`/`CTadsWinScroll` subclasses displaying HTML, so
+most of the ImGui path already exists — **`CHtmlSys_dbglogwin` is the working precedent** for a secondary
+top-level window rendered as an ImGui overlay, including its own menu bar and the coordinate-space trap (§2).
+Porting `CHtmlSys_aboutgamewin` retires the last live entry points in `tadsdlg.cpp` (`modal_dlg_pre`/`post`,
+`set_filedlg_center_hook`), which is what lets §5.3 drop those files.
 
 **O. Gate the Web UI.** `tadswebctl.*`, `guiwebui.h`, `tadscom.*`, `guinogch.cpp` and the `CoInitialize`
 pair behind `TADS_WEBUI_ENABLED`, off by default (§4). `CTadsStatusline::get_handle()` exists solely to keep

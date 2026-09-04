@@ -11753,6 +11753,9 @@ int CHtmlSys_mainwin::do_render() {
     /* draw the Find dialog on top, if one is pending or open */
     CTadsFindDialog::render();
 
+    /* draw the License dialog on top, if one is pending or open */
+    CTadsLicenseDlg::render();
+
     return ret;
 }
 
@@ -18896,46 +18899,15 @@ void CHtmlSys_abouttadswin::show_credits_dlg()
 }
 
 /*
- *   license dialog 
- */
-class LicenseDlg: public CTadsDialog
-{
-public:
-    void init()
-    {
-        /* load the license text into the text field */
-        HRSRC hres;
-        HGLOBAL hgl;
-        void *mem;
-
-        /* load the license text resource, and set the text */
-        if ((hres = FindResource(
-             0, MAKEINTRESOURCE(IDX_LICENSE_TEXT), "TEXTFILE")) != 0
-            && (hgl = LoadResource(0, hres)) != 0
-            && (mem = LockResource(hgl)) != 0)
-        {
-            HWND fld = GetDlgItem(handle_, IDC_FLD_LICENSE);
-            SendMessage(fld, EM_REPLACESEL, FALSE, (LPARAM)mem);
-            SendMessage(fld, EM_SETSEL, 0, 0);
-        }
-    }
-
-    int init_focus(int def_id)
-    {
-        SetFocus(GetDlgItem(handle_, IDC_FLD_LICENSE));
-        return FALSE;
-    }
-};
-
-/*
- *   show the license file dialog 
+ *   show the license file dialog.  Ported to a real ImGui popup
+ *   (CTadsLicenseDlg, tadslicensedlg.h/.cpp) - the native DLG_LICENSE
+ *   resource dialog this used to drive via CTadsDialog::run_modal() never
+ *   rendered in guit3, since nothing pumps native dialog messages here (see
+ *   migration.md 5.4/N).
  */
 void CHtmlSys_abouttadswin::show_license_dlg()
 {
-    LicenseDlg dlg;
-    
-    /* create and run our License dialog */
-    dlg.run_modal(DLG_LICENSE, handle_, CTadsApp::get_app()->get_instance());
+    CTadsLicenseDlg::open();
 }
 
 /* ------------------------------------------------------------------------ */

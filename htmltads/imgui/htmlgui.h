@@ -62,6 +62,9 @@ Modified
 #ifndef TADSFINDDLG_H
 #include "tadsfinddlg.h"
 #endif
+#ifndef TADSLICENSEDLG_H
+#include "tadslicensedlg.h"
+#endif
 #ifndef TADSAPP_H
 #include "tadsapp.h"
 #endif
