@@ -648,6 +648,78 @@ place. MDI (`client_handle_`, `CreateWindowEx("MDICLIENT")`) is untouched — Wo
    - Also fixed in passing: `calc_banner_layout()` now sizes the window *before* calling `do_resize()`,
      since `do_resize()` reads the current size (it was seeing pre-resize geometry).
 
+### 3.5a DPI / display scaling
+
+**Model: the monitor content scale is applied exactly once, and `CTadsFont` owns it.**
+`CTadsFont::get_dpi_scale()` ([tadsfont.cpp](tadsfont.cpp)) is the single source of truth — the primary
+monitor's GLFW content scale (1.0 at 100%, 2.0 at 200%, …), null-monitor-guarded to 1.0.
+`get_screen_dpi()` is `96 * get_dpi_scale()` and feeds both the font point↔pixel math (`calc_lfHeight()`,
+`calc_pointsize()`) and the wider HTML layout engine via `CHtmlSysWin_win32::get_pix_per_inch()`. So every
+`CHtmlSysFont_win32` is rasterised at its DPI-scaled pixel size, and the formatter lays the page out in the
+same DPI-scaled coordinate space. The GLFW window is created `size * content_scale` and
+`ImGuiStyle::ScaleAllSizes(content_scale)` is called once in `syswin_create_system_window()`
+([tadswin.cpp](tadswin.cpp)).
+
+**Trap that bit us: do NOT also set `style.FontScaleDpi`.** The ImGui GLFW example sets
+`style.FontScaleDpi = main_scale`, because it adds its fonts at nominal point sizes and relies on that for
+the DPI step. `CTadsFont` does the opposite — it bakes the scale into `FontSizeBase` itself — so
+`FontScaleDpi` on top multiplied it in a *second* time: on a 200%-scaled display all game text came out at
+`2.0² = 4×` and no longer matched the formatter's own metrics. Removed; left at its 1.0 default.
+
+**Chrome that ImGui draws itself must scale its own fixed sizes** — `ScaleAllSizes()` only covers
+style-driven spacing, not fonts or explicit `ImVec2` dimensions, and with `FontScaleDpi` gone nothing else
+touched them:
+- The `AddFontDefault()` font in `do_create()` — the face used by the menu bar, every dropdown menu, the
+  dialogs, tooltips and the status line — is now requested at `13px * get_dpi_scale()` via an
+  `ImFontConfig`. (It's ProggyClean; upscaled it looks a little chunky. A real system-UI face is §5.4.)
+- `render_toolbar()`'s icons are blitted at `TOOLBAR_ICON_WIDTH/HEIGHT * get_dpi_scale()` (the UVs into the
+  16×15 icon sheet stay in texel space), and its hand-written `SameLine`/divider offsets scale too.
+- Images: the **shared formatter** owns image scaling now. `CHtmlDisp::set_image_scale(double)`
+  ([htmldisp.h](../htmldisp.h)) holds a global factor, default **1.0** (what htmlt3 / htmltdb3 / the
+  emscripten port rely on - `scale_image_dim()` short-circuits, so those builds are byte-for-byte
+  unaffected); guit3's `do_create()` sets it to `CTadsFont::get_dpi_scale()`. `htmldisp.cpp` multiplies
+  every on-screen image dimension by it - `CHtmlDispImg` (intrinsic size, explicit `WIDTH=`/`HEIGHT=`, and
+  the aspect-ratio fill-in, all uniformly at the end of the ctor), `CHtmlDispListitemBullet`, and
+  `CHtmlDispHR`'s image height - and `htmlfmt.cpp`'s `CHtmlFmtMapZone::compute_coord()` /
+  `CHtmlFmtMapZoneCircle` scale image-map pixel coordinates and radii to match. This is the guit3 stand-in
+  for htmlt3 getting a uniform magnification from the OS scaling its whole (DPI-unaware) window bitmap, and
+  it covers the explicit-pixel-size case that a platform-only `get_width()` hack could not.
+  - `CHtmlSysImage*_win32::get_width()/get_height()` ([guiimg.h](guiimg.h)) therefore report the image's
+    **raw intrinsic pixels** - an earlier version scaled them here, which double-scaled once the formatter
+    change went in.
+  - `CTadsImage::draw()`'s CLIP/TILE branches still multiply the texture's native size by
+    `CTadsImage::disp_scale()` (== the same content scale) so the fill matches the formatter-scaled
+    destination rect; STRETCH just fills the rect. The window-background tiling in `htmlgui.cpp`
+    (`draw_dc_image`, `inval_html_bg_image`) computes its tile step with `CHtmlDisp::scale_image_dim()` for
+    the same reason - it draws the background itself, bypassing the formatter.
+- The ported dialogs' hard-coded pixel constants — every `SetNextWindowSize`, fixed `Button` width,
+  positive/`-N`-inset `SetNextItemWidth`, `BeginChild` bottom-reservation and literal `SameLine` offset in
+  `htmlpref.cpp` (Options, Customize Theme), `tadsfiledlg.cpp`, `tadsfinddlg.cpp`, `tadsfolderdlg.cpp` and
+  the two `render_yesno_confirm_popup` / `CTadsWin::message_box` popups — are multiplied by
+  `CTadsFont::get_dpi_scale()` (via a file-local `uisc()` in `htmlpref.cpp`, a local `const float s`
+  elsewhere). `-1` "stretch to edge" `SetNextItemWidth` sentinels are left alone. The lean standalone dialog
+  `.cpp`s pull in `tadsfont.h` for this — it only needs `<imgui/imgui.h>` + `<windows.h>`, both already
+  included there.
+- The **About HTML TADS / Credits** dialogs (`CHtmlSys_abouttadswin` / `CHtmlSys_creditswin`, ported to real
+  floating ImGui windows in the "Migrated about dialog" commit) take their box size from the virtual
+  `get_dlg_size()`, which returns a design size in 100%-scaling pixels (478×279, 450×500). Their bodies are
+  HTML laid out with the content scale baked in, so `CHtmlSys_abouttadswin::run_dlg()` now multiplies the
+  `get_dlg_size()` result by `CTadsFont::get_dpi_scale()` before centring/creating the window — one spot,
+  covering both classes. (The "About this game" box, `CHtmlSys_aboutgamewin`, is still on the legacy
+  `MoveWindow(handle_)` path — a no-op in guit3 — and the License dialog is still a native resource dialog;
+  neither is covered here. See §5.4.)
+  - *Unrelated pre-existing bug fixed in passing:* `CHtmlSys_top_win::do_create()` subtracted
+    `SM_CXVSCROLL`/`SM_CYHSCROLL` from the sub-window rect for a scrolling panel (in practice only Credits,
+    `panel_has_vscroll() == TRUE`). `CHtmlSysWin_win32` reserves its own scrollbar strip internally now
+    (`CTadsWinScroll::get_scroll_area()`; `render_vscrollbar_imgui()` draws the track inside its own client
+    area — §3.5), so this shrank the panel a second time and left an `SM_CXVSCROLL`-wide band of the
+    dialog's own black background down the right edge of the Credits box. `do_create()` now sizes the
+    sub-window the same way `do_resize()` always has — `get_client_rect()` + `adjust_subwin_rect()`.
+
+**Nothing image-related is left unscaled** now that the formatter carries the factor (see the images bullet
+above). If a future subclass sizes an image straight from `CHtmlSysImage::get_width()`/`get_height()`, run
+it through `CHtmlDisp::scale_image_dim()`.
+
 ### 3.6 Images
 
 **GL-texture rendering: done for all types.** Texture upload is centralized in `CTadsImage::create_texture()`

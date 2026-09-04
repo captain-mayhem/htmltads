@@ -57,6 +57,17 @@ public:
      */
     int map_palette(class CTadsWin *win, int foreground) { return FALSE; }
 
+    /*
+     *   Get the display content-scale factor (1.0 at "100%" scaling, 1.5 at
+     *   150%, etc.), from the same GLFW content-scale query CTadsFont uses
+     *   for fonts.  Image pixel buffers have no intrinsic DPI, so - to match
+     *   htmlt3, where the whole window bitmap was scaled up by the OS - every
+     *   image is laid out and drawn at its pixel size times this factor, so
+     *   that images track the (already content-scaled) text instead of
+     *   coming out 1/scale too small on a HiDPI display.
+     */
+    static float disp_scale();
+
     /* do we have alpha support? */
     static int is_alpha_supported()
     {

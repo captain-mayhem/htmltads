@@ -17,7 +17,7 @@ Modified
  *   The Windows port build number string.  This should simply be incremented
  *   by one on every public release.  
  */
-#define HTMLTADS_WIN32_BUILD  "121"
+#define HTMLTADS_WIN32_BUILD  "64-1"
 
 
 #endif /* W32VER_H */

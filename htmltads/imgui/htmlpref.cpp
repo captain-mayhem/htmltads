@@ -62,10 +62,23 @@ Modified
 #include <imgui/imgui.h>
 
 
+/*
+ *   Display content scale, for the hard-coded ImGui pixel sizes in this
+ *   file's dialogs (window sizes, fixed button widths, SetNextItemWidth,
+ *   SameLine offsets).  ImGui's ScaleAllSizes() only covers style-driven
+ *   spacing; these literals need multiplying by the same factor
+ *   CHtmlSysFont_win32 bakes into text.  See CTadsFont::get_dpi_scale() and
+ *   migration.md 3.5a.  Negative SetNextItemWidth values that are pure
+ *   "stretch to edge" sentinels (-1) are left alone; a negative value that
+ *   is a pixel inset from the right edge (e.g. -90) is scaled.
+ */
+static inline float uisc() { return CTadsFont::get_dpi_scale(); }
+
+
 /* ------------------------------------------------------------------------ */
 /*
  *   Font point sizes offered in the preferences dialog.  Note that the last
- *   element is always zero to indicate the end of the list.  
+ *   element is always zero to indicate the end of the list.
  */
 const int CHtmlPreferences::font_pt_sizes[] =
 {
@@ -3634,7 +3647,7 @@ void CHtmlPreferences::render_options_dialog()
         opt_dlg_want_open_ = false;
     }
 
-    ImGui::SetNextWindowSize(ImVec2(480, 420), ImGuiCond_FirstUseEver);
+    ImGui::SetNextWindowSize(ImVec2(480 * uisc(), 420 * uisc()), ImGuiCond_FirstUseEver);
     if (ImGui::BeginPopupModal("Options", &opt_dlg_open_,
                                ImGuiWindowFlags_NoSavedSettings))
     {
@@ -3685,7 +3698,7 @@ void CHtmlPreferences::render_options_dialog()
         }
 
         ImGui::Separator();
-        if (ImGui::Button("Close", ImVec2(80, 0)))
+        if (ImGui::Button("Close", ImVec2(80 * uisc(), 0)))
         {
             opt_dlg_open_ = false;
             ImGui::CloseCurrentPopup();
@@ -3720,7 +3733,7 @@ void CHtmlPreferences::opt_render_appearance_tab()
     ImGui::AlignTextToFramePadding();
     ImGui::Text("Theme:");
     ImGui::SameLine();
-    ImGui::SetNextItemWidth(200);
+    ImGui::SetNextItemWidth(200 * uisc());
     if (ImGui::BeginCombo("##ThemePicker",
                           opt_profile_sel_ >= 0
                           ? opt_profile_names_[opt_profile_sel_] : ""))
@@ -3766,7 +3779,7 @@ void CHtmlPreferences::opt_render_appearance_tab()
     {
         ImGui::TextWrapped("Are you sure you want to delete this theme "
                             "and discard all of its settings?");
-        if (ImGui::Button("Yes", ImVec2(80, 0)))
+        if (ImGui::Button("Yes", ImVec2(80 * uisc(), 0)))
         {
             char keybuf[256];
             const char *active = get_active_profile_name();
@@ -3784,7 +3797,7 @@ void CHtmlPreferences::opt_render_appearance_tab()
             ImGui::CloseCurrentPopup();
         }
         ImGui::SameLine();
-        if (ImGui::Button("No", ImVec2(80, 0)))
+        if (ImGui::Button("No", ImVec2(80 * uisc(), 0)))
             ImGui::CloseCurrentPopup();
         ImGui::EndPopup();
     }
@@ -3798,7 +3811,7 @@ void CHtmlPreferences::opt_render_appearance_tab()
     ImGui::EndDisabled();
 
     ImGui::Spacing();
-    if (ImGui::Button("Customize Theme...", ImVec2(140, 0)))
+    if (ImGui::Button("Customize Theme...", ImVec2(140 * uisc(), 0)))
         open_customize_theme_dialog(opt_owner_hwnd_, win_);
     ImGui::SameLine();
     ImGui::TextWrapped("This lets you customize the fonts, colors, and "
@@ -3806,7 +3819,7 @@ void CHtmlPreferences::opt_render_appearance_tab()
 
     ImGui::Spacing();
     ImGui::BeginDisabled(!is_std);
-    if (ImGui::Button("Reset to Defaults", ImVec2(140, 0)))
+    if (ImGui::Button("Reset to Defaults", ImVec2(140 * uisc(), 0)))
         ImGui::OpenPopup("Reset Theme?");
     ImGui::EndDisabled();
     ImGui::SameLine();
@@ -3823,7 +3836,7 @@ void CHtmlPreferences::opt_render_appearance_tab()
             "this theme's fonts, colors, and other visual settings.  Are "
             "you sure you want to discard your changes and reset the "
             "theme to its default settings?");
-        if (ImGui::Button("Yes", ImVec2(80, 0)))
+        if (ImGui::Button("Yes", ImVec2(80 * uisc(), 0)))
         {
             set_theme_defaults(get_active_profile_name());
             save();
@@ -3833,7 +3846,7 @@ void CHtmlPreferences::opt_render_appearance_tab()
             ImGui::CloseCurrentPopup();
         }
         ImGui::SameLine();
-        if (ImGui::Button("No", ImVec2(80, 0)))
+        if (ImGui::Button("No", ImVec2(80 * uisc(), 0)))
             ImGui::CloseCurrentPopup();
         ImGui::EndPopup();
     }
@@ -3848,7 +3861,7 @@ void CHtmlPreferences::opt_render_appearance_tab()
                                ImGuiWindowFlags_AlwaysAutoResize))
     {
         ImGui::Text("Theme name:");
-        ImGui::SetNextItemWidth(220);
+        ImGui::SetNextItemWidth(220 * uisc());
         bool enter = ImGui::InputText(
             "##NewThemeName", opt_new_profile_name_,
             sizeof(opt_new_profile_name_),
@@ -3859,9 +3872,9 @@ void CHtmlPreferences::opt_render_appearance_tab()
                                opt_new_profile_err_);
         }
 
-        bool ok_clicked = ImGui::Button("OK", ImVec2(80, 0));
+        bool ok_clicked = ImGui::Button("OK", ImVec2(80 * uisc(), 0));
         ImGui::SameLine();
-        bool cancel_clicked = ImGui::Button("Cancel", ImVec2(80, 0));
+        bool cancel_clicked = ImGui::Button("Cancel", ImVec2(80 * uisc(), 0));
 
         if (cancel_clicked)
         {
@@ -4078,7 +4091,7 @@ void CHtmlPreferences::opt_render_mem_tab()
     ImGui::AlignTextToFramePadding();
     ImGui::Text("Text Memory Limit");
     ImGui::SameLine();
-    ImGui::SetNextItemWidth(150);
+    ImGui::SetNextItemWidth(150 * uisc());
     if (ImGui::BeginCombo("##MemLimit", settings[opt_mem_idx_]))
     {
         for (int i = 0 ; i < settings_count ; ++i)
@@ -4113,7 +4126,7 @@ void CHtmlPreferences::opt_render_start_tab()
 
     ImGui::Spacing();
     ImGui::Text("Initial game folder:");
-    ImGui::SetNextItemWidth(300);
+    ImGui::SetNextItemWidth(300 * uisc());
     if (ImGui::InputText("##InitFolder", opt_init_folder_,
                          sizeof(opt_init_folder_)))
         set_init_open_folder(opt_init_folder_);
@@ -4198,7 +4211,7 @@ void CHtmlPreferences::opt_render_gamechest_tab()
         "is stored.  Game Chest puts this file in the \"TADS\" folder in "
         "\"My Documents\" by default, but you can choose a custom "
         "location.");
-    ImGui::SetNextItemWidth(-90);
+    ImGui::SetNextItemWidth(-90 * uisc());
     if (ImGui::InputText("##GcFile", opt_gc_file_, sizeof(opt_gc_file_)))
         set_gc_database(opt_gc_file_);
     ImGui::SameLine();
@@ -4243,7 +4256,7 @@ void CHtmlPreferences::opt_render_gamechest_tab()
         "Game Chest background picture.  You can choose a custom image "
         "(JPEG or PNG) for the background, or leave this blank if you "
         "don't want a background picture at all.");
-    ImGui::SetNextItemWidth(-90);
+    ImGui::SetNextItemWidth(-90 * uisc());
     if (ImGui::InputText("##GcBkg", opt_gc_bkg_, sizeof(opt_gc_bkg_)))
         set_gc_bkg(opt_gc_bkg_);
     ImGui::SameLine();
@@ -4528,7 +4541,7 @@ void CHtmlPreferences::render_customize_theme_dialog()
     sprintf(title, "Customize \"%s\" Theme###CustomizeTheme",
             get_active_profile_name());
 
-    ImGui::SetNextWindowSize(ImVec2(520, 480), ImGuiCond_FirstUseEver);
+    ImGui::SetNextWindowSize(ImVec2(520 * uisc(), 480 * uisc()), ImGuiCond_FirstUseEver);
     if (ImGui::BeginPopupModal(title, &cust_dlg_open_,
                                ImGuiWindowFlags_NoSavedSettings))
     {
@@ -4558,7 +4571,7 @@ void CHtmlPreferences::render_customize_theme_dialog()
         }
 
         ImGui::Separator();
-        if (ImGui::Button("Close", ImVec2(80, 0)))
+        if (ImGui::Button("Close", ImVec2(80 * uisc(), 0)))
         {
             cust_dlg_open_ = false;
             ImGui::CloseCurrentPopup();
@@ -4578,7 +4591,7 @@ bool CHtmlPreferences::cust_font_combo(const char *imgui_id,
 {
     bool changed = false;
 
-    ImGui::SetNextItemWidth(200);
+    ImGui::SetNextItemWidth(200 * uisc());
     if (ImGui::BeginCombo(imgui_id, cur))
     {
         for (int i = 0 ; i < count ; ++i)
@@ -4608,7 +4621,7 @@ bool CHtmlPreferences::cust_fontsz_combo(const char *imgui_id, int *cur)
     char preview[20];
 
     sprintf(preview, "%d pt", *cur);
-    ImGui::SetNextItemWidth(70);
+    ImGui::SetNextItemWidth(70 * uisc());
     if (ImGui::BeginCombo(imgui_id, preview))
     {
         for (const int *p = font_pt_sizes ; *p != 0 ; ++p)
@@ -4682,7 +4695,7 @@ void CHtmlPreferences::cust_render_font_tab()
     for (size_t i = 0 ; i < sizeof(rows)/sizeof(rows[0]) ; ++i)
     {
         ImGui::TextUnformatted(rows[i].label);
-        ImGui::SameLine(160);
+        ImGui::SameLine(160 * uisc());
         if (cust_font_combo(rows[i].combo_id, rows[i].list, rows[i].count,
                             rows[i].cur))
         {
@@ -4700,7 +4713,7 @@ void CHtmlPreferences::cust_render_font_tab()
     ImGui::Spacing();
     ImGui::SeparatorText("Command Font");
     ImGui::TextUnformatted("Font");
-    ImGui::SameLine(160);
+    ImGui::SameLine(160 * uisc());
     {
         /* the input font list is "(Main Game Font)" plus the general list */
         static char input_list[CUST_MAX_FONTS + 1][CUST_FONT_NAME_LEN];
@@ -4820,7 +4833,7 @@ void CHtmlPreferences::cust_render_colors_tab()
     ImGui::SeparatorText("Hyperlinks");
     static const char *show_link_opts[] =
         { "Always", "Only when Ctrl is held down", "Never" };
-    ImGui::SetNextItemWidth(260);
+    ImGui::SetNextItemWidth(260 * uisc());
     if (ImGui::BeginCombo("Show Links", show_link_opts[cust_show_links_sel_]))
     {
         for (int i = 0 ; i < 3 ; ++i)

@@ -44,6 +44,9 @@ Modified
 #ifndef TADSMIDI_H
 #include "tadsmidi.h"
 #endif
+#ifndef TADSFONT_H
+#include "tadsfont.h"
+#endif
 #include "imgui/imgui_internal.h"
 
 #ifndef WM_MOUSEWHEEL
@@ -155,16 +158,19 @@ int tadswin_message_box(GLFWwindow *window, const textchar_t *msg,
             popup_opened = true;
         }
 
+        /* scale the fixed pixel sizes for the display - see migration.md 3.5a */
+        const float s = CTadsFont::get_dpi_scale();
+
         ImGuiViewport *vp = ImGui::GetMainViewport();
         ImGui::SetNextWindowPos(
             ImVec2(vp->Pos.x + vp->Size.x * 0.5f, vp->Pos.y + vp->Size.y * 0.5f),
             ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
-        ImGui::SetNextWindowSize(ImVec2(420, 0), ImGuiCond_Appearing);
+        ImGui::SetNextWindowSize(ImVec2(420 * s, 0), ImGuiCond_Appearing);
 
         if (ImGui::BeginPopupModal(caption, 0,
             ImGuiWindowFlags_NoResize | ImGuiWindowFlags_AlwaysAutoResize))
         {
-            ImGui::PushTextWrapPos(400);
+            ImGui::PushTextWrapPos(400 * s);
             ImGui::TextUnformatted(msg);
             ImGui::PopTextWrapPos();
 
@@ -172,7 +178,7 @@ int tadswin_message_box(GLFWwindow *window, const textchar_t *msg,
             ImGui::Separator();
             ImGui::Spacing();
 
-            const float btn_w = 90.0f;
+            const float btn_w = 90.0f * s;
             float total_w = btn_w * nbtns
                             + ImGui::GetStyle().ItemSpacing.x * (nbtns - 1);
             ImGui::SetCursorPosX(
@@ -3688,7 +3694,19 @@ GLFWwindow* CTadsSyswin::syswin_create_system_window(
     // Setup scaling
     ImGuiStyle& style = ImGui::GetStyle();
     style.ScaleAllSizes(main_scale);        // Bake a fixed style scale. (until we have a solution for dynamic style scaling, changing this requires resetting Style + calling this again)
-    style.FontScaleDpi = main_scale;        // Set initial font scale. (in docking branch: using io.ConfigDpiScaleFonts=true automatically overrides this for every window depending on the current monitor)
+    /*
+     *   Deliberately NOT setting style.FontScaleDpi here.  The ImGui example
+     *   code this was copied from adds its fonts at their nominal point size
+     *   and relies on FontScaleDpi to do the DPI step - but CTadsFont works
+     *   the other way round: it already bakes the monitor's content scale
+     *   into every font it creates, via get_screen_dpi() (= 96 * content
+     *   scale) feeding calc_lfHeight().  Setting FontScaleDpi = main_scale on
+     *   top of that applied the content scale a second time, so on a display
+     *   scaled above 100% all game text came out at scale-squared (e.g. 2.25x
+     *   at 150%) and no longer matched the formatter's own layout metrics.
+     *   Leaving it at its default 1.0 makes text scale by exactly the content
+     *   scale, the same factor the window itself is enlarged by above.
+     */
 
 
     // Setup Platform/Renderer backends

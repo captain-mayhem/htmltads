@@ -19,6 +19,7 @@
 
 #include "tadsfiledlg.h"
 #include "tadsapp.h"
+#include "tadsfont.h"        /* CTadsFont::get_dpi_scale() - see migration.md 3.5a */
 
 namespace
 {
@@ -295,11 +296,14 @@ namespace
             refresh_listing();
         }
 
+        /* scale the fixed pixel sizes for the display - see migration.md 3.5a */
+        const float s = CTadsFont::get_dpi_scale();
+
         ImGuiViewport *vp = ImGui::GetMainViewport();
         ImGui::SetNextWindowPos(
             ImVec2(vp->Pos.x + vp->Size.x * 0.5f, vp->Pos.y + vp->Size.y * 0.5f),
             ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
-        ImGui::SetNextWindowSize(ImVec2(560, 440), ImGuiCond_Appearing);
+        ImGui::SetNextWindowSize(ImVec2(560 * s, 440 * s), ImGuiCond_Appearing);
 
         bool p_open = true;
         if (!ImGui::BeginPopupModal(popup_id.c_str(), &p_open,
@@ -341,7 +345,7 @@ namespace
             refresh_listing();
 
         /* the directory listing */
-        ImGui::BeginChild("TadsFileDlgList", ImVec2(0, -84), true);
+        ImGui::BeginChild("TadsFileDlgList", ImVec2(0, -84 * s), true);
         for (int i = 0; i < (int)s_dlg.entries.size(); ++i)
         {
             FileDlgEntry &e = s_dlg.entries[i];
@@ -419,7 +423,7 @@ namespace
 
         const char *ok_label =
             (s_dlg.mode == TADSFILEDLG_SAVE ? "Save" : "Open");
-        const float btn_w = 90.0f;
+        const float btn_w = 90.0f * s;
         if (ImGui::Button(ok_label, ImVec2(btn_w, 0)))
             try_accept();
         ImGui::SameLine();

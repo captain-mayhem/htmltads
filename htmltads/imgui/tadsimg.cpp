@@ -34,6 +34,9 @@ Modified
 #ifndef TADSAPP_H
 #include "tadsapp.h"
 #endif
+#ifndef TADSFONT_H
+#include "tadsfont.h"
+#endif
 #include <imgui/imgui_internal.h>
 
 /* some versions of the win sdk don't have this defined yet */
@@ -48,6 +51,15 @@ Modified
 BOOL (WINAPI *CTadsImage::alphablend_proc_)
     (HDC, int, int, int, int, HDC, int, int, int, int, BLENDFUNCTION) = 0;
 int CTadsImage::linked_alphablend_proc_ = FALSE;
+
+/*
+ *   Display content-scale factor - the one guit3 uses everywhere, defined in
+ *   CTadsFont (get_screen_dpi() there returns 96 * this).
+ */
+float CTadsImage::disp_scale()
+{
+    return CTadsFont::get_dpi_scale();
+}
 
 /*
  *   create 
@@ -145,6 +157,19 @@ void CTadsImage::draw(CTadsWin *win, CHtmlRect *pos,
         return;
 
     /*
+     *   Effective on-screen "native" size: the image's pixel dimensions
+     *   magnified by the display content scale, so CLIP and TILE match the
+     *   behaviour htmlt3 got for free from the OS scaling its whole window
+     *   bitmap.  (STRETCH just fills 'pos', which the formatter has already
+     *   scaled through get_width()/get_height().)
+     */
+    float scale = disp_scale();
+    long eff_wid = (long)(width_ * scale + 0.5f);
+    long eff_ht = (long)(height_ * scale + 0.5f);
+    if (eff_wid <= 0) eff_wid = 1;
+    if (eff_ht <= 0) eff_ht = 1;
+
+    /*
      *   The texture is stored top-down with straight alpha, so the natural UV
      *   range (0,0)-(1,1) maps the whole image over the destination rect,
      *   which is exactly what HTMLIMG_DRAW_STRETCH wants.
@@ -156,15 +181,15 @@ void CTadsImage::draw(CTadsWin *win, CHtmlRect *pos,
     {
     case HTMLIMG_DRAW_CLIP:
         /*
-         *   draw at native size, aligned at the top left of the destination
-         *   area, clipping (never scaling) if the image is larger
+         *   draw at (scaled) native size, aligned at the top left of the
+         *   destination area, clipping if the image is larger
          */
         {
-            long wid = (long)width_ < dst_wid ? (long)width_ : dst_wid;
-            long ht = (long)height_ < dst_ht ? (long)height_ : dst_ht;
+            long wid = eff_wid < dst_wid ? eff_wid : dst_wid;
+            long ht = eff_ht < dst_ht ? eff_ht : dst_ht;
             draw_size = ImVec2((float)wid, (float)ht);
-            uv1.x = (float)wid / (float)width_;
-            uv1.y = (float)ht / (float)height_;
+            uv1.x = (float)wid / (float)eff_wid;
+            uv1.y = (float)ht / (float)eff_ht;
         }
         break;
 
@@ -178,8 +203,8 @@ void CTadsImage::draw(CTadsWin *win, CHtmlRect *pos,
          *   area; GL_REPEAT wrapping on the texture turns a >1 UV range into
          *   tiling for us
          */
-        uv1.x = (float)dst_wid / (float)width_;
-        uv1.y = (float)dst_ht / (float)height_;
+        uv1.x = (float)dst_wid / (float)eff_wid;
+        uv1.y = (float)dst_ht / (float)eff_ht;
         break;
     }
 

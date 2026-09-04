@@ -139,7 +139,20 @@ void CTadsFont::unselect(HDC dc, HGDIOBJ oldfont)
  */
 float CTadsFont::get_screen_dpi()
 {
-    return 96.0f * ImGui_ImplGlfw_GetContentScaleForMonitor(glfwGetPrimaryMonitor());
+    return 96.0f * get_dpi_scale();
+}
+
+/*
+ *   The primary monitor's content scale factor.  See tadsfont.h.  Guards
+ *   against a null monitor (no display / headless) by falling back to 1.0.
+ */
+float CTadsFont::get_dpi_scale()
+{
+    GLFWmonitor *mon = glfwGetPrimaryMonitor();
+    float s = (mon != 0
+               ? ImGui_ImplGlfw_GetContentScaleForMonitor(mon)
+               : 1.0f);
+    return (s > 0.0f ? s : 1.0f);
 }
 
 /*

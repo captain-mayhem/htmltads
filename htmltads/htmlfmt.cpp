@@ -7556,14 +7556,24 @@ long CHtmlFmtMapZone::compute_coord(const struct CHtmlTagAREA_coords_t *coord,
         range = (vert ? image_bounds->bottom - image_bounds->top
                       : image_bounds->right - image_bounds->left);
 
-        /* compute the value as a percentage of the range */
+        /*
+         *   Compute the value as a percentage of the range.  'range' comes
+         *   from the image's on-screen bounds, which the formatter has
+         *   already multiplied by CHtmlDisp's image display scale, so a
+         *   percentage coordinate scales for free.
+         */
         return offset
             + (long)(((double)coord->val_ * (double)range) / 100.0);
     }
     else
     {
-        /* compute the value as an offset from the base */
-        return offset + coord->val_;
+        /*
+         *   Compute the value as a pixel offset from the base.  coord->val_
+         *   is in the game-authored image's own pixels, so apply the same
+         *   image display scale the formatter applied to the image itself
+         *   (1.0 = none - see CHtmlDisp::set_image_scale()).
+         */
+        return offset + CHtmlDisp::scale_image_dim(coord->val_);
     }
 }
 
@@ -7626,8 +7636,13 @@ int CHtmlFmtMapZoneCircle::pt_in_zone(int x, int y,
     dy = y - y0;
     dist_squared = (dx * dx) + (dy * dy);
 
-    /* if this is within the radius, it's in the circle */
-    return (dist_squared <= radius_ * radius_);
+    /*
+     *   If this is within the radius, it's in the circle.  x0/y0 and the
+     *   incoming point are in the image's on-screen (display-scaled) space,
+     *   so scale the game-pixel radius to match (1.0 = none).
+     */
+    long r = CHtmlDisp::scale_image_dim(radius_);
+    return (dist_squared <= r * r);
 }
 
 

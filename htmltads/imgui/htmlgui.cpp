@@ -5581,9 +5581,16 @@ void CHtmlSysWin_win32::do_paint_content(HDC dc, const RECT *rc)
         {
             unsigned long ht, wid;
 
-            /* get the height and width of the image */
-            ht = img->get_height();
-            wid = img->get_width();
+            /*
+             *   Get the image's tile size, scaled by the same image display
+             *   scale the formatter uses (CHtmlDisp::scale_image_dim(); 1.0 =
+             *   none) - CHtmlSysImage::get_width()/get_height() report the raw
+             *   intrinsic pixels now.  The per-tile draw_image() call below
+             *   goes through CTadsImage::draw()'s CLIP path, which fills the
+             *   scaled cell.
+             */
+            ht = CHtmlDisp::scale_image_dim(img->get_height());
+            wid = CHtmlDisp::scale_image_dim(img->get_width());
             if (ht != 0 && wid != 0)
             {
                 CHtmlRect docrc;
@@ -5714,9 +5721,16 @@ void CHtmlSysWin_win32::do_render_content_begin()
         {
             unsigned long ht, wid;
 
-            /* get the height and width of the image */
-            ht = img->get_height();
-            wid = img->get_width();
+            /*
+             *   Get the image's tile size, scaled by the same image display
+             *   scale the formatter uses (CHtmlDisp::scale_image_dim(); 1.0 =
+             *   none) - CHtmlSysImage::get_width()/get_height() report the raw
+             *   intrinsic pixels now.  The per-tile draw_image() call below
+             *   goes through CTadsImage::draw()'s CLIP path, which fills the
+             *   scaled cell.
+             */
+            ht = CHtmlDisp::scale_image_dim(img->get_height());
+            wid = CHtmlDisp::scale_image_dim(img->get_width());
             if (ht != 0 && wid != 0)
             {
                 CHtmlRect docrc;
@@ -7437,9 +7451,9 @@ void CHtmlSysWin_win32::inval_html_bg_image(unsigned int x, unsigned int y,
     if (bg_image_ == 0 || (image = bg_image_->get_image()) == 0)
         return;
 
-    /* get the size of the image, so we can calculate its tiling */
-    img_wid = image->get_width();
-    img_ht = image->get_height();
+    /* get the tile size, scaled to match the background draw above */
+    img_wid = CHtmlDisp::scale_image_dim(image->get_width());
+    img_ht = CHtmlDisp::scale_image_dim(image->get_height());
 
     /* if the image is of zero size, there's nothing to invalidate */
     if (img_wid == 0 || img_ht == 0)
@@ -10499,7 +10513,29 @@ CHtmlSys_mainwin::CHtmlSys_mainwin(CHtmlFormatterInput *formatter,
     io.IniFilename = nullptr;
 #endif
 
-    io.Fonts->AddFontDefault();
+    /*
+     *   The built-in ProggyClean default font is a fixed 13px face, and -
+     *   unlike CHtmlSysFont_win32, which bakes the monitor's content scale
+     *   into every size it asks FreeType for (see CTadsFont::get_screen_dpi())
+     *   - nothing else scales it.  It is the font every piece of ImGui-drawn
+     *   chrome uses: the menu bar, the dropdown menus, the dialogs, tooltips
+     *   and the status line.  Without this, on a display scaled above 100%
+     *   all of that chrome renders tiny next to the (correctly scaled) game
+     *   text.  Ask for it at 13px * content scale so it tracks the rest.
+     */
+    ImFontConfig ui_font_cfg;
+    ui_font_cfg.SizePixels = 13.0f * CTadsFont::get_dpi_scale();
+    io.Fonts->AddFontDefault(&ui_font_cfg);
+
+    /*
+     *   Tell the shared HTML formatter to scale images by the monitor's
+     *   content-scale factor.  The formatter defaults to 1.0 (what htmlt3 and
+     *   the emscripten port want); guit3 lays text out with the content scale
+     *   baked into the fonts, so without this pictures would come out
+     *   1/scale too small next to the text.  See CHtmlDisp::set_image_scale()
+     *   and migration.md 3.5a.
+     */
+    CHtmlDisp::set_image_scale(CTadsFont::get_dpi_scale());
 
     // Setup Dear ImGui style
     ImGui::StyleColorsDark();
@@ -12154,16 +12190,19 @@ static int render_yesno_confirm_popup(const char *popup_id, const char *msg)
 {
     int result = 0;
 
+    /* scale the fixed pixel sizes for the display - see migration.md 3.5a */
+    const float s = CTadsFont::get_dpi_scale();
+
     ImGuiViewport *vp = ImGui::GetMainViewport();
     ImGui::SetNextWindowPos(
         ImVec2(vp->Pos.x + vp->Size.x * 0.5f, vp->Pos.y + vp->Size.y * 0.5f),
         ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
-    ImGui::SetNextWindowSize(ImVec2(420, 0), ImGuiCond_Appearing);
+    ImGui::SetNextWindowSize(ImVec2(420 * s, 0), ImGuiCond_Appearing);
 
     if (ImGui::BeginPopupModal(popup_id, nullptr,
         ImGuiWindowFlags_NoResize | ImGuiWindowFlags_AlwaysAutoResize))
     {
-        ImGui::PushTextWrapPos(400);
+        ImGui::PushTextWrapPos(400 * s);
         ImGui::TextUnformatted(msg);
         ImGui::PopTextWrapPos();
 
@@ -12171,7 +12210,7 @@ static int render_yesno_confirm_popup(const char *popup_id, const char *msg)
         ImGui::Separator();
         ImGui::Spacing();
 
-        const float btn_w = 90.0f;
+        const float btn_w = 90.0f * s;
         float total_w = btn_w * 2 + ImGui::GetStyle().ItemSpacing.x;
         ImGui::SetCursorPosX(ImGui::GetCursorPosX()
             + (ImGui::GetContentRegionAvail().x - total_w) * 0.5f);
@@ -12469,7 +12508,18 @@ void CHtmlSys_mainwin::render_toolbar()
     };
 
     ImGuiStyle &style = ImGui::GetStyle();
-    float button_height = TOOLBAR_ICON_HEIGHT + style.FramePadding.y * 2;
+    /*
+     *   The icon sheet is a fixed 16x15-per-icon bitmap; scale the on-screen
+     *   icon (not the texture-space UVs below) by the display content scale,
+     *   the same factor CHtmlSysFont_win32 bakes into text, so the toolbar
+     *   isn't a tiny strip on a HiDPI display.  style.FramePadding /
+     *   WindowPadding are already scaled by ScaleAllSizes() in
+     *   syswin_create_system_window().
+     */
+    const float ui_scale = CTadsFont::get_dpi_scale();
+    const float icon_w = TOOLBAR_ICON_WIDTH * ui_scale;
+    const float icon_h = TOOLBAR_ICON_HEIGHT * ui_scale;
+    float button_height = icon_h + style.FramePadding.y * 2;
     float height = button_height + style.WindowPadding.y * 2;
 
     ImGuiWindowFlags flags = ImGuiWindowFlags_NoScrollbar
@@ -12501,13 +12551,14 @@ void CHtmlSys_mainwin::render_toolbar()
             const ToolbarBtn &b = buttons[bi];
 
             if (bi != 0)
-                ImGui::SameLine(0, b.sep_before ? 12.0f : 4.0f);
+                ImGui::SameLine(0, (b.sep_before ? 12.0f : 4.0f) * ui_scale);
             if (b.sep_before)
             {
                 /* draw a thin vertical divider in the gap SameLine() just left */
                 ImVec2 p = ImGui::GetCursorScreenPos();
                 ImGui::GetWindowDrawList()->AddLine(
-                    ImVec2(p.x - 7, p.y), ImVec2(p.x - 7, p.y + button_height),
+                    ImVec2(p.x - 7 * ui_scale, p.y),
+                    ImVec2(p.x - 7 * ui_scale, p.y + button_height),
                     ImGui::GetColorU32(ImGuiCol_Separator));
             }
 
@@ -12530,7 +12581,7 @@ void CHtmlSys_mainwin::render_toolbar()
             ImGui::BeginDisabled(!enabled);
             bool clicked = ImGui::ImageButton(
                 id_buf, (ImTextureID)(intptr_t)toolbar_tex_,
-                ImVec2((float)TOOLBAR_ICON_WIDTH, (float)TOOLBAR_ICON_HEIGHT),
+                ImVec2(icon_w, icon_h),
                 ImVec2(u0, 0), ImVec2(u1, 1));
             ImGui::EndDisabled();
 
@@ -18486,12 +18537,21 @@ void CHtmlSys_top_win::do_create()
     /* create our HTML subwindow */
     create_html_subwin();
 
-    /* give the subwindow the entire area, minus the scrollbars if any */
+    /*
+     *   Give the subwindow its area, exactly the way do_resize() does -
+     *   get_client_rect() then adjust_subwin_rect() (a no-op for most
+     *   subclasses; a 1px border for the popup menu).  This used to also
+     *   subtract SM_CXVSCROLL/SM_CYHSCROLL for a scrolling panel, but
+     *   CHtmlSysWin_win32 reserves its own scrollbar strip internally now
+     *   (CTadsWinScroll::get_scroll_area(), and render_vscrollbar_imgui()
+     *   draws the track inside its own client area) - so subtracting it
+     *   here shrank the subwindow a second time and left an SM_CXVSCROLL-
+     *   wide strip of the dialog's own (black) background showing down the
+     *   right edge of the Credits box.  do_resize() never did this, hence
+     *   the two paths disagreed.
+     */
     get_client_rect(&rc);
-    if (panel_has_vscroll())
-        rc.right -= GetSystemMetrics(SM_CXVSCROLL);
-    if (panel_has_hscroll())
-        rc.bottom -= GetSystemMetrics(SM_CYHSCROLL);
+    adjust_subwin_rect(&rc);
 
     /* create the system window for the HTML panel */
     html_subwin_->create_system_window(this, TRUE, "HtmlWindow", &rc);
@@ -18643,6 +18703,18 @@ void CHtmlSys_abouttadswin::run_dlg(CTadsWin *parent)
 
     /* set the width and height */
     get_dlg_size(&wid, &ht);
+
+    /*
+     *   get_dlg_size() returns a design size in 100%-scaling pixels; the
+     *   dialog's HTML contents are laid out with the monitor's content scale
+     *   baked in (CHtmlSysFont_win32 / get_pix_per_inch()), so the box would
+     *   be too small for its own text on a HiDPI display.  Scale it to match.
+     *   See migration.md 3.5a.  (The centering below stays correct: it works
+     *   against mainwin_->get_win_size(), which is already in scaled pixels.)
+     */
+    const float dlg_scale = CTadsFont::get_dpi_scale();
+    wid = (int)(wid * dlg_scale + 0.5f);
+    ht = (int)(ht * dlg_scale + 0.5f);
 
     /*
      *   Center the dialog against the main app window - not necessarily
@@ -18892,7 +18964,10 @@ void CHtmlSys_creditswin::build_contents(CHtmlTextBuffer *txtbuf)
         "Michael J. Roberts<br><br>"
 
         "<b>Windows Desktop Icons</b><br>"
-        "M. D. Dollahite<br><br>";
+        "M. D. Dollahite<br><br>"
+        
+        "<b>64 Port by</b><br>"
+        "Marco Staginski<br><br>";
 
     static const char txt3[] =
         "<b>JPEG Implementation</b><br>"
@@ -18944,6 +19019,8 @@ void CHtmlSys_creditswin::build_contents(CHtmlTextBuffer *txtbuf)
         "that you can use and distribute it without charge, but subject "
         "to certain restrictions.  Please refer to the accompanying "
         "<a href=license>license file</a> for details.<br><br>"
+
+        "<b>64-Bit Port Copyright &copy; 2026 by Marco Staginski</b><br>"
 
         "<br><font size=-1>";
 

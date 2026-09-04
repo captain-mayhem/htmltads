@@ -107,6 +107,16 @@ public:
      */
     static float get_screen_dpi();
 
+    /*
+     *   The primary monitor's content scale factor on its own (1.0 at "100%"
+     *   scaling, 1.5 at 150%, ...) - i.e. get_screen_dpi() / 96.  This is the
+     *   single source of truth for every "scale it for the display" factor in
+     *   guit3: font sizes bake it in here, and the chrome that ImGui draws
+     *   itself (menu/dialog font, toolbar icons) multiplies its fixed pixel
+     *   sizes by it so it doesn't come out tiny on a HiDPI display.
+     */
+    static float get_dpi_scale();
+
     /* determine if a font is present on the system */
     static int font_is_present(const char *fontname, size_t namelen);
 

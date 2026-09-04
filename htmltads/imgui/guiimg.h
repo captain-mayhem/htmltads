@@ -58,7 +58,12 @@ public:
     /* map the palette */
     int map_palette(class CHtmlSysWin *win, int foreground);
 
-    /* get the dimensions */
+    /*
+     *   Get the dimensions - the image's own intrinsic pixels.  The shared
+     *   HTML formatter multiplies these by the display scale itself now (see
+     *   CHtmlDisp::set_image_scale(), set from guit3's do_create()), so this
+     *   must report the unscaled size or the scale would be applied twice.
+     */
     unsigned long get_width() const { return width_; }
     unsigned long get_height() const { return height_; }
 };
@@ -86,7 +91,12 @@ public:
     /* map the palette */
     int map_palette(class CHtmlSysWin *win, int foreground);
 
-    /* get the dimensions */
+    /*
+     *   Get the dimensions - the image's own intrinsic pixels.  The shared
+     *   HTML formatter multiplies these by the display scale itself now (see
+     *   CHtmlDisp::set_image_scale(), set from guit3's do_create()), so this
+     *   must report the unscaled size or the scale would be applied twice.
+     */
     unsigned long get_width() const { return width_; }
     unsigned long get_height() const { return height_; }
 };
@@ -130,7 +140,12 @@ public:
     /* map the palette */
     int map_palette(class CHtmlSysWin *, int foreground) { return FALSE; }
 
-    /* get the dimensions */
+    /*
+     *   Get the dimensions - the image's own intrinsic pixels.  The shared
+     *   HTML formatter multiplies these by the display scale itself now (see
+     *   CHtmlDisp::set_image_scale(), set from guit3's do_create()), so this
+     *   must report the unscaled size or the scale would be applied twice.
+     */
     unsigned long get_width() const { return width_; }
     unsigned long get_height() const { return height_; }
 

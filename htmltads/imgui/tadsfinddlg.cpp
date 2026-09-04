@@ -14,6 +14,7 @@
 #include <imgui/imgui.h>
 
 #include "tadsfinddlg.h"
+#include "tadsfont.h"        /* CTadsFont::get_dpi_scale() - see migration.md 3.5a */
 
 namespace
 {
@@ -126,6 +127,9 @@ namespace
             s_dlg.settle_frames = 4;
         }
 
+        /* scale the fixed pixel sizes for the display - see migration.md 3.5a */
+        const float s = CTadsFont::get_dpi_scale();
+
         ImGuiViewport *vp = ImGui::GetMainViewport();
         ImGui::SetNextWindowPos(
             ImVec2(vp->Pos.x + vp->Size.x * 0.5f, vp->Pos.y + vp->Size.y * 0.5f),
@@ -146,7 +150,7 @@ namespace
         {
             win_flags |= ImGuiWindowFlags_AlwaysAutoResize;
             if (just_opened)
-                ImGui::SetNextWindowSize(ImVec2(360, 0), ImGuiCond_Appearing);
+                ImGui::SetNextWindowSize(ImVec2(360 * s, 0), ImGuiCond_Appearing);
         }
         else if (s_dlg.fixed_size.x > 0.0f)
         {
@@ -174,7 +178,8 @@ namespace
         ImGui::TextUnformatted("Find what:");
 
         bool has_history = !s_dlg.history.empty();
-        ImGui::SetNextItemWidth(has_history ? -38.0f : -1.0f);
+        /* -1 = "stretch to edge" sentinel; -38 is a pixel inset that must scale */
+        ImGui::SetNextItemWidth(has_history ? -38.0f * s : -1.0f);
 
         /*
          *   Auto-focus the text field the frame the dialog opens, same as
