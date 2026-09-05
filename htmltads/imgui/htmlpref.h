@@ -226,11 +226,11 @@ public:
 
     /*
      *   Open the ImGui-native "Customize Theme" dialog (the guit3
-     *   replacement for run_appearance_dlg()'s native Fonts/Colors/More/
-     *   Media property sheet).  Same pending-open/snapshot pattern as
-     *   open_options_dialog(): this just captures the current preference
-     *   values into the dialog's working state; render_customize_theme_
-     *   dialog(), called from CHtmlSys_mainwin::do_render(), draws it.
+     *   replacement for the old native Fonts/Colors/More/Media property
+     *   sheet).  Same pending-open/snapshot pattern as open_options_dialog():
+     *   this just captures the current preference values into the dialog's
+     *   working state; render_customize_theme_dialog(), called from
+     *   CHtmlSys_mainwin::do_render(), draws it.
      */
     void open_customize_theme_dialog(HWND owner, class CHtmlWinWithPrefs *win);
 
@@ -257,13 +257,6 @@ public:
      *   open.  Safe to call unconditionally every frame.
      */
     void render_manage_themes_dialog();
-
-    /* run the profiles dialog (native; superseded by the two calls above) */
-    void run_profiles_dlg(HWND owner, class CHtmlWinWithPrefs *win);
-
-    /* run the appearance dialog */
-    void run_appearance_dlg(HWND owner, class CHtmlWinWithPrefs *win,
-                            int standalone);
 
     /* get the global system message ID for broadcasting preference updates */
     UINT get_prefs_updated_msg() const { return prefs_updated_msg_; }
@@ -1112,8 +1105,8 @@ private:
     /*
      *   ImGui "Customize Theme" dialog state (see
      *   open_customize_theme_dialog()/render_customize_theme_dialog() in
-     *   htmlpref.cpp).  Replaces the native Fonts/Colors/More/Media
-     *   property sheet run_appearance_dlg() shows; same immediate-write,
+     *   htmlpref.cpp).  Replaces the old native Fonts/Colors/More/Media
+     *   property sheet; same immediate-write,
      *   no-Apply-step convention as the Options dialog above - every
      *   control writes straight through to the preferences object (and
      *   fires the same schedule_reformat()/notify_*_pref_change() side

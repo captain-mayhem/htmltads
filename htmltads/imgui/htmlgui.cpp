@@ -22,7 +22,6 @@ Modified
 
 #include <windows.h>
 #include <commctrl.h>
-#include <htmlhelp.h>
 
 #include <string.h>
 #include <memory.h>
@@ -13796,29 +13795,16 @@ int CHtmlSys_mainwin::do_command(int notify_code,
         return TRUE;
 
     case ID_HELP_CONTENTS:
-#ifdef _WIN32
-        {
-            char buf[OSFNMAX];
-
-            /* build the help file's name */
-            GetModuleFileName(CTadsApp::get_app()->get_instance(),
-                              buf, sizeof(buf));
-            strcpy(os_get_root_name(buf), "htmltads.chm::/overview.htm");
-
-            /* show the help */
-            HtmlHelp(NULL, buf, HH_DISPLAY_TOPIC, 0);
-        }
-#else
         /*
-         *   no local .chm help off Windows - point at the online docs
-         *   instead.  guit3 is still Windows-only for now (see
-         *   migration.md 5.1), so this branch isn't reachable or built
-         *   yet; verify the URL against tads.org's actual doc layout
-         *   before this is ever exercised for real (M4).
+         *   Open the online documentation.  The legacy build shipped a
+         *   bundled "htmltads.chm" and opened it with HtmlHelp(); that
+         *   obsolete .chm path (and its Htmlhelp.lib dependency) was dropped
+         *   in the guit3 port (see migration.md 5.4/F).  This should
+         *   eventually go through a portable os_open_url() hook (M3) and
+         *   deep-link to the HTML TADS manual rather than the site root -
+         *   confirm the URL against tads.org's doc layout when that lands.
          */
-        system("xdg-open https://www.tads.org/ 2>/dev/null "
-               "|| open https://www.tads.org/ 2>/dev/null");
-#endif
+        ShellExecute(0, 0, "https://www.tads.org/", 0, 0, SW_SHOWNORMAL);
 
         /* handled */
         return TRUE;

@@ -1010,11 +1010,13 @@ character encoding — plus the build plumbing that still says "Windows only" in
 Also in `guit3`'s CMakeLists:
 
 - **`../win32/htmlt3.rc` is in the source list.** There is no resource compiler off-Windows. See §5.4/B.
-- **Win32-only link libraries**, each marking a dependency to resolve or drop: `Htmlhelp.lib` (obsolete
-  `.chm` help — drop, §5.4/F), `Comctl32.lib` (native controls — goes with the dead dialog files, §5.3),
-  `Winmm.lib` (MIDI only, already `_WIN32`-gated), `Ws2_32.lib`/`Wininet.lib`/`Mpr.lib` (networking — the
-  superproject already vendors `curl/`), `Shlwapi.lib` (`PathMatchSpecA`, §5.4/J), `Version.lib`,
-  `dxguid.lib` (only the vestigial DirectSound probe, §5.4/I), `Opengl32.lib` (already `if (WIN32)`-guarded).
+- **Win32-only link libraries**, each marking a dependency to resolve or drop: `Comctl32.lib` (native
+  controls — the last property-page dialog classes that needed it are gone as of the M1 revisit, §5.3, so
+  this is now a candidate for removal — verify no other `commctrl` user remains first), `Winmm.lib` (MIDI
+  only, already `_WIN32`-gated), `Ws2_32.lib`/`Wininet.lib`/`Mpr.lib` (networking — the superproject already
+  vendors `curl/`), `Shlwapi.lib` (`PathMatchSpecA`, §5.4/J), `Version.lib`, `dxguid.lib` (only the
+  vestigial DirectSound probe, §5.4/I), `Opengl32.lib` (already `if (WIN32)`-guarded).
+  (`Htmlhelp.lib` was here too — **dropped** in the M1 revisit along with the `.chm` help path, §5.4/F.)
 - **`Tads::tr32h` / `Tads::t3htm` already have non-Windows branches** (`tads2/CMakeLists.txt` builds
   `unix/osunixt.c` + `ostzposix.c` with `UNIX`/`OSANSI`/`LINUX_386` instead of the `msdos/` set). But `guit3`
   calls into the *Windows* half of that layer: `oss_win_static_init_done()`, `oss_win_free_all()`,
@@ -1031,10 +1033,10 @@ across the files `guit3` actually compiles, largest first:
 | File | Refs | Lines | Nature of what's left |
 |---|---:|---:|---|
 | `tadswin.h` | 144 | 2386 | Mostly **types in signatures** (`HWND`, `HMENU`, `LRESULT`, `RECT`, `SCROLLINFO`) — the handles are already opaque tokens (§3.4a). Plus dead MDI. |
-| `htmlgui.cpp` | 135 | 19402 | The long tail: cursors, clipboard, `LoadString`, `GetSysColor`, `ShellExecute`, `HtmlHelp`, codepage conversion, `GetTickCount`, the toolbar bitmap loader, the still-unported "About this game"/`CHtmlSysWin_win32_Popup` windows. |
+| `htmlgui.cpp` | 135 | 19402 | The long tail: cursors, clipboard, `LoadString`, `GetSysColor`, `ShellExecute`, codepage conversion, `GetTickCount`, the toolbar bitmap loader, the still-unported "About this game"/`CHtmlSysWin_win32_Popup` windows. (`HtmlHelp`/`.chm` help gone — §5.4/F.) |
 | `tadswin.cpp` | 127 | 4255 | Same as `tadswin.h` plus the dead window-class registration and MDI. |
 | `htmlgui.h` | 98 | 4583 | Types in signatures. |
-| `htmlpref.cpp` | 80 | 5393 | Registry (theme profiles), `GetCurrentDirectory`, `EnumFontFamiliesEx`, plus the dead property-page classes. |
+| `htmlpref.cpp` | 80 | ~3800 | Registry (theme profiles), `GetCurrentDirectory`, `EnumFontFamiliesEx`. The ~1600 lines of dead native property-page classes (`CHtmlDialog{FontPp,Fonts,Color,More,Media,Appearance}`, `CTadsDialogNewProfile`, `run_appearance_dlg()`, `run_profiles_dlg()`) were removed in the M1 revisit (§5.3). |
 | `tadsdlg.cpp`/`.h`/`tadsdlg2.cpp` | 49/46/20 | 2463 | Dead except three entry points — §5.3. |
 | `tadswebctl.h`/`guiwebui.h`/`tadscom.h` | 36/13/22 | — | Web UI, to be gated out — §5.4/O. |
 | `tadsapp.cpp`/`.h` | 25/17 | 2000 | `MSG` pump, accelerators, modeless list, MDI — mostly dead — §5.4/L. |
@@ -1061,9 +1063,9 @@ the cheapest possible progress and shrinks everything downstream (link libs, inc
 
 | File | Lines | Status |
 |---|---:|---|
-| `tadscbtn.cpp` | 231 | ~~"zero references anywhere" - drop now.~~ ~~**Wrong - not dropped.** `CColorBtnPropPage` reachable through the still-native `Manage Profiles > Customize` path.~~ **Dead again as of the Manage Themes port (§3.3):** `ID_MANAGE_PROFILES` no longer calls `run_profiles_dlg()`, so `CHtmlDialogAppearance` and its "Customize..." button (`run_appearance_dlg()` → `CHtmlDialogColor`/`CHtmlDialogFonts` → `CColorBtnPropPage`) are all unreachable. Droppable in a future cleanup pass; still compiled for now. |
+| `tadscbtn.cpp`/`.h` | 231 | ~~"zero references anywhere" - drop now.~~ ~~**Wrong - not dropped.** `CColorBtnPropPage` reachable through the still-native `Manage Profiles > Customize` path.~~ **Done (M1 revisit).** Once `ID_MANAGE_PROFILES` stopped calling `run_profiles_dlg()` (§3.3, Manage Themes port), the whole chain `run_profiles_dlg()` → `CHtmlDialogAppearance` → `run_appearance_dlg()` → `CHtmlDialog{Fonts,Color,More,Media}` → `CColorBtnPropPage` (plus `CHtmlDialogFontPp` and `CTadsDialogNewProfile`) went dead. All ~1600 lines removed from `htmlpref.cpp` and `tadscbtn.cpp`/`.h` deleted outright; `#include "tadscbtn.h"` and the `tadscbtn.cpp` source-list entry removed. Verified with a clean Debug build. |
 | `guifndlg.cpp` | 908 | Superseded by `CTadsFindDialog` (§3.3). `CTadsDialogFindReplace`/`FindRegex` are Workbench-only. **Done (M1)** - genuinely zero live references; dropped cleanly. |
-| `foldsel2.cpp` | 1011 | Superseded by `CTadsFolderDialog` (§3.3) for the live (ImGui Options/Starting tab) path. **Done (M1)**, but its only remaining consumer, `CHtmlDialogStart`, turned out to live inside a larger dead block: `htmlpref.cpp` also had `CHtmlDialogKeys`/`Safety`/`NetSafety`/`Mem`/`Quit`/`Start`/`GameChest` (the 7 property-page classes used *only* by `run_preferences_dlg()`, itself unreachable - `CHtmlDialogAppearance` was at the time the one page still shared with the then-live `run_profiles_dlg()`, so it alone survived that pass; it is dead too now that Manage Themes is ported, §3.3) plus `run_preferences_dlg()` itself, all confirmed dead by the same "no call sites outside this block" check and removed together (~1750 lines) so the `foldsel.h` include could actually go. Watch for this pattern elsewhere in `htmlpref.cpp`: a file's "zero references" claim in this doc may only hold once a further, uncounted dead block that references it is cleared out too - verify reachability transitively, not just by grepping the target file's own name. |
+| `foldsel2.cpp` | 1011 | Superseded by `CTadsFolderDialog` (§3.3) for the live (ImGui Options/Starting tab) path. **Done (M1)**, but its only remaining consumer, `CHtmlDialogStart`, turned out to live inside a larger dead block: `htmlpref.cpp` also had `CHtmlDialogKeys`/`Safety`/`NetSafety`/`Mem`/`Quit`/`Start`/`GameChest` (the 7 property-page classes used *only* by `run_preferences_dlg()`, itself unreachable - `CHtmlDialogAppearance` was at the time the one page still shared with the then-live `run_profiles_dlg()`, so it alone survived that pass - it and the rest of that chain were removed in the M1 revisit once Manage Themes was ported, §3.3 / the `tadscbtn.cpp` row above) plus `run_preferences_dlg()` itself, all confirmed dead by the same "no call sites outside this block" check and removed together (~1750 lines) so the `foldsel.h` include could actually go. Watch for this pattern elsewhere in `htmlpref.cpp`: a file's "zero references" claim in this doc may only hold once a further, uncounted dead block that references it is cleared out too - verify reachability transitively, not just by grepping the target file's own name. |
 | `iconmenu.cpp` | 432 | Owner-drawn menu icons - dead (no real `HMENU` is ever shown). **Done (M1)**, but there were more live-but-inert call sites than this row implied: besides the `do_create()` construction, `create_toolbar()` (already-dead native toolbar code, §3.1) called `add_bitmap()`/`map_commands()`/`map_command()` ×3 every time it ran, and `do_destroy()` deleted the object. All of it executed at startup with no visible effect (no real menu bar ever receives `WM_INITMENUPOPUP`/`WM_DRAWITEM`) - removed all of it, then the file. |
 | `tadsdlg.cpp`/`.h`/`tadsdlg2.cpp` | 2463 | Dead **except** `CTadsDialog::modal_dlg_pre()`/`modal_dlg_post()` and `set_filedlg_center_hook()`, still used by `CHtmlSys_abouttadswin`/`CHtmlSys_creditswin::run_dlg()` and (once ported) `CHtmlSys_aboutgamewin` (§5.4/N). `LicenseDlg : CTadsDialog`, the last of the four, is gone now that License is ported (§3.3d). Port `CHtmlSys_aboutgamewin`/`CHtmlSysWin_win32_Popup`, then drop these. |
 | `tadsole.cpp` | 430 | `CTadsDataObjText`, used by `htmlgui.cpp:1585`'s `get_data_object()` (OLE drag-and-drop source). Gate with the Web UI/COM flag (§5.4/O) or drop drag-out support off-Windows. |
@@ -1137,13 +1139,14 @@ lookup on Windows and fixed sensible values (or the ImGui style palette) elsewhe
 
 - `ShellExecute` — `guitr.cpp:206` (open a URL from the game), `htmlgui.cpp:9749`/`:13854`/`:18625`. →
   `os_open_url()`: `ShellExecute` / `xdg-open` / `open`.
-- `HtmlHelp` (`htmlgui.cpp`, `ID_HELP_CONTENTS`) — obsolete `.chm` help. **Revised during M1 (§5.5): kept, not
-  dropped**, per explicit direction - the Windows `.chm` path stays exactly as it was, now wrapped in
-  `#ifdef _WIN32`, with an `#else` stub that shells out to `xdg-open`/`open` against a placeholder tads.org URL
-  for a future non-Windows build (unverified - guit3 is still Windows-only, §5.1, so this branch has never
-  compiled or run; confirm the URL against tads.org's actual doc layout before M4 makes it reachable).
-  `Htmlhelp.lib` likewise stays linked, moved into the `if (WIN32)` block in `CMakeLists.txt` alongside
-  `Opengl32.lib` rather than removed.
+- `HtmlHelp` (`htmlgui.cpp`, `ID_HELP_CONTENTS`) — obsolete bundled `.chm` help. **Dropped (M1 revisit),
+  as originally planned** (the earlier "kept, wrapped in `#ifdef _WIN32`" decision was reversed on explicit
+  direction once no native dialogs remained). `ID_HELP_CONTENTS` now just does
+  `ShellExecute(0, 0, "https://www.tads.org/", ...)` — the same one-liner shape as the adjacent
+  `ID_HELP_WWWTADSORG` case — so it folds into the `os_open_url()` work above with no `.chm`, no
+  `#include <htmlhelp.h>`, and no `Htmlhelp.lib`. Two loose ends for whoever does `os_open_url()`: route
+  this through that hook rather than a bare `ShellExecute`, and deep-link to the actual HTML TADS manual
+  page instead of the tads.org site root (confirm the URL against tads.org's doc layout).
 
 **G. Fonts — two OS-integration hooks, not a rendering problem.**
 
@@ -1266,21 +1269,32 @@ was left alone - out of caution, not because it was rechecked.
 except the ones blocked on N); gate the Web UI (O); drop the DirectSound probe (I) and `HtmlHelp` (F); trim
 `CTadsApp` (L, the dead half). *Fewer files, fewer link libs, smaller type shim.*
 
-**Done, with two deliberate deviations from this plan and one item left incomplete - see the corrected §5.3
-rows and the §5.4/F, I, L, O notes for the details.** Summary: `guifndlg.cpp`/`iconmenu.cpp` dropped as
-planned (iconmenu.cpp needed a few more call sites removed than expected); `foldsel2.cpp` dropped too, but
-only after also removing ~1750 lines of dead property-page classes and `run_preferences_dlg()` from
-`htmlpref.cpp` that turned out to be its only remaining consumer; `tadscbtn.cpp` was **not** dropped at the
-time - it was reachable through the previously-unnoticed `Manage Profiles > Customize` native dialog chain
-(§3.3 correction), though that chain is now itself dead since the Manage Themes port (§3.3), so `tadscbtn.cpp`
-can be dropped in a future pass. The DirectSound probe (I) is done as planned. `HtmlHelp` (F) was **kept, not dropped**, per
-explicit direction mid-task - wrapped in `#ifdef _WIN32` instead. The Web UI gate (O) is done, except
-`CoInitialize`/`CoUninitialize` had to stay unconditional (real OLE drag-and-drop in `tadswin.cpp` needs COM
-initialized regardless of the Web UI flag). `CTadsApp` trimming (L) turned out to be based on an incorrect
-premise - `event_loop()` is very much alive - so only the confirmed-dead `add_modeless()`/`remove_modeless()`
-were removed; the rest of that item needs a fresh reachability audit before it's attempted, not a repeat of
-this plan's original claims. Verified with a full clean Windows build and a manual smoke-test launch (game
-loaded, rendered, and ran normally) rather than just a compile check.
+**Done. Originally landed with two deviations and one incomplete item; the M1 revisit (after the Manage
+Themes port, §3.3, left zero native dialogs) closed both deviations.** Summary: `guifndlg.cpp`/`iconmenu.cpp`
+dropped as planned (iconmenu.cpp needed a few more call sites removed than expected); `foldsel2.cpp` dropped
+too, but only after also removing ~1750 lines of dead property-page classes and `run_preferences_dlg()` from
+`htmlpref.cpp` that turned out to be its only remaining consumer.
+
+- **`tadscbtn.cpp` — first pass: not dropped** (reachable through the then-still-native
+  `Manage Profiles > Customize` chain, §3.3 correction). **M1 revisit: dropped.** With `ID_MANAGE_PROFILES`
+  now on the ImGui `open_manage_themes_dialog()`, the whole `run_profiles_dlg()` → `CHtmlDialogAppearance` →
+  `run_appearance_dlg()` → `CHtmlDialog{Fonts,Color,More,Media}` → `CColorBtnPropPage` chain is dead;
+  ~1600 lines removed from `htmlpref.cpp`, `tadscbtn.cpp`/`.h` deleted, source-list and `#include` entries
+  removed.
+- **`HtmlHelp` (F) — first pass: kept**, wrapped in `#ifdef _WIN32`, per explicit direction mid-task.
+  **M1 revisit: dropped as originally planned**, on explicit direction. `ID_HELP_CONTENTS` is now a plain
+  `ShellExecute` to the online docs; `<htmlhelp.h>` and `Htmlhelp.lib` are gone.
+- The DirectSound probe (I) is done as planned.
+- The Web UI gate (O) is done, except `CoInitialize`/`CoUninitialize` had to stay unconditional (real OLE
+  drag-and-drop in `tadswin.cpp` needs COM initialized regardless of the Web UI flag).
+- `CTadsApp` trimming (L) turned out to be based on an incorrect premise - `event_loop()` is very much
+  alive - so only the confirmed-dead `add_modeless()`/`remove_modeless()` were removed; the rest of that
+  item needs a fresh reachability audit before it's attempted, not a repeat of this plan's original claims.
+
+The original pass was verified with a full clean Windows build and a manual smoke-test launch (game loaded,
+rendered, ran normally). The M1 revisit is verified with a clean Debug build of `guit3`; a smoke-test launch
+of the Themes menu could not be run in this environment (synthetic-input automation is blocked by local
+antivirus - see §6).
 
 **M2 — build the seam.** `tadsplat.h` (A1) and the `os_*` hook headers with Windows-only backends (A2).
 *Still Windows-only, but every remaining Win32 call sits behind a named, single-purpose hook.*

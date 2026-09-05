@@ -75,7 +75,6 @@ add_executable(guit3
 	tadslicensedlg.cpp
 	tadsfolderdlg.h
 	tadsfolderdlg.cpp
-	tadscbtn.cpp
 	tadsreg.cpp
 	tadsjpeg.cpp
 	tadsimg.cpp
@@ -159,9 +158,6 @@ target_link_libraries(guit3 PRIVATE
 
 if (WIN32)
 	target_link_libraries(guit3 PRIVATE Opengl32.lib)
-	# HtmlHelp (.chm) support - only the Windows ID_HELP_CONTENTS path uses
-	# this; off Windows it's replaced by an online-docs link (htmlgui.cpp).
-	target_link_libraries(guit3 PRIVATE Htmlhelp.lib)
 endif()
 
 # copy the charmap library next to the built exe, same as t3run's CMakeLists.txt does -
