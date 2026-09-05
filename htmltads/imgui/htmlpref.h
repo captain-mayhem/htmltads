@@ -240,7 +240,25 @@ public:
      */
     void render_customize_theme_dialog();
 
-    /* run the profiles dialog */
+    /*
+     *   Open the ImGui-native "Manage Themes" dialog (the guit3 replacement
+     *   for run_profiles_dlg()'s native "Add/Delete Themes" property sheet -
+     *   the last real Win32 dialog in the port).  It's just the single
+     *   Appearance page that property sheet had, so it reuses the same
+     *   opt_ working state and the opt_render_appearance_tab() body as the
+     *   Options dialog's Appearance tab.  Same pending-open/snapshot pattern
+     *   as open_options_dialog(): render_manage_themes_dialog(), called from
+     *   CHtmlSys_mainwin::do_render(), draws it.
+     */
+    void open_manage_themes_dialog(HWND owner, class CHtmlWinWithPrefs *win);
+
+    /*
+     *   Draw the Manage Themes dialog for the current ImGui frame, if it's
+     *   open.  Safe to call unconditionally every frame.
+     */
+    void render_manage_themes_dialog();
+
+    /* run the profiles dialog (native; superseded by the two calls above) */
     void run_profiles_dlg(HWND owner, class CHtmlWinWithPrefs *win);
 
     /* run the appearance dialog */
@@ -1024,6 +1042,18 @@ private:
     bool opt_dlg_open_ = false;
     bool opt_dlg_want_open_ = false;
     HWND opt_owner_hwnd_ = 0;
+
+    /*
+     *   "Manage Themes" dialog state (see open_manage_themes_dialog() /
+     *   render_manage_themes_dialog()).  This is just a standalone framing of
+     *   the Appearance tab below - it shares all of that tab's opt_* working
+     *   state and its opt_render_appearance_tab() body - so it only needs its
+     *   own open/pending-open flags.  The two dialogs are never open at the
+     *   same time (there's no way to reach the Themes menu while a modal
+     *   popup is up), so sharing the working state is safe.
+     */
+    bool mt_dlg_open_ = false;
+    bool mt_dlg_want_open_ = false;
 
     /* Appearance tab */
     char opt_desc_[128] = "";

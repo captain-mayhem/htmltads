@@ -2841,8 +2841,16 @@ int CHtmlSysWin_win32::do_command(int notify_code,
         return TRUE;
 
     case ID_MANAGE_PROFILES:
-        /* run the profiles dialog */
-        prefs_->run_profiles_dlg(owner_->get_owner_frame_handle(), this);
+        /*
+         *   open the ImGui-native "Manage Themes" dialog - the guit3
+         *   replacement for the old run_profiles_dlg() native property
+         *   sheet.  Like the Options / Customize Theme dialogs, this doesn't
+         *   block: it snapshots the current theme list and marks the dialog
+         *   pending, and CHtmlSys_mainwin::do_render() draws it every frame
+         *   from here on (see htmlpref.cpp)
+         */
+        prefs_->open_manage_themes_dialog(owner_->get_owner_frame_handle(),
+                                          this);
 
         /* handled */
         return TRUE;
@@ -11566,6 +11574,9 @@ int CHtmlSys_mainwin::do_render() {
 
     /* draw the Customize Theme dialog on top, if it's open */
     prefs_->render_customize_theme_dialog();
+
+    /* draw the Manage Themes dialog on top, if it's open */
+    prefs_->render_manage_themes_dialog();
 
     /* draw the edit context menu on top, if it's open (see do_rightbtn_up()) */
     render_context_menu();

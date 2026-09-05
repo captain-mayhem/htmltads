@@ -2407,9 +2407,75 @@ void CHtmlPreferences::render_options_dialog()
 }
 
 /*
+ *   Open the "Manage Themes" dialog: this is Themes > "Add/Delete Themes..."
+ *   (ID_MANAGE_PROFILES), the guit3 replacement for run_profiles_dlg()'s
+ *   native single-page "Add/Delete Themes" property sheet - the last real
+ *   Win32 dialog in the port.  That property sheet only ever held the one
+ *   Appearance page (CHtmlDialogAppearance), which opt_render_appearance_tab()
+ *   already reproduces for the Options dialog, so this just snapshots the
+ *   same Appearance-tab working state and marks the dialog pending-open.
+ */
+void CHtmlPreferences::open_manage_themes_dialog(HWND owner,
+                                                 CHtmlWinWithPrefs *win)
+{
+    /* remember the owning window, as the native dialog did */
+    win_ = win;
+    opt_owner_hwnd_ = owner;
+
+    /* snapshot the Appearance-tab state (theme list + active description) */
+    opt_refresh_profile_list();
+    opt_on_profile_change();
+
+    /* start the New Theme name-entry sub-popup from a clean slate */
+    opt_new_profile_name_[0] = '\0';
+    opt_new_profile_err_[0] = '\0';
+    opt_new_profile_popup_pending_ = false;
+
+    mt_dlg_open_ = true;
+    mt_dlg_want_open_ = true;
+}
+
+/*
+ *   Draw the Manage Themes dialog for the current ImGui frame.  Safe to call
+ *   unconditionally every frame; it's a no-op once the dialog is closed.
+ *   Called from CHtmlSys_mainwin::do_render(), right next to
+ *   render_options_dialog() / render_customize_theme_dialog().
+ */
+void CHtmlPreferences::render_manage_themes_dialog()
+{
+    if (!mt_dlg_open_)
+        return;
+
+    if (mt_dlg_want_open_)
+    {
+        ImGui::OpenPopup("Manage Themes");
+        mt_dlg_want_open_ = false;
+    }
+
+    ImGui::SetNextWindowSize(ImVec2(460 * uisc(), 300 * uisc()),
+                             ImGuiCond_FirstUseEver);
+    if (ImGui::BeginPopupModal("Manage Themes", &mt_dlg_open_,
+                               ImGuiWindowFlags_NoSavedSettings))
+    {
+        /* the body is exactly the Options dialog's Appearance tab */
+        opt_render_appearance_tab();
+
+        ImGui::Separator();
+        if (ImGui::Button("Close", ImVec2(80 * uisc(), 0)))
+        {
+            mt_dlg_open_ = false;
+            ImGui::CloseCurrentPopup();
+        }
+
+        ImGui::EndPopup();
+    }
+}
+
+/*
  *   Appearance tab: theme/profile picker, description, and buttons to
- *   create/delete themes or jump to the (still-native) Customize Theme and
- *   Reset to Defaults flows.  Mirrors CHtmlDialogAppearance.
+ *   create/delete themes or jump to the Customize Theme and Reset to
+ *   Defaults flows.  Mirrors CHtmlDialogAppearance.  Shared body of the
+ *   Options dialog's Appearance tab and the standalone Manage Themes dialog.
  */
 void CHtmlPreferences::opt_render_appearance_tab()
 {

@@ -17,9 +17,10 @@
 **Status in one paragraph.** The *rendering and interaction* port is essentially complete: GLFW/ImGui
 window, keyboard/mouse input, FreeType fonts and metrics, text layout and drawing, colors, links, images
 (GL textures for PNG/JPEG/MNG), selection, hover, scrollback scrollbar, blinking caret. All application
-chrome is ImGui-native: menu bar, toolbar, status bar, all context menus (§3.1–3.2), and all five dialogs
-— Options, Customize Theme, file open/save, Find, folder picker (§3.3). There are **no real Win32 windows
-in guit3 at all** any more — not the frame, not banners/scrollbars/tooltips, not even `handle_` (§3.4,
+chrome is ImGui-native: menu bar, toolbar, status bar, all context menus (§3.1–3.2), and all seven dialogs
+— Options, Customize Theme, Manage Themes, file open/save, Find, folder picker, License (§3.3). There are
+**no real Win32 windows in guit3 at all** any more — not the frame, not banners/scrollbars/tooltips, not
+even `handle_` (§3.4,
 §3.4a); the only OS window is the one `GLFWwindow`. Digitized audio runs on miniaudio with `std::`
 threading (§3.7).
 
@@ -204,33 +205,50 @@ up front when the point isn't inside, so dispatch continues to the sibling that 
 untouched — `event_loop()` sends those straight to the capture holder, since a selection drag that leaves
 the subwindow must keep receiving them.
 
-### 3.3 Dialogs — done, all six
+### 3.3 Dialogs — done, all seven
 
-All six app dialogs are ImGui-native. The general `CTadsDialog`-mirroring base class this section once
+All seven app dialogs are ImGui-native. The general `CTadsDialog`-mirroring base class this section once
 recommended turned out to be unnecessary — each dialog follows the same small shape directly.
 
 | Dialog | Implementation | Replaces |
 |---|---|---|
 | Options (Edit > Options) | `CHtmlPreferences::open_options_dialog()`/`render_options_dialog()` ([htmlpref.cpp](htmlpref.cpp)) | native property sheet, 8 `CHtmlDialog*PropPage` classes |
 | Customize Theme | `open_customize_theme_dialog()`/`render_customize_theme_dialog()` (same file) | `run_appearance_dlg()`, 4 property pages |
+| Manage Themes (Themes > Add/Delete Themes...) | `open_manage_themes_dialog()`/`render_manage_themes_dialog()` (same file) | `run_profiles_dlg()`, `CHtmlDialogAppearance` (`DLG_APPEARANCE`), `CTadsDialogNewProfile` (`DLG_NEW_PROFILE`) |
 | File open/save | `CTadsFileDialog` ([tadsfiledlg.h](tadsfiledlg.h)/[.cpp](tadsfiledlg.cpp)) | every live `GetOpenFileName()` call site |
 | Find | `CTadsFindDialog` ([tadsfinddlg.h](tadsfinddlg.h)/[.cpp](tadsfinddlg.cpp)) | `CTadsDialogFind` (`guifndlg.cpp`) |
 | Folder picker | `CTadsFolderDialog` ([tadsfolderdlg.h](tadsfolderdlg.h)/[.cpp](tadsfolderdlg.cpp)) | `CTadsDialogFolderSel2` (`foldsel2.cpp`) |
 | License (Help > About HTML TADS > License) | `CTadsLicenseDlg` ([tadslicensedlg.h](tadslicensedlg.h)/[.cpp](tadslicensedlg.cpp)) | `LicenseDlg : CTadsDialog` (inline in `htmlgui.cpp`, `DLG_LICENSE` resource) |
 
-**Correction found during M1 (§5.5): there's actually a seventh, still-native dialog path, not covered by the "all
-six" count above.** `Themes > Manage Profiles` (`ID_MANAGE_PROFILES`) calls `CHtmlPreferences::run_profiles_dlg()`,
-which still runs a real Win32 `PropertySheet()` with the old native `CHtmlDialogAppearance` page — and that page's
-"Customize..." button (`IDC_BTN_CUSTOMIZE`) calls `run_appearance_dlg()`, which runs a *second* native
-`PropertySheet()` with the old `CHtmlDialogFonts`/`CHtmlDialogColor`/`CHtmlDialogMore`/`CHtmlDialogMedia` pages (the
-"Customize Theme" row above describes the *replacement*, `open_customize_theme_dialog()`, but doesn't retire the
-original - both paths coexist and are independently reachable). This is why `tadscbtn.cpp` (`CColorBtnPropPage`,
-used by `CHtmlDialogColor`/`CHtmlDialogFonts`) could **not** be deleted as dead code during the M1 cleanup pass
-(§5.3 originally called it a zero-reference file) - it's still live, just through this unported side door. Whether
-`PropertySheet()` still renders correctly against guit3's opaque, non-real `handle_` (§3.4a) hasn't been verified;
-either way, porting `run_profiles_dlg()`/`CHtmlDialogAppearance` to ImGui (folding it into the existing Customize
-Theme dialog, since a "Manage Profiles" flow is really just "Customize Theme" opened from a different menu item)
-is follow-up work, not done here.
+**Manage Themes was the last real Win32 dialog in the port** — `Themes > "Add/Delete Themes..."`
+(`ID_MANAGE_PROFILES`) used to call `CHtmlPreferences::run_profiles_dlg()`, a real Win32 `PropertySheet()`
+holding the single native `CHtmlDialogAppearance` page (`DLG_APPEARANCE`). That page's whole content — the
+theme picker, description field, New.../Delete buttons (with the separate `CTadsDialogNewProfile` name-entry
+modal, `DLG_NEW_PROFILE`), "Customize Theme..." and "Reset to Defaults" — was **already** reproduced by
+`opt_render_appearance_tab()`, which backs the Options dialog's Appearance tab. So the port is just a second,
+standalone framing of that same helper: `render_manage_themes_dialog()` is a `BeginPopupModal("Manage Themes")`
+whose body is one `opt_render_appearance_tab()` call plus a Close button, drawn from
+`CHtmlSys_mainwin::do_render()` right next to `render_options_dialog()`/`render_customize_theme_dialog()`.
+`open_manage_themes_dialog()` snapshots the same `opt_*` working state `open_options_dialog()` does (via
+`opt_refresh_profile_list()`/`opt_on_profile_change()`); the two dialogs share that state safely because they
+can never be open at once (the Themes menu is unreachable while a modal popup is up). The `ID_MANAGE_PROFILES`
+`do_command()` case now calls `open_manage_themes_dialog()` instead of `run_profiles_dlg()`.
+
+- **"Customize Theme..." from inside Manage Themes** behaves exactly as it does from the Options dialog's
+  Appearance tab: the button calls `open_customize_theme_dialog()` (deferred flag) and
+  `render_customize_theme_dialog()` runs at root level from `do_render()`, so per the "nested modals" trap
+  below the Manage Themes popup is evicted rather than stacked under. The native property sheet stacked a
+  second sheet on top and returned to the first on close; guit3 drops you back to the game instead. This is
+  a pre-existing quirk of the shared Options→Customize path, not new here, and the two flows are deliberately
+  interchangeable ("Manage Themes" really is just "Customize Theme" reached from another menu item). If it
+  ever needs true stacking, apply the `CTadsFolderDialog::render()` precedent (call
+  `render_customize_theme_dialog()` from *inside* the `BeginPopupModal("Manage Themes")` block and guard the
+  root-level call with `if (!mt_dlg_open_)`).
+- The superseded native `run_profiles_dlg()` / `CHtmlDialogAppearance` / `CTadsDialogNewProfile` are left
+  compiled but unused, same as every other replaced dialog. **This does now make `tadscbtn.cpp`
+  (`CColorBtnPropPage`) genuinely dead** — its only live consumer was `CHtmlDialogColor`/`CHtmlDialogFonts`
+  reached through `CHtmlDialogAppearance`'s "Customize..." button (the §5.3 correction note about it being
+  reachable is now stale). It can be dropped in a future cleanup pass.
 
 The superseded native code (`tadsdlg.cpp`, `tadsdlg2.cpp`, `foldsel2.cpp`, `guifndlg.cpp`, the property-page
 classes) is left compiled but unused. `guifndlg.cpp`'s `CTadsDialogFindReplace`/`CTadsDialogFindRegex`
@@ -1043,9 +1061,9 @@ the cheapest possible progress and shrinks everything downstream (link libs, inc
 
 | File | Lines | Status |
 |---|---:|---|
-| `tadscbtn.cpp` | 231 | ~~"zero references anywhere" - drop now.~~ **Wrong - not dropped.** `CColorBtnPropPage` (`CColorBtn` subclass) is used by `CHtmlDialogColor`/`CHtmlDialogFonts`, which are reachable through the still-native `Manage Profiles > Customize` path (see the §3.3 correction note). Left compiled and in the build. |
+| `tadscbtn.cpp` | 231 | ~~"zero references anywhere" - drop now.~~ ~~**Wrong - not dropped.** `CColorBtnPropPage` reachable through the still-native `Manage Profiles > Customize` path.~~ **Dead again as of the Manage Themes port (§3.3):** `ID_MANAGE_PROFILES` no longer calls `run_profiles_dlg()`, so `CHtmlDialogAppearance` and its "Customize..." button (`run_appearance_dlg()` → `CHtmlDialogColor`/`CHtmlDialogFonts` → `CColorBtnPropPage`) are all unreachable. Droppable in a future cleanup pass; still compiled for now. |
 | `guifndlg.cpp` | 908 | Superseded by `CTadsFindDialog` (§3.3). `CTadsDialogFindReplace`/`FindRegex` are Workbench-only. **Done (M1)** - genuinely zero live references; dropped cleanly. |
-| `foldsel2.cpp` | 1011 | Superseded by `CTadsFolderDialog` (§3.3) for the live (ImGui Options/Starting tab) path. **Done (M1)**, but its only remaining consumer, `CHtmlDialogStart`, turned out to live inside a larger dead block: `htmlpref.cpp` also had `CHtmlDialogKeys`/`Safety`/`NetSafety`/`Mem`/`Quit`/`Start`/`GameChest` (the 7 property-page classes used *only* by `run_preferences_dlg()`, itself unreachable - `CHtmlDialogAppearance` is the one page shared with the live `run_profiles_dlg()`, so it alone survives) plus `run_preferences_dlg()` itself, all confirmed dead by the same "no call sites outside this block" check and removed together (~1750 lines) so the `foldsel.h` include could actually go. Watch for this pattern elsewhere in `htmlpref.cpp`: a file's "zero references" claim in this doc may only hold once a further, uncounted dead block that references it is cleared out too - verify reachability transitively, not just by grepping the target file's own name. |
+| `foldsel2.cpp` | 1011 | Superseded by `CTadsFolderDialog` (§3.3) for the live (ImGui Options/Starting tab) path. **Done (M1)**, but its only remaining consumer, `CHtmlDialogStart`, turned out to live inside a larger dead block: `htmlpref.cpp` also had `CHtmlDialogKeys`/`Safety`/`NetSafety`/`Mem`/`Quit`/`Start`/`GameChest` (the 7 property-page classes used *only* by `run_preferences_dlg()`, itself unreachable - `CHtmlDialogAppearance` was at the time the one page still shared with the then-live `run_profiles_dlg()`, so it alone survived that pass; it is dead too now that Manage Themes is ported, §3.3) plus `run_preferences_dlg()` itself, all confirmed dead by the same "no call sites outside this block" check and removed together (~1750 lines) so the `foldsel.h` include could actually go. Watch for this pattern elsewhere in `htmlpref.cpp`: a file's "zero references" claim in this doc may only hold once a further, uncounted dead block that references it is cleared out too - verify reachability transitively, not just by grepping the target file's own name. |
 | `iconmenu.cpp` | 432 | Owner-drawn menu icons - dead (no real `HMENU` is ever shown). **Done (M1)**, but there were more live-but-inert call sites than this row implied: besides the `do_create()` construction, `create_toolbar()` (already-dead native toolbar code, §3.1) called `add_bitmap()`/`map_commands()`/`map_command()` ×3 every time it ran, and `do_destroy()` deleted the object. All of it executed at startup with no visible effect (no real menu bar ever receives `WM_INITMENUPOPUP`/`WM_DRAWITEM`) - removed all of it, then the file. |
 | `tadsdlg.cpp`/`.h`/`tadsdlg2.cpp` | 2463 | Dead **except** `CTadsDialog::modal_dlg_pre()`/`modal_dlg_post()` and `set_filedlg_center_hook()`, still used by `CHtmlSys_abouttadswin`/`CHtmlSys_creditswin::run_dlg()` and (once ported) `CHtmlSys_aboutgamewin` (§5.4/N). `LicenseDlg : CTadsDialog`, the last of the four, is gone now that License is ported (§3.3d). Port `CHtmlSys_aboutgamewin`/`CHtmlSysWin_win32_Popup`, then drop these. |
 | `tadsole.cpp` | 430 | `CTadsDataObjText`, used by `htmlgui.cpp:1585`'s `get_data_object()` (OLE drag-and-drop source). Gate with the Web UI/COM flag (§5.4/O) or drop drag-out support off-Windows. |
@@ -1252,9 +1270,10 @@ except the ones blocked on N); gate the Web UI (O); drop the DirectSound probe (
 rows and the §5.4/F, I, L, O notes for the details.** Summary: `guifndlg.cpp`/`iconmenu.cpp` dropped as
 planned (iconmenu.cpp needed a few more call sites removed than expected); `foldsel2.cpp` dropped too, but
 only after also removing ~1750 lines of dead property-page classes and `run_preferences_dlg()` from
-`htmlpref.cpp` that turned out to be its only remaining consumer; `tadscbtn.cpp` was **not** dropped - it's
-reachable through the previously-unnoticed `Manage Profiles > Customize` native dialog chain (§3.3
-correction). The DirectSound probe (I) is done as planned. `HtmlHelp` (F) was **kept, not dropped**, per
+`htmlpref.cpp` that turned out to be its only remaining consumer; `tadscbtn.cpp` was **not** dropped at the
+time - it was reachable through the previously-unnoticed `Manage Profiles > Customize` native dialog chain
+(§3.3 correction), though that chain is now itself dead since the Manage Themes port (§3.3), so `tadscbtn.cpp`
+can be dropped in a future pass. The DirectSound probe (I) is done as planned. `HtmlHelp` (F) was **kept, not dropped**, per
 explicit direction mid-task - wrapped in `#ifdef _WIN32` instead. The Web UI gate (O) is done, except
 `CoInitialize`/`CoUninitialize` had to stay unconditional (real OLE drag-and-drop in `tadswin.cpp` needs COM
 initialized regardless of the Web UI flag). `CTadsApp` trimming (L) turned out to be based on an incorrect
