@@ -23,7 +23,7 @@ Modified
 #ifdef HAVE_DXMUSIC //not available as 64 bit sdk
 #include <dmusici.h>
 #endif
-#include <Windows.h>
+#include "tadsplat.h"
 #include <stdlib.h>
 
 /* TADS OS interfaces - for file I/O */

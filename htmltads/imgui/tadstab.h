@@ -21,7 +21,7 @@ Modified
 #define TADSTAB_H
 
 #include <Ole2.h>
-#include <Windows.h>
+#include "tadsplat.h"
 
 #ifndef TADSHTML_H
 #include "tadshtml.h"

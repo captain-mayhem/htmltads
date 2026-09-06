@@ -20,7 +20,7 @@ Modified
 #ifndef HTMLPREF_H
 #define HTMLPREF_H
 
-#include <windows.h>
+#include "tadsplat.h"
 
 #ifndef TADSHTML_H
 #include "tadshtml.h"

@@ -20,7 +20,7 @@ Modified
 #ifndef TADSREG_H
 #define TADSREG_H
 
-#include <windows.h>
+#include "tadsplat.h"
 
 #ifndef TADSHTML_H
 #include "tadshtml.h"

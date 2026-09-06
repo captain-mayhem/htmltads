@@ -16,7 +16,7 @@ Modified
 #ifndef TADSWEBCTL_H
 #define TADSWEBCTL_H
 
-#include <Windows.h>
+#include "tadsplat.h"
 #include <exdisp.h>
 #include <oleauto.h>
 #include <exdispid.h>

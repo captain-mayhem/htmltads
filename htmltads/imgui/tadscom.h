@@ -13,7 +13,7 @@ Modified
 #ifndef TADSCOM_H
 #define TADSCOM_H
 
-#include <Windows.h>
+#include "tadsplat.h"
 #include <oleauto.h>
 #include <wtypes.h>
 #include <mshtmhst.h>

@@ -65,7 +65,7 @@ Modified
 #ifndef TADSSTAT_H
 #define TADSSTAT_H
 
-#include <windows.h>
+#include "tadsplat.h"
 #include <vector>
 #include <string>
 

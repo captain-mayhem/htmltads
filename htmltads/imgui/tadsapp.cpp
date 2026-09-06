@@ -115,9 +115,6 @@ CTadsApp::CTadsApp(int argc, char** argv)
     /* remember the application instance handle */
     instance_ = GetModuleHandle(NULL);
 
-    /* we don't have an MDI frame window yet */
-    mdi_win_ = 0;
-
     /* no fonts allocated yet */
     fonts_allocated_ = 0;
     fontlist_ = 0;
@@ -377,15 +374,6 @@ void CTadsApp::process_message(MSG *msg)
             break;
         }
     }
-    
-    /* 
-     *   try treating it as an MDI message, if we have an MDI main frame
-     *   window 
-     */
-    if (!done
-        && mdi_win_ != 0
-        && TranslateMDISysAccel(mdi_win_->get_client_handle(), msg))
-        done = TRUE;
     
     /* try the accelerators, if they're enabled */
     if (!done && accel_translate(msg))

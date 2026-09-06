@@ -44,7 +44,7 @@ Modified
 #ifndef TADSCAR_H
 #define TADSCAR_H
 
-#include <Windows.h>
+#include "tadsplat.h"
 
 
 class CTadsCaret

@@ -16,7 +16,7 @@ Modified
 #ifndef TADSISTR_H
 #define TADSISTR_H
 
-#include <Windows.h>
+#include "tadsplat.h"
 
 /*
  *   Stdio file stream reader.  This is a read-only IStream for reading data

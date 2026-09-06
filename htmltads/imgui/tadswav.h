@@ -20,7 +20,7 @@ Modified
 #ifndef TADSWAV_H
 #define TADSWAV_H
 
-#include <windows.h>
+#include "tadsplat.h"
 
 #ifndef TADSHTML_H
 #include "tadshtml.h"

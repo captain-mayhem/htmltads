@@ -21,7 +21,7 @@ Modified
 #define TADSFONT_H
 
 #include <imgui/imgui.h>
-#include <windows.h>
+#include "tadsplat.h"
 
 /*
  *   Platform hook: determine whether a font family with the given name is

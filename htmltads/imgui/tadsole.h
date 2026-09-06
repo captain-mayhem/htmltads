@@ -21,7 +21,7 @@ Modified
 #define TADSOLE_H
 
 #include <Ole2.h>
-#include <Windows.h>
+#include "tadsplat.h"
 
 /* ------------------------------------------------------------------------ */
 /*

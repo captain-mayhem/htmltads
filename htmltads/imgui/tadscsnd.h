@@ -35,7 +35,7 @@ Modified
 #include <atomic>
 #include <mutex>
 
-#include <Windows.h>
+#include "tadsplat.h"
 
 #include "tadshtml.h"
 #include "tadssnd.h"

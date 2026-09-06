@@ -1032,9 +1032,9 @@ across the files `guit3` actually compiles, largest first:
 
 | File | Refs | Lines | Nature of what's left |
 |---|---:|---:|---|
-| `tadswin.h` | 144 | 2386 | Mostly **types in signatures** (`HWND`, `HMENU`, `LRESULT`, `RECT`, `SCROLLINFO`) — the handles are already opaque tokens (§3.4a). Plus dead MDI. |
+| `tadswin.h` | 144 | 2180 | Mostly **types in signatures** (`HWND`, `HMENU`, `LRESULT`, `RECT`, `SCROLLINFO`) — the handles are already opaque tokens (§3.4a). (Dead MDI subclasses removed in M2/A1; base-class MDI virtuals/handlers remain.) |
 | `htmlgui.cpp` | 135 | 19402 | The long tail: cursors, clipboard, `LoadString`, `GetSysColor`, `ShellExecute`, codepage conversion, `GetTickCount`, the toolbar bitmap loader, the still-unported "About this game"/`CHtmlSysWin_win32_Popup` windows. (`HtmlHelp`/`.chm` help gone — §5.4/F.) |
-| `tadswin.cpp` | 127 | 4255 | Same as `tadswin.h` plus the dead window-class registration and MDI. |
+| `tadswin.cpp` | 127 | 3916 | Same as `tadswin.h` plus the dead window-class registration. (MDI subclass implementations + their `register_win_class()` block removed in M2/A1.) |
 | `htmlgui.h` | 98 | 4583 | Types in signatures. |
 | `htmlpref.cpp` | 80 | ~3800 | Registry (theme profiles), `GetCurrentDirectory`, `EnumFontFamiliesEx`. The ~1600 lines of dead native property-page classes (`CHtmlDialog{FontPp,Fonts,Color,More,Media,Appearance}`, `CTadsDialogNewProfile`, `run_appearance_dlg()`, `run_profiles_dlg()`) were removed in the M1 revisit (§5.3). |
 | `tadsdlg.cpp`/`.h`/`tadsdlg2.cpp` | 49/46/20 | 2463 | Dead except three entry points — §5.3. |
@@ -1070,7 +1070,7 @@ the cheapest possible progress and shrinks everything downstream (link libs, inc
 | `tadsdlg.cpp`/`.h`/`tadsdlg2.cpp` | 2463 | Dead **except** `CTadsDialog::modal_dlg_pre()`/`modal_dlg_post()` and `set_filedlg_center_hook()`, still used by `CHtmlSys_abouttadswin`/`CHtmlSys_creditswin::run_dlg()` and (once ported) `CHtmlSys_aboutgamewin` (§5.4/N). `LicenseDlg : CTadsDialog`, the last of the four, is gone now that License is ported (§3.3d). Port `CHtmlSys_aboutgamewin`/`CHtmlSysWin_win32_Popup`, then drop these. |
 | `tadsole.cpp` | 430 | `CTadsDataObjText`, used by `htmlgui.cpp:1585`'s `get_data_object()` (OLE drag-and-drop source). Gate with the Web UI/COM flag (§5.4/O) or drop drag-out support off-Windows. |
 | `tadswebctl.cpp`/`tadscom.cpp`/`guinogch.cpp` | ~470 | Web UI / COM — gate behind `TADS_WEBUI_ENABLED` (§4, §5.4/O). |
-| MDI in `tadswin.h`/`.cpp` | — | `CTadsSyswinMdiFrame`/`MdiClient`, `client_handle_`. Workbench-only (§4). Strip while doing §5.4/A1. |
+| MDI in `tadswin.h`/`.cpp` | — | `CTadsSyswinMdiFrame`/`MdiClient`/`MdiChild`, `client_handle_`. Workbench-only (§4). **Done (M2/A1).** The three subclasses + their `register_win_class()` registration block removed from `tadswin.h`/`tadswin.cpp`; `CTadsApp::set_mdi_win()`/`mdi_win_` + the `TranslateMDISysAccel()` branch in `process_message()` removed from `tadsapp.h`/`tadsapp.cpp`. The base-class `CTadsWin::mdi{child,frame}_message_handler()` and `mdi*_win_class_name` were left as unreferenced dead native code (base-class MDI plumbing is a broader native-dead-code sweep, not A1). |
 
 ### 5.4 The work items
 
@@ -1298,6 +1298,42 @@ antivirus - see §6).
 
 **M2 — build the seam.** `tadsplat.h` (A1) and the `os_*` hook headers with Windows-only backends (A2).
 *Still Windows-only, but every remaining Win32 call sits behind a named, single-purpose hook.*
+
+**A1 done.** New [tadsplat.h](tadsplat.h): on `_WIN32` it is a bare `#include <windows.h>` forwarder, so the
+Windows translation is byte-identical; the `#else` branch is the ~360-line type shim §5.4/A1 describes
+(opaque `void *` handles, the plain structs `RECT`/`POINT`/`SIZE`/`SCROLLINFO`/`LOGFONT`/`MSG`/`NMHDR`/…,
+the scalar typedefs, the `WM_*`/`WS_*`/`SB_*`/`SW_*`/`SIF_*`/`MB_*`/`IDC_*`/`COLOR_*`/`GWL_*`/`CS_*`
+constants that header-inline code still names, and the `RGB()`/`MAKEINTRESOURCE()`/`LOWORD()` macros).
+The `#else` branch is **deliberately incomplete** — audio/MIDI (`WAVEFORMATEX`, `MIDIHDR`, …) and COM/OLE
+(`IDataObject`, `REFIID`, …) are stubbed only far enough to parse, since those subsystems stay Windows-only
+past M2 (items I, O, phase two); M4's first off-Windows compile is what closes the remaining gaps against
+real compiler output. The 18 guit3 headers that did `#include <Windows.h>` now do `#include "tadsplat.h"`
+instead (`tadswin.h`, `htmlgui.h`, `htmlpref.h`, `tadsapp.h`, `tadsfont.h`, `tadsimg.h`, `tadsstat.h`,
+`tadscar.h`, `tadsistr.h`, `tadstab.h`, `tadsreg.h`, `tadsole.h`, `tadscsnd.h`, `tadswav.h`, `tadsmidi.h`,
+`tadscom.h`, `tadsdlg.h`, `tadswebctl.h`); the sibling `<Ole2.h>`/`<commctrl.h>`/`<Shlobj.h>` includes are
+left as-is (they back Windows-only OLE/common-control code, item O). The `.cpp` files still
+`#include <windows.h>` directly — they compile Windows-only until M4 and there is no M2 benefit to touching
+them. Dead MDI was stripped at the same time (§5.3): the `CTadsSyswinMdiFrame`/`Client`/`Child` classes and
+their `register_win_class()` registration block are gone from `tadswin.h`/`tadswin.cpp`, and
+`CTadsApp::set_mdi_win()`/`mdi_win_` plus the `TranslateMDISysAccel()` branch in
+`CTadsApp::process_message()` are gone from `tadsapp.h`/`tadsapp.cpp`. The base-class
+`mdi{child,frame}_message_handler()` statics and the `mdi*_win_class_name` string constants on `CTadsWin`
+were left in place as harmless unreferenced dead native code — removing the rest of the base-class MDI
+plumbing is out of A1's scope.
+
+**Verified** by recompiling every guit3-local translation unit (`htmlgui.cpp`, `tadswin.cpp`, `tadsapp.cpp`,
+`htmlpref.cpp`, `guimain.cpp`, and ~40 more) with MSVC at `/W1 /WX-`: **0 warnings, 0 errors**. The final
+link and a runtime smoke test could **not** be run in this environment — Device Guard policy blocks the
+freshly-built `t3res.exe` that the `guit3.t3r` custom build step invokes (`exit code 1073751882`), and
+blocks running the produced `.exe` (same class of restriction §6 records for synthetic input). A1 changes
+no logic and, on Windows, `tadsplat.h` expands to exactly `<windows.h>`, so a clean compile of the touched
+units is strong evidence the change is inert on Windows; a full build + smoke test on an unrestricted
+machine is still the last confirmation.
+
+**A2 still to do.** The `os_*` call hooks per subsystem (D/E/F/… through B/C/G–M), each following the
+[tadsfont.h](tadsfont.h) / [guifont.cpp](guifont.cpp) precedent: a neutral hook declaration + a Windows
+backend lifted verbatim from the current call site, one landable commit per subsystem, Windows build kept
+byte-identical.
 
 **M3 — fill in portable implementations, cheapest-and-most-certain first.** GLFW-provided services (D) →
 `std::filesystem` dialogs (J) → system colors (E) and shell (F) → settings store (C) → resources (B) →

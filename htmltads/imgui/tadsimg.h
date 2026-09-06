@@ -22,7 +22,7 @@ Modified
 #ifndef TADSIMG_H
 #define TADSIMG_H
 
-#include <windows.h>
+#include "tadsplat.h"
 
 #ifndef HTML_OS_H
 #include "html_os.h"

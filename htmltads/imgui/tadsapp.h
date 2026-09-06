@@ -21,7 +21,7 @@ Modified
 #ifndef TADSAPP_H
 #define TADSAPP_H
 
-#include <windows.h>
+#include "tadsplat.h"
 
 #ifndef TADSHTML_H
 #include "tadshtml.h"
@@ -287,15 +287,6 @@ public:
         return old_filter;
     }
 
-    /*
-     *   Set the MDI frame window.  This should be called when the MDI
-     *   frame is first created to set the MDI window.  This should also
-     *   be called with a null argument before the MDI window is
-     *   destroyed.  
-     */
-    void set_mdi_win(class CTadsSyswinMdiFrame *mdi_win)
-        { mdi_win_ = mdi_win; }
-
     /* get the Windows OS version information */
     unsigned long get_win_sys_id() const { return win_sys_id_; }
     unsigned long get_win_ver_major() const { return win_ver_major_; }
@@ -495,10 +486,7 @@ private:
     /* flag indicating that OLE was initialized successfully */
     int ole_inited_ : 1;
 
-    /* MDI frame window, if this is an MDI application */
-    class CTadsSyswinMdiFrame *mdi_win_;
-
-    /* 
+    /*
      *   Current accelerator and accelerator target window.  At any given
      *   time, we can have *either* a native Windows accelerator or a custom
      *   accelerator object. 

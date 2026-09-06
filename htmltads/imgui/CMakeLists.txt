@@ -91,6 +91,7 @@ add_executable(guit3
 	oem_w32.c
 
 	tadsapp.h
+	tadsplat.h
 
 	hos_gui.h
 

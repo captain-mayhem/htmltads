@@ -20,7 +20,7 @@ Modified
 #ifndef HTMLSYS_GUI_H
 #define HTMLSYS_GUI_H
 
-#include <windows.h>
+#include "tadsplat.h"
 #include <imgui/imgui.h>
 
 /* TADS OS layer - for I/O routines */
