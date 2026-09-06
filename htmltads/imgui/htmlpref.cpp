@@ -52,6 +52,7 @@ Modified
 #ifndef W32MAIN_H
 #include "guimain.h"
 #endif
+#include "guios.h"
 
 #include <imgui/imgui.h>
 
@@ -523,7 +524,7 @@ void CHtmlPreferences::set_std_profile_desc(const textchar_t *profile)
         return;
 
     /* load the selected resource string */
-    LoadString(CTadsApp::get_app()->get_instance(), id, buf, sizeof(buf));
+    os_load_string(id, buf, sizeof(buf));
 
     /* save it as the current profile description */
     set_profile_desc(buf);

@@ -118,4 +118,51 @@ enum os_sys_color_t
 unsigned long os_get_sys_color(os_sys_color_t which);
 
 
+/* ------------------------------------------------------------------------ */
+/*
+ *   B. Bundled resources
+ *
+ *   The three kinds of resource the live ImGui code still pulls out of the
+ *   Windows executable: UI strings, the toolbar icon strip, and the license
+ *   text.  Each hook's Win32 backend is the current call-site code lifted
+ *   verbatim (LoadString / LoadImage+GetDIBits / FindResource).  A
+ *   non-Windows backend supplies the same data from a generated string table
+ *   and embedded byte arrays - that portable half is migration.md's M3 work;
+ *   this seam is just the M2/A2 step of naming the calls.  See
+ *   migration.md 5.4/B.
+ *
+ *   Dead native-menu and superseded native-dialog code still calls
+ *   LoadString() directly through <windows.h> - it compiles Windows-only
+ *   until the gates flip (migration.md 5.5/A1) and there is nothing for a
+ *   portable backend to do there.
+ */
+
+/*
+ *   Load UI string number 'id' (an IDS_* / RESID_* resource id) into 'buf',
+ *   NUL-terminated and truncated to 'buflen'.  Returns the number of
+ *   characters copied (0 if the id is unknown), same contract as Win32
+ *   LoadString().  Windows: LoadString() against the app instance.
+ */
+int os_load_string(int id, char *buf, size_t buflen);
+
+/*
+ *   Load the toolbar icon strip (IDB_TERP_TOOLBAR) as a newly allocated
+ *   top-down RGBA8 pixel buffer, with the bitmap's color-key (the value of
+ *   its top-left pixel) already converted to a zero alpha channel - GL has
+ *   no color-key equivalent, so the conversion has to happen here.  On
+ *   success returns the buffer (free it with th_free()) and fills
+ *   *width/*height; on failure returns null.  Windows:
+ *   LoadImage(LR_CREATEDIBSECTION) + GetDIBits() to a 32bpp DIB.
+ */
+unsigned char *os_load_toolbar_rgba(int *width, int *height);
+
+/*
+ *   Return the license text (IDX_LICENSE_TEXT) as a newly allocated buffer
+ *   of *len bytes, or null if unavailable.  The buffer is the raw resource
+ *   bytes and is *not* guaranteed NUL-terminated; free it with th_free().
+ *   Windows: FindResource()/LoadResource() of the "TEXTFILE" resource.
+ */
+char *os_load_license_text(size_t *len);
+
+
 #endif /* GUIOS_H */

@@ -77,6 +77,7 @@ Modified
 #ifndef W32WEBUI_H
 #include "guiwebui.h"
 #endif
+#include "guios.h"
 
 
 /* TADS runtime definitions */
@@ -221,8 +222,7 @@ static int get_game_name_cb(void *ctx, char *buf, size_t buflen)
      *   name), so this doesn't need the native GetOpenFileName() fallback
      *   open_blocking() falls back to when no window exists yet.
      */
-    LoadString(CTadsApp::get_app()->get_instance(),
-               IDS_CHOOSE_GAME, prompt, sizeof(prompt));
+    os_load_string(IDS_CHOOSE_GAME, prompt, sizeof(prompt));
 
     ret = CTadsFileDialog::open_blocking(
         win != 0 ? win->get_glfw_window() : 0,

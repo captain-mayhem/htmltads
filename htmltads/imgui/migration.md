@@ -136,7 +136,9 @@ The native `LoadMenu`/`SetMenu`/`create_toolbar()` code is left in place as harm
   + `GetDIBits()` to expand to 32bpp, then manual BGRA→RGBA that also converts the bitmap's top-left-pixel
   color key into a real alpha channel (GL has no color-key equivalent). Each button samples a `1/19` UV
   slice via `ImGui::ImageButton()`. Use **`GL_NEAREST`** — the icons are packed edge-to-edge with no
-  padding and linear filtering visibly bleeds neighbours.
+  padding and linear filtering visibly bleeds neighbours. *(As of M2/B (§5.4/B) the resource+GDI+conversion
+  half is behind `os_load_toolbar_rgba()` in [guios_w32.cpp](guios_w32.cpp); `load_toolbar_texture()` keeps
+  only the GL upload.)*
 - **`ID_THEMES_DROPDOWN` is a native split button, not a plain dropdown button.** The original toolbar
   (`TBSTYLE_BUTTON | TBSTYLE_DROPDOWN`, win32/htmlw32.cpp) has two independent hit regions sharing one slot:
   clicking the icon sends `WM_COMMAND`/`ID_THEMES_DROPDOWN` straight through (opens Customize Theme, same as
@@ -567,11 +569,13 @@ two real popups - opening a genuine popup from a link click inside a plain `Begi
 it, confirmed by the two staying open simultaneously in testing (License stacked on top of About, About still
 present and interactive behind it).
 
-The license text itself still comes from the `IDX_LICENSE_TEXT` `TEXTFILE` resource
-(`../notes3/license.txt`, embedded via the shared `../win32/htmlt3.rc` - see §5.4/B for the eventual
-embedded-byte-array replacement) via a plain `FindResource`/`LoadResource`/`LockResource` lookup, same as the
-old dialog - still fine since guit3 is Windows-only for now. One improvement over the original: the new code
-sizes the text with `SizeofResource()` instead of assuming the resource bytes are null-terminated (the old
+The license text itself comes from the `IDX_LICENSE_TEXT` `TEXTFILE` resource
+(`../notes3/license.txt`, embedded via the shared `../win32/htmlt3.rc`). As of the M2/B pass (§5.4/B, §5.5)
+`load_license_text()` fetches it through `os_load_license_text()` rather than calling `FindResource` inline;
+`tadslicensedlg.cpp` no longer includes `<windows.h>`. The Win32 backend in [guios_w32.cpp](guios_w32.cpp)
+is the same `FindResource`/`LoadResource`/`SizeofResource` lookup the old dialog did - a portable backend
+supplying an embedded byte array is M3 work. One improvement over the original, kept in the backend: the
+byte count comes from `SizeofResource()` rather than assuming the resource bytes are null-terminated (the old
 `EM_REPLACESEL` call handed the raw resource pointer to `SendMessage` as if it were a C string, which
 happened to work but wasn't guaranteed by the `TEXTFILE` resource format).
 
@@ -1033,7 +1037,7 @@ across the files `guit3` actually compiles, largest first:
 | File | Refs | Lines | Nature of what's left |
 |---|---:|---:|---|
 | `tadswin.h` | 144 | 2180 | Mostly **types in signatures** (`HWND`, `HMENU`, `LRESULT`, `RECT`, `SCROLLINFO`) — the handles are already opaque tokens (§3.4a). (Dead MDI subclasses removed in M2/A1; base-class MDI virtuals/handlers remain.) |
-| `htmlgui.cpp` | 135 | 19402 | The long tail: cursors, clipboard, `LoadString`, `GetSysColor`, `ShellExecute`, codepage conversion, `GetTickCount`, the toolbar bitmap loader, the still-unported "About this game"/`CHtmlSysWin_win32_Popup` windows. (`HtmlHelp`/`.chm` help gone — §5.4/F.) |
+| `htmlgui.cpp` | 135 | 19402 | The long tail: codepage conversion, the native-`HMENU` builders (now dead but still `LoadString`/`InsertMenuItem`), the still-unported "About this game"/`CHtmlSysWin_win32_Popup` windows, misc `MessageBox`. (Cursors, clipboard, `GetTickCount`, `GetSysColor`, `ShellExecute` behind hooks — §5.4/D-F; live `LoadString` + the toolbar bitmap loader behind hooks — §5.4/B; `HtmlHelp`/`.chm` help gone — §5.4/F.) |
 | `tadswin.cpp` | 127 | 3916 | Same as `tadswin.h` plus the dead window-class registration. (MDI subclass implementations + their `register_win_class()` block removed in M2/A1.) |
 | `htmlgui.h` | 98 | 4583 | Types in signatures. |
 | `htmlpref.cpp` | 80 | ~3800 | Registry (theme profiles), `GetCurrentDirectory`, `EnumFontFamiliesEx`. The ~1600 lines of dead native property-page classes (`CHtmlDialog{FontPp,Fonts,Color,More,Media,Appearance}`, `CTadsDialogNewProfile`, `run_appearance_dlg()`, `run_profiles_dlg()`) were removed in the M1 revisit (§5.3). |
@@ -1109,6 +1113,27 @@ accelerator tables, 26 dialogs) plus `IDX_LICENSE_TEXT`. Live consumers in the I
   `glfwSetWindowIcon()` from raw pixels on all platforms.
 - Menus, dialogs and accelerator tables in the `.rc` are already dead (all reimplemented in ImGui) — nothing
   to port, they just stop being compiled.
+
+**M2/A2 seam landed (see §5.5).** The three live resource kinds now go through hooks in
+[guios.h](guios.h) / [guios_w32.cpp](guios_w32.cpp), Windows backends lifted verbatim, Windows build
+byte-identical:
+
+- `os_load_string(int id, char *buf, size_t buflen)` — same `LoadString()` contract (returns chars copied).
+  All **live** call sites route through it: `load_res_str()` and ~15 others in `htmlgui.cpp`, the theme-
+  description lookup in `htmlpref.cpp`, the game-name prompt in `guimain.cpp`. The ~6 remaining direct
+  `LoadString()` calls in `htmlgui.cpp` are inside dead native-`HMENU` builders (`InsertMenuItem` /
+  `MENUITEMINFO` blocks — the ImGui menus replaced them, §3.1); `tadswin.cpp`'s native menu-label updater,
+  `tadsdlg2.cpp`, and `guimain.cpp`'s COMCTL32-version guard are likewise Windows-only dead/startup code and
+  keep their `<windows.h>` `LoadString` per the A1 convention.
+- `os_load_toolbar_rgba(int *w, int *h)` — the `LoadImage(LR_CREATEDIBSECTION)` + `GetDIBits()` + BGRA→RGBA
+  + color-key→alpha block moved out of `CHtmlSys_mainwin::load_toolbar_texture()`, which keeps only the GL
+  upload. Returns a `th_malloc()`'d buffer (was `new[]`).
+- `os_load_license_text(size_t *len)` — the `FindResource`/`LoadResource`/`SizeofResource` lookup moved out
+  of `tadslicensedlg.cpp`, which is now `<windows.h>`-free.
+
+The `LoadCursor(hand)` item was already handled by D (`os_set_mouse_cursor`); the app icon / `glfwSetWindowIcon`
+is left for M3. **What remains for B is the portable half** — the generated string table and the embedded
+`runtbar.bmp` / `license.txt` byte arrays — scheduled under M3.
 
 **C. Settings storage.** `CTadsRegistry` (`tadsreg.cpp`, 419 lines) plus direct `RegEnumKeyEx`/`RegDeleteKey`
 in `htmlpref.cpp` (4 sites, theme-profile enumeration and deletion) and `htmlgui.cpp`
@@ -1374,7 +1399,30 @@ the current call site, one landable commit per subsystem, Windows build kept byt
   checks were **not** run — `Add-Type`-based synthetic-input scripting is blocked in this environment (§6) —
   but those paths are verbatim extractions of the pre-existing Win32 code.
 
-**A2 still to do**: items B (resources), C (settings storage), G (fonts), H (images), I (audio file I/O),
+- **B. Resources** — *done (hooks + Win32 backend; portable string table / embedded byte arrays are M3).*
+  Three hooks in [guios.h](guios.h) / [guios_w32.cpp](guios_w32.cpp), backends lifted verbatim:
+  - `os_load_string(id, buf, buflen)` — same `LoadString()` contract. Routed at every **live** call site:
+    `CHtmlSysWin_win32::load_res_str()` and ~15 more in `htmlgui.cpp` (About-box HTML, Find "no more",
+    "unable to open link", new-game / quit / go-to-Game-Chest confirms, the ImGui Themes menu items and
+    toolbar tooltip, the file-dialog prompts, the hidden about-game window title), the theme-description
+    lookup in `htmlpref.cpp`, and the game-name prompt in `guimain.cpp` (`+#include "guios.h"` added to the
+    latter two). The ~6 `LoadString()` calls left direct in `htmlgui.cpp` are inside dead native-`HMENU`
+    builders (`InsertMenuItem`/`MENUITEMINFO`), and `tadswin.cpp`'s native menu-label updater,
+    `tadsdlg2.cpp`, and `guimain.cpp`'s `check_common_ctl_vsn()` COMCTL32 guard are Windows-only dead/startup
+    code — all keep `<windows.h>` per A1.
+  - `os_load_toolbar_rgba(&w, &h)` — the `LoadImage(LR_CREATEDIBSECTION)` + `GetDIBits()` + BGRA→RGBA +
+    color-key→alpha block out of `CHtmlSys_mainwin::load_toolbar_texture()`; that function keeps only
+    `glGenTextures`…`glTexImage2D`. Buffer is now `th_malloc()`'d / `th_free()`'d (was `new[]`/`delete[]`).
+  - `os_load_license_text(&len)` — the `FindResource`/`LoadResource`/`SizeofResource` lookup out of
+    `tadslicensedlg.cpp`, which is now `<windows.h>`-free.
+
+  **Verified**: clean build + link of `guit3`, `0 warnings`, and a fresh smoke-test launch on `ditch3.t3` —
+  the window renders the game intro, the **toolbar icons all draw with correct color-key transparency**
+  (exercises `os_load_toolbar_rgba()`), menu-bar and menu labels are populated (exercises `os_load_string()`
+  on the startup path and per-frame), no crash. The License dialog (`os_load_license_text()`) was not
+  click-tested this pass but its backend is a byte-for-byte extraction.
+
+**A2 still to do**: items C (settings storage), G (fonts), H (images), I (audio file I/O),
 J (`std::filesystem` dialogs), K (charset), L (`CTadsApp`/keyboard), M (`guimain.cpp` startup/shutdown).
 
 **M3 — fill in portable implementations, cheapest-and-most-certain first.** GLFW-provided services (D) →

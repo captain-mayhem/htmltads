@@ -357,7 +357,7 @@ void CHtmlSysWin_win32::load_res_str(CStringBuf *str, int res)
     char buf[512];
 
     /* load the string into our local buffer */
-    LoadString(CTadsApp::get_app()->get_instance(), res, buf, sizeof(buf));
+    os_load_string(res, buf, sizeof(buf));
 
     /* store it in the CStringBuf */
     str->set(buf);
@@ -3102,8 +3102,7 @@ void CHtmlSysWin_win32::find_not_found()
     char buf[256];
     
     /* display a message box telling the user that we failed */
-    LoadString(CTadsApp::get_app()->get_instance(), IDS_FIND_NO_MORE,
-               buf, sizeof(buf));
+    os_load_string(IDS_FIND_NO_MORE, buf, sizeof(buf));
     MessageBox(0, buf, "TADS", MB_OK | MB_ICONINFORMATION | MB_TASKMODAL);
 }
 
@@ -9701,8 +9700,7 @@ void CHtmlSysWin_win32_Input::process_command(
         {
             char buf[256];
 
-            LoadString(CTadsApp::get_app()->get_instance(),
-                       IDS_CANNOT_OPEN_HREF, buf, sizeof(buf));
+            os_load_string(IDS_CANNOT_OPEN_HREF, buf, sizeof(buf));
             MessageBox(0, buf, "TADS",
                        MB_OK | MB_ICONEXCLAMATION | MB_TASKMODAL);
         }
@@ -9893,8 +9891,7 @@ void CHtmlSysWin_win32_Input::notify_link_pref_change()
     {
         char buf[256];
 
-        LoadString(CTadsApp::get_app()->get_instance(),
-                   IDS_LINK_PREF_CHANGE, buf, sizeof(buf));
+        os_load_string(IDS_LINK_PREF_CHANGE, buf, sizeof(buf));
         MessageBox(0, buf, "TADS", MB_OK | MB_ICONINFORMATION | MB_TASKMODAL);
     }
 }
@@ -10980,8 +10977,7 @@ void CHtmlSys_mainwin::do_create()
      */
     aboutbox_ = new CHtmlSys_aboutgamewin(prefs_);
     SetRect(&panel_pos, 0, 0, 500, 300);
-    LoadString(CTadsApp::get_app()->get_instance(),
-               IDS_ABOUT_GAME_WIN_TITLE, title, sizeof(title));
+    os_load_string(IDS_ABOUT_GAME_WIN_TITLE, title, sizeof(title));
     aboutbox_->create_system_window(this, FALSE, title, &panel_pos);
 
     /* establish our accelerator */
@@ -12039,8 +12035,7 @@ void CHtmlSys_mainwin::render_new_game_confirm()
     }
 
     char msg[256];
-    LoadString(CTadsApp::get_app()->get_instance(),
-               IDS_REALLY_NEW_GAME_MSG, msg, sizeof(msg));
+    os_load_string(IDS_REALLY_NEW_GAME_MSG, msg, sizeof(msg));
 
     int result = render_yesno_confirm_popup("TADS###NewGameConfirm", msg);
     if (result == 0)
@@ -12080,8 +12075,7 @@ void CHtmlSys_mainwin::render_quit_confirm()
     }
 
     char msg[256];
-    LoadString(CTadsApp::get_app()->get_instance(),
-               IDS_REALLY_QUIT_MSG, msg, sizeof(msg));
+    os_load_string(IDS_REALLY_QUIT_MSG, msg, sizeof(msg));
 
     int result = render_yesno_confirm_popup("TADS###QuitConfirm", msg);
     if (result == 0)
@@ -12148,21 +12142,18 @@ void CHtmlSys_mainwin::render_themes_menu_items()
     ImGui::Separator();
 
     char title[256], buf[256];
-    LoadString(CTadsApp::get_app()->get_instance(), IDS_MANAGE_PROFILES,
-               title, sizeof(title));
+    os_load_string(IDS_MANAGE_PROFILES, title, sizeof(title));
     strip_mnemonic(title);
     if (ImGui::MenuItem(title))
         do_command(0, ID_MANAGE_PROFILES, 0);
 
-    LoadString(CTadsApp::get_app()->get_instance(), IDS_SET_DEF_PROFILE,
-               buf, sizeof(buf));
+    os_load_string(IDS_SET_DEF_PROFILE, buf, sizeof(buf));
     sprintf(title, buf, active);
     strip_mnemonic(title);
     if (ImGui::MenuItem(title))
         do_command(0, ID_SET_DEF_PROFILE, 0);
 
-    LoadString(CTadsApp::get_app()->get_instance(), IDS_CUSTOMIZE_THEME,
-               buf, sizeof(buf));
+    os_load_string(IDS_CUSTOMIZE_THEME, buf, sizeof(buf));
     sprintf(title, buf, active);
     strip_mnemonic(title);
     if (ImGui::MenuItem(title))
@@ -12176,9 +12167,10 @@ void CHtmlSys_mainwin::render_themes_menu_items()
  *   single GL texture atlas.  The bitmap has no alpha channel; like the
  *   native ImageList's ImageList_AddMasked() (the old owner-drawn menu
  *   icon path this used to share the bitmap with - see migration.md
- *   5.5/M1), its top-left pixel is the color-key transparency mask, which
- *   we convert into a real alpha channel here since GL has no equivalent
- *   of ImageList's masking.
+ *   5.5/M1), its top-left pixel is the color-key transparency mask.  The
+ *   resource load and the color-key -> alpha conversion now live behind
+ *   os_load_toolbar_rgba() (migration.md 5.4/B); this function keeps only
+ *   the GL upload.
  */
 void CHtmlSys_mainwin::load_toolbar_texture()
 {
@@ -12186,45 +12178,16 @@ void CHtmlSys_mainwin::load_toolbar_texture()
     if (toolbar_tex_ != 0)
         return;
 
-    HBITMAP hbmp = (HBITMAP)LoadImage(
-        CTadsApp::get_app()->get_instance(), MAKEINTRESOURCE(IDB_TERP_TOOLBAR),
-        IMAGE_BITMAP, 0, 0, LR_CREATEDIBSECTION);
-    if (hbmp == 0)
+    /*
+     *   Pull the icon strip out of the executable and expand it to top-down
+     *   RGBA with the color key turned into alpha - all the resource/GDI
+     *   work lives behind os_load_toolbar_rgba() now (migration.md 5.4/B);
+     *   we keep only the GL upload.
+     */
+    int tw = 0, th = 0;
+    unsigned char *pixels = os_load_toolbar_rgba(&tw, &th);
+    if (pixels == 0)
         return;
-
-    BITMAP bm;
-    GetObject(hbmp, sizeof(bm), &bm);
-
-    BITMAPINFO bi;
-    memset(&bi, 0, sizeof(bi));
-    bi.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
-    bi.bmiHeader.biWidth = bm.bmWidth;
-    bi.bmiHeader.biHeight = -bm.bmHeight;      /* top-down */
-    bi.bmiHeader.biPlanes = 1;
-    bi.bmiHeader.biBitCount = 32;
-    bi.bmiHeader.biCompression = BI_RGB;
-
-    HDC hdc = GetDC(0);
-    unsigned char *pixels = new unsigned char[bm.bmWidth * bm.bmHeight * 4];
-    GetDIBits(hdc, hbmp, 0, bm.bmHeight, pixels, &bi, DIB_RGB_COLORS);
-    ReleaseDC(0, hdc);
-    DeleteObject(hbmp);
-
-    /* the top-left pixel (BGRA order, alpha byte unused) is the mask color */
-    unsigned char mask_b = pixels[0], mask_g = pixels[1], mask_r = pixels[2];
-
-    /* convert BGRA -> RGBA in place, turning the color key into real alpha */
-    int npix = bm.bmWidth * bm.bmHeight;
-    for (int i = 0 ; i < npix ; ++i)
-    {
-        unsigned char *p = pixels + i*4;
-        unsigned char b = p[0], g = p[1], r = p[2];
-        bool is_mask = (b == mask_b && g == mask_g && r == mask_r);
-        p[0] = r;
-        p[1] = g;
-        p[2] = b;
-        p[3] = is_mask ? 0 : 255;
-    }
 
     glGenTextures(1, &toolbar_tex_);
     glBindTexture(GL_TEXTURE_2D, toolbar_tex_);
@@ -12239,13 +12202,13 @@ void CHtmlSys_mainwin::load_toolbar_texture()
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP);
     glPixelStorei(GL_UNPACK_ROW_LENGTH, 0);
-    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, bm.bmWidth, bm.bmHeight, 0,
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, tw, th, 0,
                 GL_RGBA, GL_UNSIGNED_BYTE, pixels);
 
-    toolbar_tex_w_ = bm.bmWidth;
-    toolbar_tex_h_ = bm.bmHeight;
+    toolbar_tex_w_ = tw;
+    toolbar_tex_h_ = th;
 
-    delete[] pixels;
+    th_free(pixels);
 }
 
 /*
@@ -12388,8 +12351,7 @@ void CHtmlSys_mainwin::render_toolbar()
                     do_command(0, b.cmd, 0);
 
                 char fmt[128], tip[256];
-                LoadString(CTadsApp::get_app()->get_instance(),
-                          IDS_THEMES_DROPDOWN, fmt, sizeof(fmt));
+                os_load_string(IDS_THEMES_DROPDOWN, fmt, sizeof(fmt));
                 sprintf(tip, fmt, prefs_->get_active_profile_name());
                 ImGui::SetItemTooltip("%s", tip);
 
@@ -13672,8 +13634,7 @@ int CHtmlSys_mainwin::do_command(int notify_code,
             char buf[256];
 
             /* make sure they want to quit immediately */
-            LoadString(CTadsApp::get_app()->get_instance(),
-                       IDS_REALLY_GO_GC_MSG, buf, sizeof(buf));
+            os_load_string(IDS_REALLY_GO_GC_MSG, buf, sizeof(buf));
             id = MessageBox(NULL, buf, "TADS",
                             MB_YESNO | MB_ICONQUESTION | MB_DEFBUTTON2);
 
@@ -14165,8 +14126,7 @@ void CHtmlSys_mainwin::load_new_game()
 void CHtmlSys_mainwin::do_load_new_game_prompt()
 {
     char prompt[256];
-    LoadString(CTadsApp::get_app()->get_instance(),
-               IDS_CHOOSE_NEW_GAME, prompt, sizeof(prompt));
+    os_load_string(IDS_CHOOSE_NEW_GAME, prompt, sizeof(prompt));
 
     CTadsFileDialog::open(TADSFILEDLG_OPEN, prompt, w32_opendlg_filter,
         CTadsApp::get_app()->get_openfile_dir(), TRUE,
@@ -18644,16 +18604,14 @@ void CHtmlSys_abouttadswin::build_contents(CHtmlTextBuffer *txtbuf)
     txtbuf->append(txt2, sizeof(txt2) - 1);
 
     /* add the version string prefix */
-    LoadString(CTadsApp::get_app()->get_instance(),
-               IDS_ABOUTBOX_1, buf, sizeof(buf));
+    os_load_string(IDS_ABOUTBOX_1, buf, sizeof(buf));
     txtbuf->append(buf, strlen(buf));
 
     /* add the version number string */
     txtbuf->append(w32_version_string, strlen(w32_version_string));
 
     /* add the Credits/License/Close buttons */
-    LoadString(CTadsApp::get_app()->get_instance(),
-               IDS_ABOUTBOX_2, buf, sizeof(buf));
+    os_load_string(IDS_ABOUTBOX_2, buf, sizeof(buf));
     txtbuf->append(buf, strlen(buf));
 
     /* add the closing fixed contents */
@@ -18690,8 +18648,7 @@ void CHtmlSys_abouttadswin::process_command(
         {
             char buf[256];
 
-            LoadString(CTadsApp::get_app()->get_instance(),
-                       IDS_CANNOT_OPEN_HREF, buf, sizeof(buf));
+            os_load_string(IDS_CANNOT_OPEN_HREF, buf, sizeof(buf));
             MessageBox(NULL, buf, "TADS", MB_OK | MB_ICONEXCLAMATION);
         }
     }

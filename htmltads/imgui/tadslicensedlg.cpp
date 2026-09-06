@@ -2,22 +2,21 @@
  *   tadslicensedlg.cpp - ImGui-native "License Information" dialog (guit3)
  *
  *   See tadslicensedlg.h for the overall design.  The license text comes
- *   from the same IDX_LICENSE_TEXT "TEXTFILE" resource (../notes3/license.txt,
+ *   from the IDX_LICENSE_TEXT "TEXTFILE" resource (../notes3/license.txt,
  *   embedded via ../win32/htmlt3.rc) the old Win32 LicenseDlg loaded into its
- *   EDITTEXT control - still a plain Win32 resource lookup since guit3 is
- *   Windows-only for now (see migration.md 5.4/B for the eventual
- *   embedded-byte-array plan that will replace this).
+ *   EDITTEXT control, now fetched through os_load_license_text() (migration.md
+ *   5.4/B - the Win32 backend is still the same FindResource() lookup; a
+ *   portable backend will supply an embedded byte array instead).
  */
 
-#include <windows.h>
 #include <string>
 
 #include <imgui/imgui.h>
 
+#include "tadshtml.h"     /* th_free() */
 #include "tadslicensedlg.h"
-#include "tadsapp.h"
 #include "tadsfont.h"     /* CTadsFont::get_dpi_scale() - see migration.md 3.5a */
-#include "htmlres.h"      /* IDX_LICENSE_TEXT */
+#include "guios.h"
 
 namespace
 {
@@ -41,29 +40,20 @@ namespace
     {
         s_dlg.text_loaded = true;
 
-        HINSTANCE inst = CTadsApp::get_app()->get_instance();
-        HRSRC hres = FindResource(
-            inst, MAKEINTRESOURCE(IDX_LICENSE_TEXT), "TEXTFILE");
-        if (hres == 0)
-            return;
-
-        HGLOBAL hgl = LoadResource(inst, hres);
-        if (hgl == 0)
-            return;
-
-        void *mem = LockResource(hgl);
-        DWORD len = SizeofResource(inst, hres);
-        if (mem == 0 || len == 0)
-            return;
-
         /*
-         *   Build the string from the exact resource size rather than
-         *   relying on the resource bytes being null-terminated (the old
-         *   Win32 code handed 'mem' straight to EM_REPLACESEL as if it were
-         *   a C string, which happened to work but wasn't guaranteed by the
-         *   resource format).
+         *   Build the string from the exact byte count the hook reports
+         *   rather than relying on the bytes being null-terminated (the old
+         *   Win32 code handed the resource pointer straight to EM_REPLACESEL
+         *   as if it were a C string, which happened to work but wasn't
+         *   guaranteed by the resource format).
          */
-        s_dlg.text.assign((const char *)mem, len);
+        size_t len = 0;
+        char *bytes = os_load_license_text(&len);
+        if (bytes == 0)
+            return;
+
+        s_dlg.text.assign(bytes, len);
+        th_free(bytes);
     }
 
     /*

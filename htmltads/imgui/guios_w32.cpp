@@ -12,6 +12,8 @@
 #include <string.h>
 
 #include "tadshtml.h"
+#include "tadsapp.h"
+#include "htmlres.h"      /* IDB_TERP_TOOLBAR, IDX_LICENSE_TEXT */
 #include "guios.h"
 
 
@@ -160,4 +162,97 @@ unsigned long os_get_sys_color(os_sys_color_t which)
     case OS_SYS_COLOR_WINDOW_TEXT:     return GetSysColor(COLOR_WINDOWTEXT);
     }
     return 0;
+}
+
+
+/* ------------------------------------------------------------------------ */
+/*
+ *   B. Bundled resources
+ */
+
+int os_load_string(int id, char *buf, size_t buflen)
+{
+    return LoadString(CTadsApp::get_app()->get_instance(),
+                      id, buf, (int)buflen);
+}
+
+unsigned char *os_load_toolbar_rgba(int *width, int *height)
+{
+    /*
+     *   This is the resource+GDI half of CHtmlSys_mainwin::load_toolbar_texture()
+     *   lifted verbatim: LoadImage() the 4bpp indexed IDB_TERP_TOOLBAR
+     *   (win32/runtbar.bmp - 304x15, nineteen 16x15 frames), expand it to a
+     *   32bpp top-down DIB with GetDIBits(), then turn the color key (the
+     *   top-left pixel) into a real alpha channel while swapping BGRA->RGBA.
+     *   The caller keeps the GL upload.
+     */
+    HBITMAP hbmp = (HBITMAP)LoadImage(
+        CTadsApp::get_app()->get_instance(), MAKEINTRESOURCE(IDB_TERP_TOOLBAR),
+        IMAGE_BITMAP, 0, 0, LR_CREATEDIBSECTION);
+    if (hbmp == 0)
+        return 0;
+
+    BITMAP bm;
+    GetObject(hbmp, sizeof(bm), &bm);
+
+    BITMAPINFO bi;
+    memset(&bi, 0, sizeof(bi));
+    bi.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
+    bi.bmiHeader.biWidth = bm.bmWidth;
+    bi.bmiHeader.biHeight = -bm.bmHeight;      /* top-down */
+    bi.bmiHeader.biPlanes = 1;
+    bi.bmiHeader.biBitCount = 32;
+    bi.bmiHeader.biCompression = BI_RGB;
+
+    HDC hdc = GetDC(0);
+    unsigned char *pixels =
+        (unsigned char *)th_malloc(bm.bmWidth * bm.bmHeight * 4);
+    GetDIBits(hdc, hbmp, 0, bm.bmHeight, pixels, &bi, DIB_RGB_COLORS);
+    ReleaseDC(0, hdc);
+    DeleteObject(hbmp);
+
+    /* the top-left pixel (BGRA order, alpha byte unused) is the mask color */
+    unsigned char mask_b = pixels[0], mask_g = pixels[1], mask_r = pixels[2];
+
+    /* convert BGRA -> RGBA in place, turning the color key into real alpha */
+    int npix = bm.bmWidth * bm.bmHeight;
+    for (int i = 0 ; i < npix ; ++i)
+    {
+        unsigned char *p = pixels + i*4;
+        unsigned char b = p[0], g = p[1], r = p[2];
+        bool is_mask = (b == mask_b && g == mask_g && r == mask_r);
+        p[0] = r;
+        p[1] = g;
+        p[2] = b;
+        p[3] = is_mask ? 0 : 255;
+    }
+
+    *width = bm.bmWidth;
+    *height = bm.bmHeight;
+    return pixels;
+}
+
+char *os_load_license_text(size_t *len)
+{
+    *len = 0;
+
+    HINSTANCE inst = CTadsApp::get_app()->get_instance();
+    HRSRC hres = FindResource(
+        inst, MAKEINTRESOURCE(IDX_LICENSE_TEXT), "TEXTFILE");
+    if (hres == 0)
+        return 0;
+
+    HGLOBAL hgl = LoadResource(inst, hres);
+    if (hgl == 0)
+        return 0;
+
+    const void *mem = LockResource(hgl);
+    DWORD sz = SizeofResource(inst, hres);
+    if (mem == 0 || sz == 0)
+        return 0;
+
+    char *result = (char *)th_malloc(sz);
+    memcpy(result, mem, sz);
+    *len = sz;
+    return result;
 }
