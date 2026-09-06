@@ -43,8 +43,8 @@ Modified
 #ifndef HTMLGUI_H
 #include "htmlgui.h"
 #endif
-#ifndef TADSREG_H
-#include "tadsreg.h"
+#ifndef TADSSETTINGS_H
+#include "tadssettings.h"
 #endif
 #ifndef TADSFOLDERDLG_H
 #include "tadsfolderdlg.h"
@@ -566,8 +566,7 @@ void CHtmlPreferences::set_std_profile_desc(const textchar_t *profile)
  */
 void CHtmlPreferences::opt_refresh_profile_list()
 {
-    HKEY key;
-    DWORD disposition;
+    tads_settings_key_t key;
     char base_key[256];
     const textchar_t *active;
     int i;
@@ -575,25 +574,22 @@ void CHtmlPreferences::opt_refresh_profile_list()
     opt_profile_count_ = 0;
 
     sprintf(base_key, "%s\\Profiles", w32_pref_key_name);
-    key = CTadsRegistry::open_key(HKEY_CURRENT_USER, base_key,
-                                  &disposition, TRUE);
+    key = CTadsSettings::open_key(base_key, TRUE);
     for (i = 0 ;
          opt_profile_count_ < (int)(sizeof(opt_profile_names_)
                                      / sizeof(opt_profile_names_[0])) ;
          ++i)
     {
         char subkey[128];
-        DWORD len;
-        FILETIME ft;
 
-        len = sizeof(subkey);
-        if (RegEnumKeyEx(key, i, subkey, &len, 0, 0, 0, &ft) != ERROR_SUCCESS)
+        if (CTadsSettings::enum_subkeys(key, i, subkey, sizeof(subkey))
+            != TADS_SETTINGS_ENUM_OK)
             break;
 
         strcpy(opt_profile_names_[opt_profile_count_], subkey);
         ++opt_profile_count_;
     }
-    CTadsRegistry::close_key(key);
+    CTadsSettings::close_key(key);
 
     active = get_active_profile_name();
     opt_profile_sel_ = -1;
@@ -888,7 +884,7 @@ void CHtmlPreferences::opt_render_appearance_tab()
             char keybuf[256];
             const char *active = get_active_profile_name();
             get_settings_key_for(keybuf, sizeof(keybuf), active);
-            RegDeleteKey(HKEY_CURRENT_USER, keybuf);
+            CTadsSettings::delete_key(keybuf);
 
             opt_refresh_profile_list();
             if (opt_profile_sel_ >= 0)
@@ -2148,21 +2144,18 @@ void CHtmlPreferences::save()
 void CHtmlPreferences::save_as(const char *profile)
 {
     int id;
-    HKEY key;
-    HKEY global_key;
-    DWORD disposition;
+    tads_settings_key_t key;
+    tads_settings_key_t global_key;
     char key_name[256];
 
     /* get the key containing the settings */
     get_settings_key_for(key_name, sizeof(key_name), profile);
 
-    /* open the registry key for our preference settings */
-    key = CTadsRegistry::open_key(HKEY_CURRENT_USER, key_name,
-                                  &disposition, TRUE);
+    /* open the settings key for our preference settings */
+    key = CTadsSettings::open_key(key_name, TRUE);
 
     /* open the global key as well */
-    global_key = CTadsRegistry::open_key(HKEY_CURRENT_USER, w32_pref_key_name,
-                                         &disposition, TRUE);
+    global_key = CTadsSettings::open_key(w32_pref_key_name, TRUE);
 
     /* save the properties */
     for (id = (HTML_pref_id_t)0 ; id < HTML_PREF_LAST ; ++id)
@@ -2177,12 +2170,12 @@ void CHtmlPreferences::save_as(const char *profile)
     }
 
     /* save the custom colors */
-    CTadsRegistry::set_key_binary(key, custclr_val_name,
+    CTadsSettings::set_key_binary(key, custclr_val_name,
                                   cust_colors_, sizeof(cust_colors_));
 
-    /* done with the registry key */
-    CTadsRegistry::close_key(global_key);
-    CTadsRegistry::close_key(key);
+    /* done with the settings key */
+    CTadsSettings::close_key(global_key);
+    CTadsSettings::close_key(key);
 
     /* 
      *   Broadcast a notification to all top-level windows in the system to
@@ -2209,21 +2202,18 @@ void CHtmlPreferences::restore(int synced_only)
 void CHtmlPreferences::restore_as(const char *profile, int synced_only)
 {
     int id;
-    HKEY key;
-    HKEY global_key;
-    DWORD disposition;
+    tads_settings_key_t key;
+    tads_settings_key_t global_key;
     char key_name[256];
 
     /* get the key containing the settings */
     get_settings_key_for(key_name, sizeof(key_name), profile);
 
-    /* open the registry key for our preference settings */
-    key = CTadsRegistry::open_key(HKEY_CURRENT_USER, key_name,
-                                  &disposition, TRUE);
+    /* open the settings key for our preference settings */
+    key = CTadsSettings::open_key(key_name, TRUE);
 
     /* open the global key as well */
-    global_key = CTadsRegistry::open_key(HKEY_CURRENT_USER, w32_pref_key_name,
-                                         &disposition, TRUE);
+    global_key = CTadsSettings::open_key(w32_pref_key_name, TRUE);
 
     /* save the properties */
     for (id = 0 ; id < HTML_PREF_LAST ; ++id)
@@ -2245,7 +2235,7 @@ void CHtmlPreferences::restore_as(const char *profile, int synced_only)
     }
 
     /* load the custom colors */
-    CTadsRegistry::query_key_binary(key, custclr_val_name,
+    CTadsSettings::query_key_binary(key, custclr_val_name,
                                     cust_colors_, sizeof(cust_colors_));
 
     /*
@@ -2262,13 +2252,13 @@ void CHtmlPreferences::restore_as(const char *profile, int synced_only)
     if (write == -1)
         set_val_longint(HTML_PREF_FILE_SAFETY_WRITE, level >= 0 ? level : 1);
 
-    /* done with the registry key */
-    CTadsRegistry::close_key(global_key);
-    CTadsRegistry::close_key(key);
+    /* done with the settings key */
+    CTadsSettings::close_key(global_key);
+    CTadsSettings::close_key(key);
 }
 
 /*
- *   Compare the active profile to its saved version 
+ *   Compare the active profile to its saved version
  */
 int CHtmlPreferences::equals_saved(int synced_only)
 {
@@ -2283,9 +2273,8 @@ int CHtmlPreferences::equals_saved(int synced_only)
 int CHtmlPreferences::equals_saved(const char *profile, int synced_only)
 {
     int id;
-    HKEY key;
-    HKEY global_key;
-    DWORD disposition;
+    tads_settings_key_t key;
+    tads_settings_key_t global_key;
     char key_name[256];
     int eq;
     char cust_color_buf[sizeof(cust_colors_)];
@@ -2293,13 +2282,11 @@ int CHtmlPreferences::equals_saved(const char *profile, int synced_only)
     /* get the key containing the settings */
     get_settings_key_for(key_name, sizeof(key_name), profile);
 
-    /* open the registry key for our preference settings */
-    key = CTadsRegistry::open_key(HKEY_CURRENT_USER, key_name,
-                                  &disposition, TRUE);
+    /* open the settings key for our preference settings */
+    key = CTadsSettings::open_key(key_name, TRUE);
 
     /* open the global key as well */
-    global_key = CTadsRegistry::open_key(HKEY_CURRENT_USER, w32_pref_key_name,
-                                         &disposition, TRUE);
+    global_key = CTadsSettings::open_key(w32_pref_key_name, TRUE);
 
     /* scan the properties */
     for (eq = TRUE, id = 0 ; id < HTML_PREF_LAST ; ++id)
@@ -2329,42 +2316,44 @@ int CHtmlPreferences::equals_saved(const char *profile, int synced_only)
     }
 
     /* load the custom colors */
-    CTadsRegistry::query_key_binary(key, custclr_val_name,
+    CTadsSettings::query_key_binary(key, custclr_val_name,
                                     cust_color_buf, sizeof(cust_color_buf));
 
     /* if these don't match, we don't have a match */
     if (memcmp(cust_color_buf, cust_colors_, sizeof(cust_colors_)) != 0)
         eq = FALSE;
 
-    /* done with the registry key */
-    CTadsRegistry::close_key(global_key);
-    CTadsRegistry::close_key(key);
+    /* done with the settings key */
+    CTadsSettings::close_key(global_key);
+    CTadsSettings::close_key(key);
 
     /* return the overall comparison result */
     return eq;
 }
 
 /*
- *   Write a property to the registry
+ *   Write a property to the settings store
  */
-void CHtmlPreferences::write_to_registry(HTML_pref_id_t id, HKEY key)
+void CHtmlPreferences::write_to_registry(HTML_pref_id_t id,
+                                         tads_settings_key_t key)
 {
     char buf[256];
     size_t vallen;
     CHtmlProperty *prop;
-    
+
     /* get the property value in string format */
     prop = proplist_->get_prop(id);
     vallen = prop->gen_str_rep(buf, sizeof(buf));
 
-    /* write it to the registry */
-    CTadsRegistry::set_key_str(key, prop->get_name(), buf, vallen);
+    /* write it to the settings store */
+    CTadsSettings::set_key_str(key, prop->get_name(), buf, vallen);
 }
 
 /*
- *   Read a property from the registry 
+ *   Read a property from the settings store
  */
-void CHtmlPreferences::read_from_registry(HTML_pref_id_t id, HKEY key)
+void CHtmlPreferences::read_from_registry(HTML_pref_id_t id,
+                                          tads_settings_key_t key)
 {
     char buf[256];
     size_t vallen;
@@ -2373,12 +2362,12 @@ void CHtmlPreferences::read_from_registry(HTML_pref_id_t id, HKEY key)
     /* get the property */
     prop = proplist_->get_prop(id);
 
-    /* if the registry value isn't set, keep the default value */
-    if (!CTadsRegistry::value_exists(key, prop->get_name()))
+    /* if the stored value isn't set, keep the default value */
+    if (!CTadsSettings::value_exists(key, prop->get_name()))
         return;
-    
-    /* read the registry value */
-    vallen = CTadsRegistry::query_key_str(key, prop->get_name(),
+
+    /* read the stored value */
+    vallen = CTadsSettings::query_key_str(key, prop->get_name(),
                                           buf, sizeof(buf));
 
     /* set the preference property item */
@@ -2386,10 +2375,11 @@ void CHtmlPreferences::read_from_registry(HTML_pref_id_t id, HKEY key)
 }
 
 /*
- *   Compare a key to the registry value.  Returns true if the key is equal
- *   to the registry value, false if not.  
+ *   Compare a key to the stored value.  Returns true if the key is equal
+ *   to the stored value, false if not.
  */
-int CHtmlPreferences::equals_registry_value(HTML_pref_id_t id, HKEY key)
+int CHtmlPreferences::equals_registry_value(HTML_pref_id_t id,
+                                            tads_settings_key_t key)
 {
     char buf[256];
     size_t vallen;
@@ -2401,8 +2391,8 @@ int CHtmlPreferences::equals_registry_value(HTML_pref_id_t id, HKEY key)
     prop = proplist_->get_prop(id);
     vallen = prop->gen_str_rep(buf, sizeof(buf));
 
-    /* read the registry value */
-    regvallen = CTadsRegistry::query_key_str(key, prop->get_name(),
+    /* read the stored value */
+    regvallen = CTadsSettings::query_key_str(key, prop->get_name(),
                                              regbuf, sizeof(regbuf));
 
     /* is the value in memory is the same as the value in the registry? */
@@ -2481,28 +2471,26 @@ void CHtmlPreferences::set_active_profile_name(const char *profile)
 int CHtmlPreferences::profile_exists(const char *profile)
 {
     char keyname[256];
-    HKEY key;
-    DWORD disposition;
+    tads_settings_key_t key;
     int exists;
 
     /* the empty profile name is invalid */
     if (profile != 0 && profile[0] == '\0')
         return FALSE;
 
-    /* 
+    /*
      *   try opening the base key for the profile; don't create it if it
-     *   doesn't already exist, since we want to test for its existence 
+     *   doesn't already exist, since we want to test for its existence
      */
     get_settings_key_for(keyname, sizeof(keyname), profile);
-    key = CTadsRegistry::open_key(HKEY_CURRENT_USER, keyname,
-                                  &disposition, FALSE);
+    key = CTadsSettings::open_key(keyname, FALSE);
 
     /* if the key exists, the profile is valid */
     exists = (key != 0);
 
     /* if we successfully opened the key, close it */
     if (exists)
-        CTadsRegistry::close_key(key);
+        CTadsSettings::close_key(key);
 
     /* return the result */
     return exists;

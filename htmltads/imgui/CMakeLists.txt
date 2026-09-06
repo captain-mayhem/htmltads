@@ -62,6 +62,14 @@ add_executable(guit3
 	# migration.md 5.4/D-F and 5.5 (M2/A2).
 	guios.h
 	guios_w32.cpp
+
+	# Persistent settings store (app options, per-theme "profile" trees,
+	# per-game theme associations) - neutral interface + one backend per
+	# platform, replacing CTadsRegistry / the inline Reg* calls.  The Win32
+	# backend is that registry code lifted verbatim; a file-backed backend
+	# is migration.md's M3 work.  See migration.md 5.4/C and 5.5 (M2/A2).
+	tadssettings.h
+	tadssettings_w32.cpp
 	guisnd.cpp
 	guiimg.cpp
 	hos_gui.cpp
@@ -82,7 +90,6 @@ add_executable(guit3
 	tadslicensedlg.cpp
 	tadsfolderdlg.h
 	tadsfolderdlg.cpp
-	tadsreg.cpp
 	tadsjpeg.cpp
 	tadsimg.cpp
 	tadspng.cpp

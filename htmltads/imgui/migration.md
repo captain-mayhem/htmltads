@@ -1422,7 +1422,42 @@ the current call site, one landable commit per subsystem, Windows build kept byt
   on the startup path and per-frame), no crash. The License dialog (`os_load_license_text()`) was not
   click-tested this pass but its backend is a byte-for-byte extraction.
 
-**A2 still to do**: items C (settings storage), G (fonts), H (images), I (audio file I/O),
+- **C. Settings storage** — *done (interface + Win32 backend; the file-backed backend is M3).* New pair
+  [tadssettings.h](tadssettings.h) (neutral, `windows.h`-free) / [tadssettings_w32.cpp](tadssettings_w32.cpp)
+  (registry backend), added to `CMakeLists.txt`; the local fork of `tadsreg.cpp` / `tadsreg.h` is **deleted**
+  (the `../win32` copy that the native builds use is untouched). `CTadsSettings` has the same
+  open / query_key_* / set_key_* / value_exists / delete shape `CTadsRegistry` had — every value read/write
+  helper is that code lifted verbatim — with two differences the neutral interface forces:
+  - The base-key argument (always `HKEY_CURRENT_USER` at the call sites) and the never-read create-disposition
+    out-param are gone; `open_key(path, create)` takes just the backslash-delimited path a file backend can
+    treat as a relative path. The opaque `tads_settings_key_t` handle is really an `HKEY` on Windows.
+  - **The enumeration primitives are first-class**, per the §5.4/C note that a flat key/value file doesn't
+    give subkey listing for free: `enum_subkeys()` is the `RegEnumKeyEx` loop that
+    `CHtmlPreferences::opt_refresh_profile_list()` and `CHtmlSys_mainwin::render_themes_menu_items()` each had
+    inline (the theme/profile list is "the child keys of `Settings\Profiles`"); `enum_str_values()` is the
+    `RegEnumValue` loop from `rename_profile_refs()`, keeping its "skip, don't stop at, a non-string value"
+    behavior via a three-way `TADS_SETTINGS_ENUM_OK/END/SKIP` return.
+
+  Live call sites routed through it: `htmlpref.cpp` — `opt_refresh_profile_list()`, the Options dialog's
+  "Delete Theme" button (`CTadsSettings::delete_key()`, a shallow delete matching the old bare `RegDeleteKey`,
+  *not* `CTadsRegistry::delete_key`'s recursive form — a profile key holds only values), `save_as()` /
+  `restore_as()` / `equals_saved()` and their `write_to_registry()` / `read_from_registry()` /
+  `equals_registry_value()` helpers (signature `HKEY` → `tads_settings_key_t`), `profile_exists()`;
+  `htmlgui.cpp` — `render_themes_menu_items()`, `get_profile_assoc()` / `set_profile_assoc()`,
+  `rename_profile_refs()` (dead — no caller since the native New/Delete-profile dialog went in M1 — but ported
+  rather than left calling the deleted class). The one place left on raw Win32 is
+  `load_menu_with_profiles()` — a dead native-`HMENU` builder (`InsertMenuItem`/`MENUITEMINFO`), reached only
+  from the dead `WM_INITMENUPOPUP` / `TBN_DROPDOWN` handlers — so its two `CTadsRegistry` calls became bare
+  `RegCreateKeyEx`/`RegCloseKey`, consistent with the B-item convention for dead native-menu code.
+  A stale `#include "tadsreg.h"` in `guimain.cpp` (nothing from it was used) was dropped.
+
+  **Verified**: clean build + link of `guit3`, `0 warnings` on the four touched TUs, and a fresh smoke-test
+  launch on `ditch3.t3` — preferences load through `restore_as()` → `CTadsSettings` (fonts/colors are applied,
+  no crash) and the window renders the game intro with menu bar (incl. the profile-backed Themes menu),
+  toolbar and status bar intact. The Themes menu's live `enum_subkeys()` path was not click-tested this pass
+  (foreground-focus contention with the IDE), but it is the same `RegEnumKeyEx` loop moved unchanged.
+
+**A2 still to do**: items G (fonts), H (images), I (audio file I/O),
 J (`std::filesystem` dialogs), K (charset), L (`CTadsApp`/keyboard), M (`guimain.cpp` startup/shutdown).
 
 **M3 — fill in portable implementations, cheapest-and-most-certain first.** GLFW-provided services (D) →

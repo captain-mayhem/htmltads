@@ -28,6 +28,9 @@ Modified
 #ifndef HTMLPLST_H
 #include "htmlplst.h"
 #endif
+#ifndef TADSSETTINGS_H
+#include "tadssettings.h"
+#endif
 
 
 /*
@@ -984,12 +987,12 @@ private:
     /* initialize the standard profiles */
     void init_standard_profiles();
 
-    /* read/write a property from/to the system registry */
-    void write_to_registry(HTML_pref_id_t id, HKEY key);
-    void read_from_registry(HTML_pref_id_t id, HKEY key);
+    /* read/write a property from/to the persistent settings store */
+    void write_to_registry(HTML_pref_id_t id, tads_settings_key_t key);
+    void read_from_registry(HTML_pref_id_t id, tads_settings_key_t key);
 
-    /* compare a value in memory to the value in the registry */
-    int equals_registry_value(HTML_pref_id_t id, HKEY key);
+    /* compare a value in memory to the value in the settings store */
+    int equals_registry_value(HTML_pref_id_t id, tads_settings_key_t key);
     
     /* reference count */
     int refcnt_;

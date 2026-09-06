@@ -56,9 +56,6 @@ Modified
 #ifndef TADSDLG_H
 #include "tadsdlg.h"
 #endif
-#ifndef TADSREG_H
-#include "tadsreg.h"
-#endif
 #ifndef TADSIMG_H
 #include "tadsimg.h"
 #endif

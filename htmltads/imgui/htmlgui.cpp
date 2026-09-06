@@ -113,8 +113,8 @@ Modified
 #ifndef W32MAIN_H
 #include "guimain.h"
 #endif
-#ifndef TADSREG_H
-#include "tadsreg.h"
+#ifndef TADSSETTINGS_H
+#include "tadssettings.h"
 #endif
 #ifndef HTMLHASH_H
 #include "htmlhash.h"
@@ -11057,8 +11057,9 @@ void CHtmlSys_mainwin::load_menu_with_profiles(HMENU menuhdl)
 
     /* enumerate the profiles, and add a menu item for each one */
     sprintf(base_key, "%s\\Profiles", w32_pref_key_name);
-    key = CTadsRegistry::open_key(HKEY_CURRENT_USER, base_key,
-                                  &disposition, TRUE);
+    if (RegCreateKeyEx(HKEY_CURRENT_USER, base_key, 0, 0, 0, KEY_ALL_ACCESS,
+                       0, &key, &disposition) != ERROR_SUCCESS)
+        key = 0;
     for (key_idx = 0, pos = 0 ; ; ++key_idx, ++pos)
     {
         char subkey[128];
@@ -11093,7 +11094,8 @@ void CHtmlSys_mainwin::load_menu_with_profiles(HMENU menuhdl)
     }
 
     /* done with the key */
-    CTadsRegistry::close_key(key);
+    if (key != 0)
+        RegCloseKey(key);
 
     /* add a separator */
     info.cbSize = menuiteminfo_size_;
@@ -12112,16 +12114,12 @@ void CHtmlSys_mainwin::render_themes_menu_items()
 
     char base_key[256];
     sprintf(base_key, "%s\\Profiles", w32_pref_key_name);
-    DWORD disposition;
-    HKEY key = CTadsRegistry::open_key(HKEY_CURRENT_USER, base_key,
-                                       &disposition, TRUE);
+    tads_settings_key_t key = CTadsSettings::open_key(base_key, TRUE);
     for (int key_idx = 0 ; ; ++key_idx)
     {
         char subkey[128];
-        DWORD len = sizeof(subkey);
-        FILETIME ft;
-        if (RegEnumKeyEx(key, key_idx, subkey, &len, 0, 0, 0, &ft)
-            != ERROR_SUCCESS)
+        if (CTadsSettings::enum_subkeys(key, key_idx, subkey, sizeof(subkey))
+            != TADS_SETTINGS_ENUM_OK)
             break;
 
         bool checked = (stricmp(subkey, active) == 0);
@@ -12137,7 +12135,7 @@ void CHtmlSys_mainwin::render_themes_menu_items()
             set_game_specific_profile(subkey);
         }
     }
-    CTadsRegistry::close_key(key);
+    CTadsSettings::close_key(key);
 
     ImGui::Separator();
 
@@ -16305,8 +16303,7 @@ void CHtmlSys_mainwin::load_game_specific_profile(const char *fullname)
 int CHtmlSys_mainwin::get_profile_assoc(
     const char *fname, char *profile_buf, size_t profile_buf_len)
 {
-    HKEY hkey;
-    DWORD disp;
+    tads_settings_key_t hkey;
     char key_name[256];
     int found;
 
@@ -16314,18 +16311,18 @@ int CHtmlSys_mainwin::get_profile_assoc(
     sprintf(key_name, "%s\\Game Profiles", w32_pref_key_name);
 
     /* look up the key */
-    hkey = CTadsRegistry::open_key(HKEY_CURRENT_USER, key_name, &disp, FALSE);
+    hkey = CTadsSettings::open_key(key_name, FALSE);
 
     /* if there's no such key, there's nothing more to do */
     if (hkey == 0)
         return FALSE;
 
     /* look up the value for the given game file */
-    found = CTadsRegistry::value_exists(hkey, fname);
-    CTadsRegistry::query_key_str(hkey, fname, profile_buf, profile_buf_len);
+    found = CTadsSettings::value_exists(hkey, fname);
+    CTadsSettings::query_key_str(hkey, fname, profile_buf, profile_buf_len);
 
     /* done with the key */
-    CTadsRegistry::close_key(hkey);
+    CTadsSettings::close_key(hkey);
 
     /* return an indication of whether the setting was found or not */
     return found;
@@ -16337,25 +16334,24 @@ int CHtmlSys_mainwin::get_profile_assoc(
 void CHtmlSys_mainwin::set_profile_assoc(
     const char *fname, const char *profile)
 {
-    HKEY hkey;
-    DWORD disp;
+    tads_settings_key_t hkey;
     char key_name[256];
 
     /* build the Game Profiles key name */
     sprintf(key_name, "%s\\Game Profiles", w32_pref_key_name);
 
     /* look up the key */
-    hkey = CTadsRegistry::open_key(HKEY_CURRENT_USER, key_name, &disp, TRUE);
+    hkey = CTadsSettings::open_key(key_name, TRUE);
 
     /* if there's no such key, there's nothing more to do */
     if (hkey == 0)
         return;
 
     /* store the key */
-    CTadsRegistry::set_key_str(hkey, fname, profile, strlen(profile));
+    CTadsSettings::set_key_str(hkey, fname, profile, strlen(profile));
 
     /* done with the key */
-    CTadsRegistry::close_key(hkey);
+    CTadsSettings::close_key(hkey);
 }
 
 
@@ -16365,46 +16361,45 @@ void CHtmlSys_mainwin::set_profile_assoc(
 void CHtmlSys_mainwin::rename_profile_refs(const char *old_name,
                                            const char *new_name)
 {
-    HKEY hkey;
-    DWORD disp;
+    tads_settings_key_t hkey;
     char key_name[256];
-    DWORD idx;
+    unsigned int idx;
 
     /* build the Game Profiles key name */
     sprintf(key_name, "%s\\Game Profiles", w32_pref_key_name);
 
     /* look up the key */
-    hkey = CTadsRegistry::open_key(HKEY_CURRENT_USER, key_name, &disp, FALSE);
+    hkey = CTadsSettings::open_key(key_name, FALSE);
 
     /* if there's no such key, there's nothing more to do */
     if (hkey == 0)
         return;
 
-    /* 
+    /*
      *   run through the game references, and change each one that points to
      *   the old profile name so that it points to the new profile name
-     *   instead 
+     *   instead
      */
     for (idx = 0 ; ; ++idx)
     {
         char nm[OSFNMAX];
-        DWORD nmlen = sizeof(nm);
-        DWORD typ;
-        BYTE val[OSFNMAX];
-        DWORD vallen = sizeof(val);
-        
-        /* get the next value */
-        if (RegEnumValue(hkey, idx, nm, &nmlen, 0, &typ, val, &vallen)
-            != ERROR_SUCCESS)
+        char val[OSFNMAX];
+
+        /* get the next string value */
+        int status = CTadsSettings::enum_str_values(
+            hkey, idx, nm, sizeof(nm), val, sizeof(val));
+        if (status == TADS_SETTINGS_ENUM_END)
             break;
+        if (status == TADS_SETTINGS_ENUM_SKIP)
+            continue;
 
         /* if the value matches the old profile name, rename it */
-        if (typ == REG_SZ && stricmp((char *)val, old_name) == 0)
-            CTadsRegistry::set_key_str(hkey, nm, new_name, strlen(new_name));
+        if (stricmp(val, old_name) == 0)
+            CTadsSettings::set_key_str(hkey, nm, new_name, strlen(new_name));
     }
 
     /* done with the key */
-    CTadsRegistry::close_key(hkey);
+    CTadsSettings::close_key(hkey);
 }
 
 /*
