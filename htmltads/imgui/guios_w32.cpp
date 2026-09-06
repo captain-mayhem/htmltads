@@ -27,3 +27,21 @@ int os_open_url(const char *url)
      */
     return (INT_PTR)ShellExecute(0, "open", url, 0, 0, SW_SHOWNORMAL) > 32;
 }
+
+
+/* ------------------------------------------------------------------------ */
+/*
+ *   E. System colors
+ */
+
+unsigned long os_get_sys_color(os_sys_color_t which)
+{
+    switch (which)
+    {
+    case OS_SYS_COLOR_HIGHLIGHT:       return GetSysColor(COLOR_HIGHLIGHT);
+    case OS_SYS_COLOR_HIGHLIGHT_TEXT:  return GetSysColor(COLOR_HIGHLIGHTTEXT);
+    case OS_SYS_COLOR_WINDOW:          return GetSysColor(COLOR_WINDOW);
+    case OS_SYS_COLOR_WINDOW_TEXT:     return GetSysColor(COLOR_WINDOWTEXT);
+    }
+    return 0;
+}

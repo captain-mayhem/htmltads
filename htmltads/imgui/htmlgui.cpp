@@ -6131,8 +6131,8 @@ void CHtmlSysWin_win32::draw_text_clip(int hilite, long x, long y,
             default_sel_fg_ ? GetSysColor(COLOR_HIGHLIGHTTEXT) : sel_fg_);
         oldbkcolor = SetBkColor(
             hdc_, default_sel_bg_ ? GetSysColor(COLOR_HIGHLIGHT) : sel_bg_);
-        textColor = HTML_color_to_ImVec4(COLORREF_to_HTML_color(GetSysColor(COLOR_HIGHLIGHTTEXT)));
-        bgColor = HTML_color_to_ImVec4(COLORREF_to_HTML_color(GetSysColor(COLOR_HIGHLIGHT)));
+        textColor = HTML_color_to_ImVec4(COLORREF_to_HTML_color(os_get_sys_color(OS_SYS_COLOR_HIGHLIGHT_TEXT)));
+        bgColor = HTML_color_to_ImVec4(COLORREF_to_HTML_color(os_get_sys_color(OS_SYS_COLOR_HIGHLIGHT)));
 
         /* set opaque mode, so that we draw the text background color */
         oldbkmode = SetBkMode(hdc_, OPAQUE);
@@ -7502,7 +7502,7 @@ void CHtmlSysWin_win32::set_html_bg_color(HTML_color_t color, int use_default)
     {
         /* ignore the provided color and use the default setting */
         if (prefs_->get_use_win_colors())
-            rgb = GetSysColor(COLOR_WINDOW);
+            rgb = os_get_sys_color(OS_SYS_COLOR_WINDOW);
         else
             rgb = HTML_color_to_COLORREF(prefs_->get_bg_color());
     }
@@ -7532,12 +7532,12 @@ void CHtmlSysWin_win32::note_debug_format_changes(
 
     /* if we're using the windows colors, get the defaults */
     if (use_windows_colors)
-        text_rgb = GetSysColor(COLOR_WINDOWTEXT);
+        text_rgb = os_get_sys_color(OS_SYS_COLOR_WINDOW_TEXT);
     else
         text_rgb = HTML_color_to_COLORREF(text_color);
 
     if (use_windows_bgcolor)
-        bkg_rgb = GetSysColor(COLOR_WINDOW);
+        bkg_rgb = os_get_sys_color(OS_SYS_COLOR_WINDOW);
     else
         bkg_rgb = HTML_color_to_COLORREF(bkg_color);
 
@@ -7591,7 +7591,7 @@ void CHtmlSysWin_win32::set_html_text_color(HTML_color_t color,
     {
         /* ignore the provided color and use the default setting */
         if (prefs_->get_use_win_colors())
-            new_color = GetSysColor(COLOR_WINDOWTEXT);
+            new_color = os_get_sys_color(OS_SYS_COLOR_WINDOW_TEXT);
         else
             new_color = HTML_color_to_COLORREF(prefs_->get_text_color());
     }
@@ -7780,12 +7780,12 @@ HTML_color_t CHtmlSysWin_win32::map_system_color(HTML_color_t color)
 
     case HTML_COLOR_TEXT:
         return prefs_->get_use_win_colors()
-            ? COLORREF_to_HTML_color(GetSysColor(COLOR_WINDOWTEXT))
+            ? COLORREF_to_HTML_color(os_get_sys_color(OS_SYS_COLOR_WINDOW_TEXT))
             : prefs_->get_text_color();
 
     case HTML_COLOR_BGCOLOR:
         return prefs_->get_use_win_colors()
-            ? COLORREF_to_HTML_color(GetSysColor(COLOR_WINDOW))
+            ? COLORREF_to_HTML_color(os_get_sys_color(OS_SYS_COLOR_WINDOW))
             : prefs_->get_bg_color();
 
     case HTML_COLOR_INPUT:

@@ -31,4 +31,30 @@
 int os_open_url(const char *url);
 
 
+/* ------------------------------------------------------------------------ */
+/*
+ *   E. System colors
+ *
+ *   The handful of OS palette entries guit3 reads: the text-selection
+ *   highlight, and the window fg/bg used when the "Use Windows colors"
+ *   preference is on.  The Win32 backend forwards to GetSysColor(); a
+ *   non-Windows backend can return fixed sensible values or pull from the
+ *   ImGui style palette.
+ */
+enum os_sys_color_t
+{
+    OS_SYS_COLOR_HIGHLIGHT,        /* selected-text background   (COLOR_HIGHLIGHT)     */
+    OS_SYS_COLOR_HIGHLIGHT_TEXT,   /* selected-text foreground   (COLOR_HIGHLIGHTTEXT) */
+    OS_SYS_COLOR_WINDOW,           /* window background          (COLOR_WINDOW)        */
+    OS_SYS_COLOR_WINDOW_TEXT       /* window text                (COLOR_WINDOWTEXT)    */
+};
+
+/*
+ *   Return the given system color as a packed 0x00BBGGRR value - the same
+ *   encoding as a Win32 COLORREF, so results feed COLORREF_to_HTML_color()
+ *   and the GDI color setters directly.
+ */
+unsigned long os_get_sys_color(os_sys_color_t which);
+
+
 #endif /* GUIOS_H */
