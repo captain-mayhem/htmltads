@@ -37,6 +37,9 @@ Modified
 #ifndef W32VER_H
 #include "guiver.h"
 #endif
+#ifndef GUIOS_H
+#include "guios.h"
+#endif
 
 
 /* ------------------------------------------------------------------------ */
@@ -203,7 +206,7 @@ void w32_msgbox(const char *msg, const char *url)
 
         /* if they selected Yes, go to the update URL */
         if (btn == IDYES)
-            ShellExecute(0, "open", url, 0, 0, SW_SHOWNORMAL);
+            os_open_url(url);
 
         /* done with our allocated buffer */
         th_free(buf);

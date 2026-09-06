@@ -55,6 +55,13 @@ add_executable(guit3
 	guimain.cpp
 	guifont.cpp
 	guifont.h
+
+	# guit3 OS-service platform hooks (shell, system colors, clipboard,
+	# cursors, tick clock) - neutral header + one backend per platform,
+	# same shape as guifont.cpp's os_font_family_is_present().  See
+	# migration.md 5.4/D-F and 5.5 (M2/A2).
+	guios.h
+	guios_w32.cpp
 	guisnd.cpp
 	guiimg.cpp
 	hos_gui.cpp
