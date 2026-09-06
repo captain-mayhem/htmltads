@@ -40,6 +40,9 @@ Modified
 #ifndef W32MAIN_H
 #include "guimain.h"
 #endif
+#ifndef GUIOS_H
+#include "guios.h"
+#endif
 #ifndef TADSIMG_H
 #include "tadsimg.h"
 #endif
@@ -93,7 +96,7 @@ textchar_t *os_prev_char(oshtml_charset_id_t id,
  */
 os_timer_t os_get_time()
 {
-    return GetTickCount();
+    return os_get_tick_ms();
 }
 
 

@@ -257,13 +257,6 @@ CHtmlSysWin_win32::CHtmlSysWin_win32(CHtmlFormatter *formatter,
     font_desc.charset = owner->owner_get_default_charset();
     default_font_ = (CHtmlSysFont_win32 *)get_font(&font_desc);
 
-    /* load the I-beam cursor for text areas */
-    ibeam_csr_ = LoadCursor(NULL, IDC_IBEAM);
-
-    /* load the hand cursor */
-    hand_csr_ = LoadCursor(CTadsApp::get_app()->get_instance(),
-                           "HAND_CURSOR");
-
     /* load some strings */
     load_res_str(&more_prompt_str_, IDS_MORE_PROMPT);
     load_res_str(&more_status_str_, IDS_MORE_STATUS_MSG);
@@ -692,10 +685,6 @@ CHtmlSysWin_win32::~CHtmlSysWin_win32()
 
     /* delete the command buffer */
     delete cmdbuf_;
-
-    /* we're done with the cursors */
-    DestroyCursor(ibeam_csr_);
-    DestroyCursor(hand_csr_);
 
     /* done with the context menus */
     if (popup_container_ != 0)
@@ -1340,26 +1329,20 @@ HGLOBAL CHtmlSysWin_win32::copy_to_new_hglobal(UINT alloc_flags, size_t *lenp)
  */
 int CHtmlSysWin_win32::do_copy()
 {
-    HGLOBAL memhdl;
-
-    /* take over the clipboard */
-    if (!OpenClipboard(NULL))
+    /*
+     *   build the current selection as clipboard text, with newlines
+     *   expanded to CR-LF; copy_to_new_hglobal() returns null when there's
+     *   nothing selected.  GMEM_FIXED gives us a plain buffer to hand to the
+     *   hook rather than a movable handle for SetClipboardData().
+     */
+    char *txt = (char *)copy_to_new_hglobal(GMEM_FIXED, 0);
+    if (txt == 0)
         return FALSE;
 
-    /* delete the current clipboard contents */
-    EmptyClipboard();
-
-    /* copy the current selection to a global memory handle */
-    memhdl = copy_to_new_hglobal(GHND, 0);
-
-    /* add the text to the clipboard */
-    SetClipboardData(CF_TEXT, memhdl);
-
-    /* done with the clipboard */
-    CloseClipboard();
-
-    /* success */
-    return TRUE;
+    /* put it on the clipboard, then release our temporary copy */
+    int ok = os_clipboard_set_text(txt);
+    GlobalFree((HGLOBAL)txt);
+    return ok;
 }
 
 /*
@@ -1422,38 +1405,12 @@ int CHtmlSysWin_win32::do_cut()
  */
 int CHtmlSysWin_win32::can_paste()
 {
-    UINT fmt;
-    int found;
-    
     /* if we're not editing a command, we can't do any pasting */
     if (cmdtag_ == 0 || !started_reading_cmd_)
         return FALSE;
 
-    /* get access to the clipboard */
-    if (!OpenClipboard(NULL))
-        return FALSE;
-
-    /* see if "text" is on the clipboard */
-    for (fmt = 0, found = FALSE ;; )
-    {
-        /* get the next format - stop if there are no more */
-        fmt = EnumClipboardFormats(fmt);
-        if (fmt == 0)
-            break;
-
-        /* if it's the one we want, note it */
-        if (fmt == CF_TEXT)
-        {
-            found = TRUE;
-            break;
-        }
-    }
-
-    /* done with the clipboard */
-    CloseClipboard();
-
-    /* if we found our format, we can paste */
-    return found;
+    /* we can paste if there's text on the clipboard */
+    return os_clipboard_has_text();
 }
 
 /*
@@ -1461,34 +1418,18 @@ int CHtmlSysWin_win32::can_paste()
  */
 int CHtmlSysWin_win32::do_paste()
 {
-    HANDLE hdl;
-    const char *buf;
-    int disp_change;
-    
     /* if we're not editing a command, we can't do any pasting */
     if (cmdtag_ == 0 || !started_reading_cmd_)
         return FALSE;
 
-    /* get access to the clipboard */
-    if (!OpenClipboard(NULL))
-        return FALSE;
-
-    /* if there's no text in the clipboard, we can't do any pasting */
-    hdl = GetClipboardData(CF_TEXT);
-    if (hdl == 0)
-        return FALSE;
-
-    /* lock the handle to get the text */
-    buf = (const char *)GlobalLock(hdl);
+    /* fetch the clipboard text; nothing to do if there isn't any */
+    char *buf = os_clipboard_get_text();
     if (buf == 0)
         return FALSE;
 
-    /* insert the text from the hglobal */
-    disp_change = insert_text_from_hglobal(buf);
-
-    /* done with the clipboard data */
-    GlobalUnlock(hdl);
-    CloseClipboard();
+    /* insert the text, then release the copy the hook handed us */
+    int disp_change = insert_text_from_hglobal(buf);
+    th_free(buf);
 
     /* update the display if necessary */
     if (disp_change)
@@ -1664,7 +1605,7 @@ int CHtmlSysWin_win32::do_setcursor(HWND hwnd, int /*hittest*/,
     get_moreprompt_rect(&rc);
     if (!prefs_->get_alt_more_style() && more_mode_ && PtInRect(&rc, pt))
     {
-        SetCursor(hand_csr_);
+        os_set_mouse_cursor(OS_MOUSE_CURSOR_HAND);
         ImGui::SetMouseCursor(ImGuiMouseCursor_Hand);
         return TRUE;
     }
@@ -1691,7 +1632,7 @@ int CHtmlSysWin_win32::do_setcursor(HWND hwnd, int /*hittest*/,
     if (txtofs >= sel_start && txtofs < sel_end)
     {
         /* it's over the selection - use an arrow */
-        SetCursor(arrow_cursor_);
+        os_set_mouse_cursor(OS_MOUSE_CURSOR_ARROW);
     }
     else
     {
@@ -1755,7 +1696,7 @@ int CHtmlSysWin_win32::do_setcursor(int x,
     get_moreprompt_rect(&rc);
     if (!prefs_->get_alt_more_style() && more_mode_ && PtInRect(&rc, pt))
     {
-        SetCursor(hand_csr_);
+        os_set_mouse_cursor(OS_MOUSE_CURSOR_HAND);
         ImGui::SetMouseCursor(ImGuiMouseCursor_Hand);
         return TRUE;
     }
@@ -1782,7 +1723,7 @@ int CHtmlSysWin_win32::do_setcursor(int x,
     if (txtofs >= sel_start && txtofs < sel_end)
     {
         /* it's over the selection - use an arrow */
-        SetCursor(arrow_cursor_);
+        os_set_mouse_cursor(OS_MOUSE_CURSOR_ARROW);
     }
     else
     {
@@ -1809,19 +1750,19 @@ void CHtmlSysWin_win32::set_disp_item_cursor(CHtmlDisp *disp,
     {
     case HTML_CSRTYPE_IBEAM:
         /* set the cursor to the I-Beam */
-        SetCursor(ibeam_csr_);
+        os_set_mouse_cursor(OS_MOUSE_CURSOR_IBEAM);
         break;
         
     case HTML_CSRTYPE_HAND:
         /* set the hand cursor */
-        SetCursor(hand_csr_);
+        os_set_mouse_cursor(OS_MOUSE_CURSOR_HAND);
         ImGui::SetMouseCursor(ImGuiMouseCursor_Hand);
         break;
 
     case HTML_CSRTYPE_ARROW:
     default:
         /* use default cursor */
-        SetCursor(arrow_cursor_);
+        os_set_mouse_cursor(OS_MOUSE_CURSOR_ARROW);
         break;
     }
 }
@@ -3031,14 +2972,14 @@ int CHtmlSysWin_win32::execute_find(
     unsigned long first_match_a, unsigned long first_match_b)
 {
     unsigned long sel_start, sel_end, start_ofs;
-    HCURSOR oldcsr;
+    os_cursor_token_t oldcsr;
     int found;
 
     /* get the starting position */
     find_get_start(start_at_top, &sel_start, &sel_end);
 
     /* show the busy cursor while working */
-    oldcsr = SetCursor(wait_cursor_);
+    oldcsr = os_set_mouse_cursor(OS_MOUSE_CURSOR_WAIT);
     ImGuiMouseCursor oldcursor = ImGui::GetMouseCursor();
     ImGui::SetMouseCursor(ImGuiMouseCursor_Wait);
 
@@ -3073,7 +3014,7 @@ int CHtmlSysWin_win32::execute_find(
             || (sel_start == first_match_a && sel_end == first_match_b))
         {
             /* done working; restore the normal cursor */
-            SetCursor(oldcsr);
+            os_restore_mouse_cursor(oldcsr);
             ImGui::SetMouseCursor(oldcursor);
 
             /* we're done */
@@ -3110,7 +3051,7 @@ int CHtmlSysWin_win32::execute_find(
             scroll_to_show_selection();
             
             /* done working; restore the normal cursor */
-            SetCursor(oldcsr);
+            os_restore_mouse_cursor(oldcsr);
             ImGui::SetMouseCursor(oldcursor);
 
             /* 
@@ -7193,11 +7134,11 @@ int CHtmlSysWin_win32::do_formatting(int show_status, int update_win,
     RECT rc;
     int drawn;
     unsigned long win_bottom;
-    HCURSOR old_cursor;
+    os_cursor_token_t old_cursor;
     DWORD start_ticks;
 
     /* note the starting tick count */
-    start_ticks = GetTickCount();
+    start_ticks = os_get_tick_ms();
 
     /* if desired, freeze display updating while we're working */
     if (freeze_display)
@@ -7237,9 +7178,9 @@ int CHtmlSysWin_win32::do_formatting(int show_status, int update_win,
              *   and off during repeated short refreshes.  
              */
             if (show_status && !formatting_msg_
-                && GetTickCount() > start_ticks + 200)
+                && os_get_tick_ms() > start_ticks + 200)
             {
-                old_cursor = SetCursor(wait_cursor_);
+                old_cursor = os_set_mouse_cursor(OS_MOUSE_CURSOR_WAIT);
                 ImGuiMouseCursor oldcursor = ImGui::GetMouseCursor();
                 ImGui::SetMouseCursor(ImGuiMouseCursor_Wait);
                 formatting_msg_ = TRUE;
@@ -7287,9 +7228,9 @@ int CHtmlSysWin_win32::do_formatting(int show_status, int update_win,
          *   repeated short refreshes.  
          */
         if (show_status && !formatting_msg_
-            && GetTickCount() > start_ticks + 200)
+            && os_get_tick_ms() > start_ticks + 200)
         {
-            old_cursor = SetCursor(wait_cursor_);
+            old_cursor = os_set_mouse_cursor(OS_MOUSE_CURSOR_WAIT);
             formatting_msg_ = TRUE;
             if (statusline_ != 0)
                 statusline_->main_part()->source_to_front(this);
@@ -7305,7 +7246,7 @@ int CHtmlSysWin_win32::do_formatting(int show_status, int update_win,
      */
     if (formatting_msg_)
     {
-        SetCursor(old_cursor);
+        os_restore_mouse_cursor(old_cursor);
         formatting_msg_ = FALSE;
         if (statusline_ != 0)
             statusline_->update();
@@ -10746,7 +10687,7 @@ void CHtmlSys_mainwin::start_new_game()
     os_end_html();
 
     /* reset the elapsed time display */
-    starting_ticks_ = GetTickCount();
+    starting_ticks_ = os_get_tick_ms();
     timer_paused_ = FALSE;
 
     /* clear out any previous interrupted input */
@@ -11274,7 +11215,7 @@ int CHtmlSys_mainwin::do_timer(int timer_id)
                 else
                 {
                     /* get the elapsed seconds since the start of the game */
-                    elapsed = (GetTickCount() - starting_ticks_)/1000;
+                    elapsed = (os_get_tick_ms() - starting_ticks_)/1000;
                 }
 
                 /* format into hours, minutes, and seconds */
@@ -13873,10 +13814,10 @@ int CHtmlSys_mainwin::do_command(int notify_code,
 
     case ID_TIMER_RESET:
         /* reset the timer to the current time */
-        starting_ticks_ = GetTickCount();
+        starting_ticks_ = os_get_tick_ms();
 
         /* in case we're paused, reset the pause starting time as well */
-        pause_starting_ticks_ = GetTickCount();
+        pause_starting_ticks_ = os_get_tick_ms();
 
         /* handled */
         return TRUE;
@@ -13894,7 +13835,7 @@ int CHtmlSys_mainwin::do_command(int notify_code,
              *   us where to back-date the timer when we come out of the
              *   pause 
              */
-            pause_starting_ticks_ = GetTickCount();
+            pause_starting_ticks_ = os_get_tick_ms();
         }
         else
         {
@@ -13903,7 +13844,7 @@ int CHtmlSys_mainwin::do_command(int notify_code,
              *   so that subsequent interval calculations will omit the time
              *   we were paused 
              */
-            starting_ticks_ = GetTickCount()
+            starting_ticks_ = os_get_tick_ms()
                               - (pause_starting_ticks_ - starting_ticks_);
         }
 
@@ -14262,7 +14203,7 @@ void CHtmlSys_mainwin::maybe_prune_parse_tree()
 {
     static int check_count = 0;
     unsigned long max_mem = (unsigned long)prefs_->get_mem_text_limit();
-    HCURSOR old_cursor;
+    os_cursor_token_t old_cursor;
 
     /* 
      *   don't do any pruning if the setting is "no limit", which is
@@ -14297,7 +14238,7 @@ void CHtmlSys_mainwin::maybe_prune_parse_tree()
         return;
 
     /* this may take a while - provide a status display */
-    old_cursor = SetCursor(wait_cursor_);
+    old_cursor = os_set_mouse_cursor(OS_MOUSE_CURSOR_WAIT);
     main_panel_->set_pruning_msg(TRUE);
     if (statusline_ != 0)
         statusline_->update();
@@ -14344,7 +14285,7 @@ void CHtmlSys_mainwin::maybe_prune_parse_tree()
     }
 
     /* remove status display */
-    SetCursor(old_cursor);
+    os_restore_mouse_cursor(old_cursor);
     main_panel_->set_pruning_msg(FALSE);
     if (statusline_ != 0)
         statusline_->update();
@@ -19317,7 +19258,7 @@ int CHtmlSysWin_win32_Popup::do_mousemove(int keys, int x, int y)
          *   pop-up menu window), so we need to do this explicitly. 
          */
         if (!do_setcursor(handle_, 0, WM_MOUSEMOVE))
-            SetCursor(arrow_cursor_);
+            os_set_mouse_cursor(OS_MOUSE_CURSOR_ARROW);
 
         /* handled */
         return TRUE;
@@ -19325,7 +19266,7 @@ int CHtmlSysWin_win32_Popup::do_mousemove(int keys, int x, int y)
     else
     {
         /* it's not over our window, so just set a standard arrow cursor */
-        SetCursor(arrow_cursor_);
+        os_set_mouse_cursor(OS_MOUSE_CURSOR_ARROW);
 
         /* we're not hovering over any link */
         set_hover_link(0);
@@ -19346,7 +19287,7 @@ void CHtmlSysWin_win32_Popup::set_disp_item_cursor(
     {
     case HTML_CSRTYPE_HAND:
         /* set the hand cursor */
-        SetCursor(hand_csr_);
+        os_set_mouse_cursor(OS_MOUSE_CURSOR_HAND);
         ImGui::SetMouseCursor(ImGuiMouseCursor_Hand);
         break;
 
@@ -19356,7 +19297,7 @@ void CHtmlSysWin_win32_Popup::set_disp_item_cursor(
          *   which would normally use the I-beam cursor - we can't select
          *   text in this kind of window, so we don't want an I-beam. 
          */
-        SetCursor(arrow_cursor_);
+        os_set_mouse_cursor(OS_MOUSE_CURSOR_ARROW);
         break;
     }
 }

@@ -1330,10 +1330,52 @@ no logic and, on Windows, `tadsplat.h` expands to exactly `<windows.h>`, so a cl
 units is strong evidence the change is inert on Windows; a full build + smoke test on an unrestricted
 machine is still the last confirmation.
 
-**A2 still to do.** The `os_*` call hooks per subsystem (D/E/F/… through B/C/G–M), each following the
-[tadsfont.h](tadsfont.h) / [guifont.cpp](guifont.cpp) precedent: a neutral hook declaration + a Windows
-backend lifted verbatim from the current call site, one landable commit per subsystem, Windows build kept
-byte-identical.
+**A2 in progress.** The `os_*` call hooks per subsystem, each following the [tadsfont.h](tadsfont.h) /
+[guifont.cpp](guifont.cpp) precedent: a neutral hook declaration + a Windows backend lifted verbatim from
+the current call site, one landable commit per subsystem, Windows build kept byte-identical. New pair
+[guios.h](guios.h) (neutral, `windows.h`-free) / [guios_w32.cpp](guios_w32.cpp) (Win32 backend), added to
+`CMakeLists.txt` — a second backend file per platform gets selected there later.
+
+- **F. Shell** — *done.* `os_open_url()` replaces the five inline `ShellExecute(0, "open"/0, url, …)` calls
+  (`process_command()`; the two Help > TADS-on-the-Web menu items; `guitr.cpp`'s check-for-updates prompt;
+  the about-game `http:` link). The `<= 32` failure test moved into the backend and is surfaced as a plain
+  nonzero-on-success return, so the two sites that pop an "unable to open link" box still do.
+- **E. System colors** — *done.* `os_get_sys_color(os_sys_color_t)` (enum: `HIGHLIGHT`, `HIGHLIGHT_TEXT`,
+  `WINDOW`, `WINDOW_TEXT`), Win32 backend forwards to `GetSysColor()`. Routes the eight live *value* reads:
+  the text-selection highlight fg/bg used for ImGui drawing, and the window fg/bg resolved when "Use Windows
+  colors" is on (`set_html_bg_color`, `set_html_text_color`, `note_debug_format_changes`, `map_color`). The
+  `GetSysColorBrush()` / `SetTextColor(dc, …)` / `FillRect(dc, …)` sites in the MORE-prompt and banner-border
+  owner-draw paths are **left as-is** — GDI-brush code with no real DC behind it in guit3, part of the
+  separate native-dead-code sweep, not a neutral color hook.
+- **D. Services GLFW provides** — *done (hooks + Win32 backend; portable impls are M3).*
+  - `os_get_tick_ms()` (Win32: `GetTickCount()`) replaces every `GetTickCount()` call in `htmlgui.cpp` and
+    `tadswin.cpp`; `hos_gui.cpp`'s `os_get_time()` now forwards to it too.
+  - Clipboard: `os_clipboard_set_text()` / `os_clipboard_has_text()` / `os_clipboard_get_text()` (the last
+    returns a `th_malloc()`'d copy). `do_copy()` now builds the CR/LF-expanded text via
+    `copy_to_new_hglobal(GMEM_FIXED, …)` and hands the plain buffer to the hook; `can_paste()` is one
+    `os_clipboard_has_text()` call; `do_paste()` gets a copy from the hook, feeds
+    `insert_text_from_hglobal()`, and `th_free()`s it. `copy_to_new_hglobal()` /
+    `insert_text_from_hglobal()` are untouched — still shared with the OLE drag path (item O). The `has_text`
+    backend uses `IsClipboardFormatAvailable(CF_TEXT)` in place of the old `OpenClipboard` +
+    `EnumClipboardFormats` loop (equivalent, and no clipboard-open needed).
+  - Cursors: `os_set_mouse_cursor(os_mouse_cursor_t)` / `os_restore_mouse_cursor(os_cursor_token_t)`, enum
+    `ARROW`/`IBEAM`/`HAND`/`WAIT`. The four `HCURSOR` members (`ibeam_csr_`/`hand_csr_` on
+    `CHtmlSysWin_win32`, `arrow_cursor_`/`wait_cursor_` on `CTadsWin`), their `LoadCursor()` init and their
+    `DestroyCursor()` teardown are **gone**; every `SetCursor(x_csr_)` became `os_set_mouse_cursor(…)`, and
+    the wait-cursor save/restore pairs use the opaque token. The Win32 backend `LoadCursor()`s on demand
+    (stock cursors are cached by the OS); the hand cursor still prefers the app's `"HAND_CURSOR"` resource
+    (via `GetModuleHandle(NULL)`) and falls back to `IDC_HAND`. The lone `wc.hCursor = LoadCursor(...)` in
+    `tadswin.cpp`'s dead `register_win_class()` is left alone (WNDCLASS plumbing, not cursor-setting).
+
+  **Verified**: clean build **and link** of `guit3` (Device Guard no longer blocks the toolchain here), plus
+  a smoke-test launch on `ditch3.t3` — game renders, menu/toolbar/status bar intact, the status-bar elapsed
+  clock advances (exercises `os_get_tick_ms()`), and the Edit menu shows correct Copy/Paste enable state
+  (exercises `can_copy()` / `os_clipboard_has_text()`). Interactive clipboard round-trip and cursor-shape
+  checks were **not** run — `Add-Type`-based synthetic-input scripting is blocked in this environment (§6) —
+  but those paths are verbatim extractions of the pre-existing Win32 code.
+
+**A2 still to do**: items B (resources), C (settings storage), G (fonts), H (images), I (audio file I/O),
+J (`std::filesystem` dialogs), K (charset), L (`CTadsApp`/keyboard), M (`guimain.cpp` startup/shutdown).
 
 **M3 — fill in portable implementations, cheapest-and-most-certain first.** GLFW-provided services (D) →
 `std::filesystem` dialogs (J) → system colors (E) and shell (F) → settings store (C) → resources (B) →

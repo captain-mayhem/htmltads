@@ -1557,10 +1557,6 @@ protected:
     BtnClick_t mbtn_click;
     BtnClick_t rbtn_click;
 
-    /* basic cursor objects */
-    HCURSOR arrow_cursor_;
-    HCURSOR wait_cursor_;
-
     /* tracking popup */
     int tracking_popup_menu_ : 1;
 

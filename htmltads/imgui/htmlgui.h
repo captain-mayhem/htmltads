@@ -1399,12 +1399,6 @@ protected:
      */
     int caret_enabled_ : 1;
 
-    /* I-beam cursor */
-    HCURSOR ibeam_csr_;
-
-    /* hand cursor */
-    HCURSOR hand_csr_;
-
     /* flag: true -> we're tracking a mouse button click */
     int tracking_mouse_ : 1;
 

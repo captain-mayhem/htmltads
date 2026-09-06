@@ -47,6 +47,9 @@ Modified
 #ifndef TADSFONT_H
 #include "tadsfont.h"
 #endif
+#ifndef GUIOS_H
+#include "guios.h"
+#endif
 #include "imgui/imgui_internal.h"
 
 #ifndef WM_MOUSEWHEEL
@@ -231,7 +234,7 @@ int BtnClick_t::get_click_count(LPARAM lpar)
     int y = HIWORD(lpar);
     int dx = GetSystemMetrics(SM_CXDOUBLECLK);
     int dy = GetSystemMetrics(SM_CYDOUBLECLK);
-    unsigned long curtime = GetTickCount();
+    unsigned long curtime = os_get_tick_ms();
     int cnt;
 
     /*
@@ -367,10 +370,6 @@ CTadsWin::CTadsWin()
     /* no system interface object yet */
     sysifc_ = 0;
 
-    /* load the basic cursors */
-    arrow_cursor_ = LoadCursor(0, IDC_ARROW);
-    wait_cursor_ = LoadCursor(0, IDC_WAIT);
-
     /* not yet tracking a popup menu */
     tracking_popup_menu_ = FALSE;
 
@@ -411,10 +410,6 @@ CTadsWin::CTadsWin()
 
 CTadsWin::~CTadsWin()
 {
-    /* delete basic cursors */
-    DestroyCursor(arrow_cursor_);
-    DestroyCursor(wait_cursor_);
-
     /* delete the system interface object */
     if (sysifc_ != 0)
         delete sysifc_;
@@ -3431,7 +3426,7 @@ void CTadsWinScroll::start_drag_scroll()
     win_set_timer(drag_scroll_timer_id_, 20);
 
     /* set the time for the next drag scroll */
-    drag_scroll_time_ = GetTickCount() + TADSWIN_DRAG_SCROLL_WAIT;
+    drag_scroll_time_ = os_get_tick_ms() + TADSWIN_DRAG_SCROLL_WAIT;
 }
 
 /*
@@ -3448,7 +3443,7 @@ int CTadsWinScroll::maybe_drag_scroll(long x, long y,
      *   if insufficient time has elapsed since the last drag scroll, do
      *   nothing 
      */
-    if (GetTickCount() < drag_scroll_time_)
+    if (os_get_tick_ms() < drag_scroll_time_)
         return FALSE;
 
     /* hide any visual overlay provided by the drop target helper */
