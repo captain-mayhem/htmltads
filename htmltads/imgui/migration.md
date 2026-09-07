@@ -687,10 +687,13 @@ place. MDI (`client_handle_`, `CreateWindowEx("MDICLIENT")`) is untouched — Wo
   `font-face` fallback-list resolution) are untouched. The `EnumFontFamiliesEx()` implementation moved
   verbatim into `guifont.cpp` with its helpers in an anonymous namespace. A Linux/macOS port adds its own
   file (`fcfont.cpp`, `ctfont.cpp`) implementing the same signature.
-- **Deliberately still GDI**: the constructor's `CreateFontIndirect()` + `GetFontData()` trick that resolves
-  a font *name* to its actual TTF/OTF bytes so FreeType has something to parse. **FreeType has no system
-  font matching capability** — this is inherently OS integration, not rendering, and is the same underlying
-  problem as `os_font_family_is_present()`. See §5.4.
+- **Font *name* → font file *bytes* is behind a platform hook**: `os_font_data_for_name(name, weight,
+  italic, charset, &size)` (declared in [tadsfont.h](tadsfont.h)) — the constructor's
+  `CreateFontIndirect()` + `GetFontData()` trick that resolves a font name to its actual TTF/OTF bytes so
+  FreeType has something to parse. **FreeType has no system font matching capability** — this is inherently
+  OS integration, not rendering, the same underlying problem as `os_font_family_is_present()` — so it moved
+  verbatim into [guifont.cpp](guifont.cpp) next to the enumeration one (§5.4/G, done). A Linux/macOS port
+  implements the same signature (`FcFontMatch` then read the matched file; CoreText's font URL).
 
 **Crashes and layout bugs fixed here, all worth remembering:**
 
@@ -1050,7 +1053,7 @@ across the files `guit3` actually compiles, largest first:
 | `foldsel2.cpp`/`guifndlg.cpp`/`iconmenu.cpp` | 20/16/12 | 2351 | Dead — §5.3. |
 | `tadsimg.cpp`/`.h` | 15/8 | 700 | `CreateDIBSection` allocator, `AlphaBlend` gate — §5.4/H. |
 | `tadsvorb.cpp`/`tadswav.cpp`/`mpegamp_w32.cpp`/`tadscsnd.cpp` | 10/8/9/2 | — | Decoder file I/O — §5.4/I. |
-| `tadsfont.cpp`/`guifont.cpp`/`tadsfont.h` | 4/6/3 | 493 | The GDI font-bytes lookup and enumeration — §5.4/G. |
+| `tadsfont.cpp`/`guifont.cpp`/`tadsfont.h` | 4/6/3 | 493 | The GDI font-bytes lookup and enumeration — §5.4/G. **A2 seam done**: both are behind `os_font_data_for_name()` / `os_font_family_is_present()` in `guifont.cpp`; what's left here is the fontconfig/CoreText backends (M3). |
 | `tadsfiledlg.cpp`/`tadsfolderdlg.cpp` | 5/2 | — | `FindFirstFileA`/`PathMatchSpecA` — §5.4/J. |
 
 Two things this table understates:
@@ -1174,17 +1177,25 @@ lookup on Windows and fixed sensible values (or the ImGui style palette) elsewhe
   this through that hook rather than a bare `ShellExecute`, and deep-link to the actual HTML TADS manual
   page instead of the tads.org site root (confirm the URL against tads.org's doc layout).
 
-**G. Fonts — two OS-integration hooks, not a rendering problem.**
+**G. Fonts — two OS-integration hooks, not a rendering problem. A2 seam done (see §5.5).**
 
-- `os_font_family_is_present()` — the hook exists (§3.5); it needs a fontconfig backend (`fcfont.cpp`) and a
-  CoreText one (`ctfont.cpp`).
-- **A second hook is still needed**: font *name* → font file *bytes*, currently the `CreateFontIndirect()` +
-  `GetFontData()` trick in `CTadsFont`'s constructor. FreeType cannot do system font matching. Propose
-  `os_font_data_for_name(name, weight, italic, &bytes, &size)` alongside the presence hook, with the GDI
-  implementation moving into `guifont.cpp` next to the enumeration one. Linux: `FcFontMatch` then read the
-  matched file. macOS: CoreText's font URL.
-- While there: `get_max_chars_in_width()` still opens a DC purely to call `select_font()` so the right ImGui
-  font is pushed (§3.5). Untangle that so no DC is involved.
+- `os_font_family_is_present()` — the hook exists (§3.5); it still needs a fontconfig backend (`fcfont.cpp`)
+  and a CoreText one (`ctfont.cpp`) — that portable half is M3.
+- `os_font_data_for_name(name, weight, italic, charset, &size)` — **done.** Font *name* → font file *bytes*,
+  the `CreateFontIndirect()` + `GetFontData()` trick lifted verbatim out of `CTadsFont`'s constructor into
+  [guifont.cpp](guifont.cpp) next to the enumeration one; the constructor now calls the hook. FreeType
+  cannot do system font matching. Returns an `ImGui::MemAlloc()`'d buffer the caller hands straight to
+  `AddFontFromMemoryTTF()`. The reduced signature (name/weight/italic/charset, not the whole `LOGFONT`) is
+  safe because every live call site fills in a concrete face name before constructing the font
+  (`CHtmlSysWin_win32::get_font()`), so `lfPitchAndFamily` substitution never applies, and height/decoration
+  fields don't change which file `GetFontData()` returns. Linux backend: `FcFontMatch` then read the matched
+  file. macOS: CoreText's font URL.
+- `get_max_chars_in_width()` — **done.** No longer opens a throwaway DC: the old
+  `GetDC`/`select_font`/`ReleaseDC` dance only existed to get the ImGui font pushed, so it now calls the new
+  DC-free `CTadsFont::push_imgui_font()` (the ImGui half of `select()`, factored out; `select(HDC)` now just
+  calls it then `SelectObject`s). The width loop already ran entirely off FreeType-baked glyph advances.
+  `measure_text()` still uses GDI (`GetTextMetrics`/`GetTextExtentPoint32`) and keeps its DC — untangling
+  that is separate.
 
 **H. Images.** `alloc_dib()`'s `CreateDIBSection` is now *only* an allocator (nothing blits the DIB) → plain
 `os_alloc_huge()`. `get_alphablend_proc()`/`is_alpha_supported()` gate whether decoders keep an alpha channel
@@ -1495,7 +1506,28 @@ the current call site, one landable commit per subsystem, Windows build kept byt
   toolbar and status bar intact. The Themes menu's live `enum_subkeys()` path was not click-tested this pass
   (foreground-focus contention with the IDE), but it is the same `RegEnumKeyEx` loop moved unchanged.
 
-**A2 still to do**: items G (fonts), H (images), I (audio file I/O),
+- **G. Fonts** — *done (name→bytes hook + Win32 backend; the fontconfig/CoreText backends and `fcfont.cpp` /
+  `ctfont.cpp` are M3).* Two changes, in [tadsfont.h](tadsfont.h) / [tadsfont.cpp](tadsfont.cpp) /
+  [guifont.cpp](guifont.cpp) / [htmlgui.cpp](htmlgui.cpp):
+  - `os_font_data_for_name(name, weight, italic, charset, &size)` — the `CreateFontIndirect()` +
+    `GetFontData()` block that turned a logical font into TrueType/OpenType file bytes for FreeType, moved
+    verbatim out of `CTadsFont`'s constructor into `guifont.cpp` beside `os_font_family_is_present()`. The
+    constructor still creates `handle_` (`measure_text()`'s GDI metrics path needs it) and now calls the
+    hook for the FreeType bytes. Buffer is `ImGui::MemAlloc()`'d and handed to `AddFontFromMemoryTTF()`
+    (atlas takes ownership), same as before. The `GDI_ERROR`/"System" pseudo-font null-outline check moved
+    into the hook; the constructor just leaves `m_font` null and everything falls back to the atlas default.
+  - `get_max_chars_in_width()` no longer opens a throwaway `HDC` — the `GetDC`/`select_font`/`ReleaseDC`
+    dance only pushed the ImGui font. New DC-free `CTadsFont::push_imgui_font()` (the ImGui half of
+    `select()`, which now calls it then `SelectObject`s) does just that. `measure_text()` is left as-is —
+    it still genuinely uses GDI (`GetTextMetrics`/`GetTextExtentPoint32`).
+
+  **Verified**: clean build + link, `0 warnings` on the three touched TUs, fresh smoke-test launch on
+  `ditch3.t3` — game intro renders with correct proportional-font metrics, bold title, hyperlink layout and
+  line breaking (exercises `os_font_data_for_name()` on every `CHtmlSysFont_win32` and
+  `get_max_chars_in_width()` in the formatter's line-break path), menu/toolbar/status bar intact, no
+  character-map warning, no crash.
+
+**A2 still to do**: items H (images), I (audio file I/O),
 J (`std::filesystem` dialogs), K (charset), L (`CTadsApp`/keyboard), M (`guimain.cpp` startup/shutdown).
 
 **M3 — fill in portable implementations, cheapest-and-most-certain first.** GLFW-provided services (D) →
@@ -1505,8 +1537,8 @@ Each is landable on Windows alone; the pure-portable backends (D/E/F) only *run*
 exists.
 
 **D + E + F done** — [guios_portable.cpp](guios_portable.cpp), see the "M3/D-F — portable backend landed"
-note in §5.4 above. Remaining M3 items (J, C, B, G–L) are untouched, and G–L still need their A2 seam
-built first (§5.4, "A2 still to do").
+note in §5.4 above. Remaining M3 items (J, C, B, G–L) are untouched; G's A2 seam is built (so its M3 work is
+the fontconfig/CoreText backends), and H–L still need their A2 seam built first (§5.4, "A2 still to do").
 
 **M4 — flip the three gates (§5.1) and get a Linux build.** Expect a long tail in `htmlgui.cpp`/`tadswin.cpp`
 that no census can predict; that's the point of doing M1–M3 first, so what the compiler finds is a

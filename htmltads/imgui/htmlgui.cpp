@@ -5873,12 +5873,14 @@ CHtmlPoint CHtmlSysWin_win32::measure_text(CHtmlSysFont *font,
 size_t CHtmlSysWin_win32::get_max_chars_in_width(
     class CHtmlSysFont *font, const textchar_t *str, size_t len, long wid)
 {
-    HDC dc;
-
-    /* get the device context and select the font (also pushes the ImGui font) */
-    dc = GetDC(NULL);
-    select_font(dc, font);
-    ReleaseDC(NULL, dc);
+    /*
+     *   Push the ImGui font this measurement has to match.  Nothing here
+     *   uses GDI - the width loop below runs entirely off the FreeType-baked
+     *   glyph advances - so there is no DC involved: the old
+     *   GetDC/select_font/ReleaseDC dance existed only to get the font
+     *   pushed onto the ImGui font stack.
+     */
+    ((CHtmlSysFont_win32 *)font)->push_imgui_font();
 
     /*
      *   Measure against the same FreeType-rendered font draw_text()/

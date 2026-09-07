@@ -37,6 +37,30 @@ Modified
 int os_font_family_is_present(const char *fontname, size_t len);
 
 /*
+ *   Platform hook: resolve a font family name (with the given weight, italic
+ *   flag and character set) to the raw bytes of the TrueType/OpenType file
+ *   the system's font matcher picks for it.  FreeType can rasterize a font
+ *   file but has no way to *find* one from a name, and neither does ImGui -
+ *   that matching is inherently OS-specific (GDI's CreateFontIndirect() +
+ *   GetFontData() on Windows, fontconfig's FcFontMatch on Linux, CoreText's
+ *   font URL on macOS) - so, like os_font_family_is_present(), it is
+ *   factored out behind this narrow interface.  One implementation per
+ *   OS/GUI backend; today only the Win32 one exists (guifont.cpp).  It is
+ *   called once from CTadsFont's constructor.
+ *
+ *   On success, returns a newly allocated buffer holding the complete font
+ *   file and stores its length in *data_size.  The buffer is allocated with
+ *   ImGui::MemAlloc(): hand it straight to ImFontAtlas::AddFontFromMemoryTTF()
+ *   (which takes ownership and frees it with the atlas) or, if it is not
+ *   used, release it with ImGui::MemFree().  Returns null if the face has no
+ *   scalable outline data (e.g. the legacy "System" bitmap pseudo-font) or
+ *   cannot be resolved at all - the caller then leaves the font unbaked and
+ *   falls back to the atlas default.
+ */
+unsigned char *os_font_data_for_name(const char *name, int weight, int italic,
+                                     int charset, size_t *data_size);
+
+/*
  *   Extended logical font.  We include attributes that we use for rendering,
  *   such as color and superscript, that aren't in a standard windows LOGFONT
  *   structure.  This ensures that we create a unique system font handle for
@@ -82,9 +106,17 @@ public:
     /*
      *   select this font into a DC - returns the old font object, which
      *   should be popped with unselect when the caller is done with this
-     *   font 
+     *   font
      */
     HGDIOBJ select(HDC dc);
+
+    /*
+     *   Push this font's ImGui font onto the ImGui font stack WITHOUT
+     *   touching a GDI DC.  This is the DC-free half of select(): callers
+     *   that only need the right font active for ImGui measuring/drawing
+     *   (never GDI) use this and balance it with ImGui::PopFont().
+     */
+    void push_imgui_font();
 
     /* restore the previous font to a DC */
     void unselect(HDC dc, HGDIOBJ oldfont);

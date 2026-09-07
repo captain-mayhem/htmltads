@@ -40,47 +40,47 @@ CTadsFont::CTadsFont(const CTadsLOGFONT *logfont)
     /* store a canonical copy of the LOGFONT for later comparison */
     copy_canonical_logfont(&logfont_, logfont);
 
-    /* create the system font */
+    /*
+     *   Create the system font handle.  This is still needed on Windows for
+     *   the GDI text-metrics path in CHtmlSysWin_win32::measure_text()
+     *   (GetTextMetrics/GetTextExtentPoint32); everything ImGui draws goes
+     *   through m_font below.
+     */
     handle_ = CreateFontIndirect(&logfont->lf);
     m_font = nullptr;
 
     /*
-     *   Extract the raw font file bytes for the system font we just
-     *   created, so FreeType can rasterize it.  There's no FreeType (or
-     *   other OS-agnostic) equivalent for resolving a font *name* to its
-     *   underlying file data - GDI's font-matching is what finds the
-     *   right font file here, via the desktop DC's currently selected
-     *   font.
+     *   Resolve the logical font to the raw bytes of an actual
+     *   TrueType/OpenType file so FreeType has something to rasterize.
+     *   There is no FreeType (or other OS-agnostic) way to turn a font
+     *   *name* into font-file data - that matching is inherently OS
+     *   integration - so it lives behind the os_font_data_for_name()
+     *   platform hook (declared in tadsfont.h; Win32 backend in
+     *   guifont.cpp, where it is the old CreateFontIndirect()+GetFontData()
+     *   trick moved verbatim).
      */
-    ImGuiIO& io = ImGui::GetIO();
-    HDC deskdc = GetDC(GetDesktopWindow());
-    SelectObject(deskdc, handle_);
-
-    const DWORD size = ::GetFontData(deskdc, 0, 0, NULL, 0);
-    if (size != GDI_ERROR) {
-        char* buffer = (char*)ImGui::MemAlloc(size);
-        if (GetFontData(deskdc, 0, 0, buffer, size) == size) {
-            ImFontConfig font_cfg;
-            strncpy(font_cfg.Name, logfont->lf.lfFaceName, 40);
-            font_cfg.FontLoaderFlags = ImGuiFreeTypeLoaderFlags_Bitmap;
-            m_font = io.Fonts->AddFontFromMemoryTTF(buffer, (int)size, -logfont->lf.lfHeight, &font_cfg, 0);
-        }
-        else {
-            ImGui::MemFree(buffer);
-        }
+    size_t data_size = 0;
+    unsigned char *buffer = os_font_data_for_name(
+        logfont->lf.lfFaceName, (int)logfont->lf.lfWeight,
+        logfont->lf.lfItalic, logfont->lf.lfCharSet, &data_size);
+    if (buffer != nullptr) {
+        ImFontConfig font_cfg;
+        strncpy(font_cfg.Name, logfont->lf.lfFaceName, 40);
+        font_cfg.FontLoaderFlags = ImGuiFreeTypeLoaderFlags_Bitmap;
+        m_font = ImGui::GetIO().Fonts->AddFontFromMemoryTTF(
+            buffer, (int)data_size, -logfont->lf.lfHeight, &font_cfg, 0);
     }
     /*
-     *   else: this font has no scalable outline data for GetFontData() to
+     *   else: this face has no scalable outline data for the hook to
      *   extract - notably the "System" pseudo-font (a legacy bitmap/raster
      *   font, not a real TrueType/OpenType face), which is exactly what
      *   CreateFontIndirect() selects for the literal face name "System"
      *   (e.g. from the Customize Theme dialog's font dropdown).  Leave
-     *   m_font null rather than feeding GDI_ERROR's bit pattern through as
-     *   a bogus size - select()'s ImGui::PushFont(nullptr) is a documented
-     *   no-op that keeps whatever font is already active, so this just
-     *   falls back gracefully instead of asserting/crashing.
+     *   m_font null - select()/get_baked()/push_imgui_font() all fall back
+     *   to the atlas default font rather than pushing null (which
+     *   ImGui::PushFont() treats as "keep the current font", asserting if
+     *   that is itself null).
      */
-    ReleaseDC(GetDesktopWindow(), deskdc);
 }
 
 CTadsFont::~CTadsFont()
@@ -103,22 +103,29 @@ CTadsFont::~CTadsFont()
  */
 HGDIOBJ CTadsFont::select(HDC dc)
 {
-    /*
-     *   If this font has no loaded ImFont (its underlying system font -
-     *   e.g. the "System" pseudo-font - had no scalable outline data for
-     *   FreeType to use; see the constructor), fall back to the atlas's
-     *   default font rather than pushing null.  ImGui::PushFont(nullptr)
-     *   doesn't mean "use the default font" - it means "keep whatever
-     *   font is currently on the context's font stack," which can itself
-     *   still be null this early (e.g. during the very first HTML layout
-     *   pass at startup, before any ImGui::NewFrame() has pushed
-     *   anything), and it asserts rather than tolerating that.
-     *   io.Fonts->Fonts[0] is always valid once past htmlgui.cpp's
-     *   do_create(), which calls AddFontDefault() immediately after
-     *   creating the ImGui context, long before any CTadsFont exists.
-     */
-    ImGui::PushFont(m_font != nullptr ? m_font : ImGui::GetIO().Fonts->Fonts[0]);
+    /* push the ImGui font, then select the GDI font into the DC */
+    push_imgui_font();
     return SelectObject(dc, handle_);
+}
+
+/*
+ *   Push this font onto the ImGui font stack, with no DC / GDI involved.
+ *
+ *   If this font has no loaded ImFont (its underlying system font - e.g.
+ *   the "System" pseudo-font - had no scalable outline data for FreeType to
+ *   use; see the constructor), fall back to the atlas's default font rather
+ *   than pushing null.  ImGui::PushFont(nullptr) doesn't mean "use the
+ *   default font" - it means "keep whatever font is currently on the
+ *   context's font stack," which can itself still be null this early (e.g.
+ *   during the very first HTML layout pass at startup, before any
+ *   ImGui::NewFrame() has pushed anything), and it asserts rather than
+ *   tolerating that.  io.Fonts->Fonts[0] is always valid once past
+ *   htmlgui.cpp's do_create(), which calls AddFontDefault() immediately
+ *   after creating the ImGui context, long before any CTadsFont exists.
+ */
+void CTadsFont::push_imgui_font()
+{
+    ImGui::PushFont(m_font != nullptr ? m_font : ImGui::GetIO().Fonts->Fonts[0]);
 }
 
 /*
