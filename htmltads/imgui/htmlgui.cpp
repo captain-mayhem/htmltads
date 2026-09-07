@@ -1605,7 +1605,6 @@ int CHtmlSysWin_win32::do_setcursor(HWND hwnd, int /*hittest*/,
     get_moreprompt_rect(&rc);
     if (!prefs_->get_alt_more_style() && more_mode_ && PtInRect(&rc, pt))
     {
-        os_set_mouse_cursor(OS_MOUSE_CURSOR_HAND);
         ImGui::SetMouseCursor(ImGuiMouseCursor_Hand);
         return TRUE;
     }
@@ -1632,7 +1631,7 @@ int CHtmlSysWin_win32::do_setcursor(HWND hwnd, int /*hittest*/,
     if (txtofs >= sel_start && txtofs < sel_end)
     {
         /* it's over the selection - use an arrow */
-        os_set_mouse_cursor(OS_MOUSE_CURSOR_ARROW);
+        ImGui::SetMouseCursor(ImGuiMouseCursor_Arrow);
     }
     else
     {
@@ -1696,7 +1695,6 @@ int CHtmlSysWin_win32::do_setcursor(int x,
     get_moreprompt_rect(&rc);
     if (!prefs_->get_alt_more_style() && more_mode_ && PtInRect(&rc, pt))
     {
-        os_set_mouse_cursor(OS_MOUSE_CURSOR_HAND);
         ImGui::SetMouseCursor(ImGuiMouseCursor_Hand);
         return TRUE;
     }
@@ -1723,7 +1721,7 @@ int CHtmlSysWin_win32::do_setcursor(int x,
     if (txtofs >= sel_start && txtofs < sel_end)
     {
         /* it's over the selection - use an arrow */
-        os_set_mouse_cursor(OS_MOUSE_CURSOR_ARROW);
+        ImGui::SetMouseCursor(ImGuiMouseCursor_Arrow);
     }
     else
     {
@@ -1750,19 +1748,18 @@ void CHtmlSysWin_win32::set_disp_item_cursor(CHtmlDisp *disp,
     {
     case HTML_CSRTYPE_IBEAM:
         /* set the cursor to the I-Beam */
-        os_set_mouse_cursor(OS_MOUSE_CURSOR_IBEAM);
+        ImGui::SetMouseCursor(ImGuiMouseCursor_TextInput);
         break;
         
     case HTML_CSRTYPE_HAND:
         /* set the hand cursor */
-        os_set_mouse_cursor(OS_MOUSE_CURSOR_HAND);
         ImGui::SetMouseCursor(ImGuiMouseCursor_Hand);
         break;
 
     case HTML_CSRTYPE_ARROW:
     default:
         /* use default cursor */
-        os_set_mouse_cursor(OS_MOUSE_CURSOR_ARROW);
+        ImGui::SetMouseCursor(ImGuiMouseCursor_Arrow);
         break;
     }
 }
@@ -2979,7 +2976,7 @@ int CHtmlSysWin_win32::execute_find(
     find_get_start(start_at_top, &sel_start, &sel_end);
 
     /* show the busy cursor while working */
-    oldcsr = os_set_mouse_cursor(OS_MOUSE_CURSOR_WAIT);
+    oldcsr = os_set_wait_cursor();
     ImGuiMouseCursor oldcursor = ImGui::GetMouseCursor();
     ImGui::SetMouseCursor(ImGuiMouseCursor_Wait);
 
@@ -3014,7 +3011,7 @@ int CHtmlSysWin_win32::execute_find(
             || (sel_start == first_match_a && sel_end == first_match_b))
         {
             /* done working; restore the normal cursor */
-            os_restore_mouse_cursor(oldcsr);
+            os_restore_cursor(oldcsr);
             ImGui::SetMouseCursor(oldcursor);
 
             /* we're done */
@@ -3051,7 +3048,7 @@ int CHtmlSysWin_win32::execute_find(
             scroll_to_show_selection();
             
             /* done working; restore the normal cursor */
-            os_restore_mouse_cursor(oldcsr);
+            os_restore_cursor(oldcsr);
             ImGui::SetMouseCursor(oldcursor);
 
             /* 
@@ -7179,7 +7176,7 @@ int CHtmlSysWin_win32::do_formatting(int show_status, int update_win,
             if (show_status && !formatting_msg_
                 && os_get_tick_ms() > start_ticks + 200)
             {
-                old_cursor = os_set_mouse_cursor(OS_MOUSE_CURSOR_WAIT);
+                old_cursor = os_set_wait_cursor();
                 ImGuiMouseCursor oldcursor = ImGui::GetMouseCursor();
                 ImGui::SetMouseCursor(ImGuiMouseCursor_Wait);
                 formatting_msg_ = TRUE;
@@ -7229,7 +7226,7 @@ int CHtmlSysWin_win32::do_formatting(int show_status, int update_win,
         if (show_status && !formatting_msg_
             && os_get_tick_ms() > start_ticks + 200)
         {
-            old_cursor = os_set_mouse_cursor(OS_MOUSE_CURSOR_WAIT);
+            old_cursor = os_set_wait_cursor();
             formatting_msg_ = TRUE;
             if (statusline_ != 0)
                 statusline_->main_part()->source_to_front(this);
@@ -7245,7 +7242,7 @@ int CHtmlSysWin_win32::do_formatting(int show_status, int update_win,
      */
     if (formatting_msg_)
     {
-        os_restore_mouse_cursor(old_cursor);
+        os_restore_cursor(old_cursor);
         formatting_msg_ = FALSE;
         if (statusline_ != 0)
             statusline_->update();
@@ -14196,7 +14193,7 @@ void CHtmlSys_mainwin::maybe_prune_parse_tree()
         return;
 
     /* this may take a while - provide a status display */
-    old_cursor = os_set_mouse_cursor(OS_MOUSE_CURSOR_WAIT);
+    old_cursor = os_set_wait_cursor();
     main_panel_->set_pruning_msg(TRUE);
     if (statusline_ != 0)
         statusline_->update();
@@ -14243,7 +14240,7 @@ void CHtmlSys_mainwin::maybe_prune_parse_tree()
     }
 
     /* remove status display */
-    os_restore_mouse_cursor(old_cursor);
+    os_restore_cursor(old_cursor);
     main_panel_->set_pruning_msg(FALSE);
     if (statusline_ != 0)
         statusline_->update();
@@ -19210,7 +19207,7 @@ int CHtmlSysWin_win32_Popup::do_mousemove(int keys, int x, int y)
          *   pop-up menu window), so we need to do this explicitly. 
          */
         if (!do_setcursor(handle_, 0, WM_MOUSEMOVE))
-            os_set_mouse_cursor(OS_MOUSE_CURSOR_ARROW);
+            ImGui::SetMouseCursor(ImGuiMouseCursor_Arrow);
 
         /* handled */
         return TRUE;
@@ -19218,7 +19215,7 @@ int CHtmlSysWin_win32_Popup::do_mousemove(int keys, int x, int y)
     else
     {
         /* it's not over our window, so just set a standard arrow cursor */
-        os_set_mouse_cursor(OS_MOUSE_CURSOR_ARROW);
+        ImGui::SetMouseCursor(ImGuiMouseCursor_Arrow);
 
         /* we're not hovering over any link */
         set_hover_link(0);
@@ -19239,7 +19236,6 @@ void CHtmlSysWin_win32_Popup::set_disp_item_cursor(
     {
     case HTML_CSRTYPE_HAND:
         /* set the hand cursor */
-        os_set_mouse_cursor(OS_MOUSE_CURSOR_HAND);
         ImGui::SetMouseCursor(ImGuiMouseCursor_Hand);
         break;
 
@@ -19247,9 +19243,9 @@ void CHtmlSysWin_win32_Popup::set_disp_item_cursor(
         /* 
          *   Use default cursor.  Note that we use this even for text items,
          *   which would normally use the I-beam cursor - we can't select
-         *   text in this kind of window, so we don't want an I-beam. 
+         *   text in this kind of window, so we don't want an I-beam.
          */
-        os_set_mouse_cursor(OS_MOUSE_CURSOR_ARROW);
+        ImGui::SetMouseCursor(ImGuiMouseCursor_Arrow);
         break;
     }
 }

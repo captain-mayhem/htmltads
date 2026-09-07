@@ -1131,9 +1131,10 @@ byte-identical:
 - `os_load_license_text(size_t *len)` — the `FindResource`/`LoadResource`/`SizeofResource` lookup moved out
   of `tadslicensedlg.cpp`, which is now `<windows.h>`-free.
 
-The `LoadCursor(hand)` item was already handled by D (`os_set_mouse_cursor`); the app icon / `glfwSetWindowIcon`
-is left for M3. **What remains for B is the portable half** — the generated string table and the embedded
-`runtbar.bmp` / `license.txt` byte arrays — scheduled under M3.
+The `LoadCursor(hand)` item was folded into ImGui's own hand cursor when the hover-shape cursors moved to
+`ImGui::SetMouseCursor()` (see D); the app icon / `glfwSetWindowIcon` is left for M3. **What remains for B is
+the portable half** — the generated string table and the embedded `runtbar.bmp` / `license.txt` byte
+arrays — scheduled under M3.
 
 **C. Settings storage.** `CTadsRegistry` (`tadsreg.cpp`, 419 lines) plus direct `RegEnumKeyEx`/`RegDeleteKey`
 in `htmlpref.cpp` (4 sites, theme-profile enumeration and deletion) and `htmlgui.cpp`
@@ -1373,8 +1374,9 @@ the current call site, one landable commit per subsystem, Windows build kept byt
   owner-draw paths are **left as-is** — GDI-brush code with no real DC behind it in guit3, part of the
   separate native-dead-code sweep, not a neutral color hook.
 - **D. Services GLFW provides** — *done (hooks + Win32 backend; portable impls are M3).*
-  - `os_get_tick_ms()` (Win32: `GetTickCount()`) replaces every `GetTickCount()` call in `htmlgui.cpp` and
-    `tadswin.cpp`; `hos_gui.cpp`'s `os_get_time()` now forwards to it too.
+  - `os_get_tick_ms()` (Win32 backend: `GetTickCount()` at the time; replaced with a shared
+    `std::chrono::steady_clock` implementation in M3/D-F, see below) replaces every `GetTickCount()` call in
+    `htmlgui.cpp` and `tadswin.cpp`; `hos_gui.cpp`'s `os_get_time()` now forwards to it too.
   - Clipboard: `os_clipboard_set_text()` / `os_clipboard_has_text()` / `os_clipboard_get_text()` (the last
     returns a `th_malloc()`'d copy). `do_copy()` now builds the CR/LF-expanded text via
     `copy_to_new_hglobal(GMEM_FIXED, …)` and hands the plain buffer to the hook; `can_paste()` is one
@@ -1383,14 +1385,20 @@ the current call site, one landable commit per subsystem, Windows build kept byt
     `insert_text_from_hglobal()` are untouched — still shared with the OLE drag path (item O). The `has_text`
     backend uses `IsClipboardFormatAvailable(CF_TEXT)` in place of the old `OpenClipboard` +
     `EnumClipboardFormats` loop (equivalent, and no clipboard-open needed).
-  - Cursors: `os_set_mouse_cursor(os_mouse_cursor_t)` / `os_restore_mouse_cursor(os_cursor_token_t)`, enum
-    `ARROW`/`IBEAM`/`HAND`/`WAIT`. The four `HCURSOR` members (`ibeam_csr_`/`hand_csr_` on
-    `CHtmlSysWin_win32`, `arrow_cursor_`/`wait_cursor_` on `CTadsWin`), their `LoadCursor()` init and their
-    `DestroyCursor()` teardown are **gone**; every `SetCursor(x_csr_)` became `os_set_mouse_cursor(…)`, and
-    the wait-cursor save/restore pairs use the opaque token. The Win32 backend `LoadCursor()`s on demand
-    (stock cursors are cached by the OS); the hand cursor still prefers the app's `"HAND_CURSOR"` resource
-    (via `GetModuleHandle(NULL)`) and falls back to `IDC_HAND`. The lone `wc.hCursor = LoadCursor(...)` in
-    `tadswin.cpp`'s dead `register_win_class()` is left alone (WNDCLASS plumbing, not cursor-setting).
+  - Cursors: the four `HCURSOR` members (`ibeam_csr_`/`hand_csr_` on `CHtmlSysWin_win32`,
+    `arrow_cursor_`/`wait_cursor_` on `CTadsWin`), their `LoadCursor()` init and their `DestroyCursor()`
+    teardown are **gone**. The hover-shape cursors (arrow / I-beam / hand, set from `do_setcursor()` /
+    `set_disp_item_cursor()` inside the frame loop) are now plain `ImGui::SetMouseCursor(ImGuiMouseCursor_…)`
+    calls — no OS hook, since ImGui already pushes the shape to the platform every `NewFrame`. The one cursor
+    ImGui **can't** do is the busy cursor around long synchronous work (`find_text()`, `do_formatting()`'s
+    format loop, `maybe_prune_parse_tree()`): those block the render loop, so an ImGui request would never be
+    applied.
+    That case keeps an OS hook — `os_set_wait_cursor(void)` / `os_restore_cursor(os_cursor_token_t)` in
+    [guios.h](guios.h) / [guios_w32.cpp](guios_w32.cpp), the Win32 backend `SetCursor(LoadCursor(NULL,
+    IDC_WAIT))` with the opaque save/restore token. The old `os_set_mouse_cursor(os_mouse_cursor_t)` enum
+    API and its `cursor_for()` shape table (including the custom `"HAND_CURSOR"` resource lookup — ImGui's
+    hand cursor supersedes it) are gone. The lone `wc.hCursor = LoadCursor(...)` in `tadswin.cpp`'s dead
+    `register_win_class()` is left alone (WNDCLASS plumbing, not cursor-setting).
 
   **Verified**: clean build **and link** of `guit3` (Device Guard no longer blocks the toolchain here), plus
   a smoke-test launch on `ditch3.t3` — game renders, menu/toolbar/status bar intact, the status-bar elapsed
@@ -1398,6 +1406,36 @@ the current call site, one landable commit per subsystem, Windows build kept byt
   (exercises `can_copy()` / `os_clipboard_has_text()`). Interactive clipboard round-trip and cursor-shape
   checks were **not** run — `Add-Type`-based synthetic-input scripting is blocked in this environment (§6) —
   but those paths are verbatim extractions of the pre-existing Win32 code.
+
+  **M3/D-F — portable backend landed.** The `guios.h` backend is now three files: `guios_common.cpp`
+  (compiled everywhere, for hooks that are the same C++ on every platform) plus one per-platform backend —
+  `CMakeLists.txt` picks it with `if (WIN32) guios_w32.cpp else() guios_portable.cpp` (new
+  [guios_portable.cpp](guios_portable.cpp), the non-Windows counterpart of `guios_w32.cpp`). Implementations:
+
+  - **D tick clock** → `std::chrono::steady_clock`, in **`guios_common.cpp`** — used on Windows too. It is a
+    strict upgrade over `GetTickCount()` (MSVC backs `steady_clock` with `QueryPerformanceCounter`; callers
+    only ever diff two readings). Measured from the first call; as an `unsigned long` it wraps after ~49 days
+    of process uptime where `long` is 32-bit and effectively never where it is 64-bit.
+  - **D clipboard** → `glfwGet/SetClipboardString(NULL, …)` (the window arg is deprecated-and-ignored since
+    GLFW 3.0), CR/LF normalization left to the caller as before. Portable backend only for now — **not**
+    shared, because GLFW's Win32 clipboard is `CF_UNICODETEXT`/UTF-8 while the current `guios_w32.cpp` path
+    and its callers still traffic in `CF_TEXT`/local-codepage `textchar_t` bytes; unifying it belongs with
+    item K (charset), so `guios_w32.cpp` keeps the `OpenClipboard`/`GlobalAlloc` version.
+  - **D wait cursor** → **no-op** on the portable side (GLFW 3.5 has no busy/hourglass standard cursor, and
+    these ops block the frame loop; the "Working…" status-line message still shows, so the cue isn't lost — a
+    real busy cursor needs a bundled image via `glfwCreateCursor()`, deferred with B's other embedded
+    assets). `guios_w32.cpp` keeps the real `SetCursor(LoadCursor(IDC_WAIT))`.
+  - **E system colors** → fixed light-UI values in the same packed `0x00BBGGRR` encoding. Portable only;
+    `guios_w32.cpp` keeps the real `GetSysColor()` read of the user's theme.
+  - **F shell** → `fork()` + `execlp("xdg-open" / "open", url)` (`__APPLE__` picks `open`), reaped with
+    `waitpid`, nonzero on a clean child exit. Portable only; `guios_w32.cpp` keeps `ShellExecute`.
+
+  **Not** in `guios_portable.cpp` yet: item B's `os_load_string()` / `os_load_toolbar_rgba()` /
+  `os_load_license_text()` — so a non-Windows link is still incomplete, which is moot until the
+  `if (NOT WIN32) return()` gate lifts in M4. Windows build re-verified: `guit3` links (`guios_common.cpp` +
+  `guios_w32.cpp` compiled, `guios_portable.cpp` excluded) and launches `ditch3.t3` normally, status-bar
+  elapsed clock advancing (exercises the shared `os_get_tick_ms()`). The portable-only paths can't run until
+  the M4 Linux build.
 
 - **B. Resources** — *done (hooks + Win32 backend; portable string table / embedded byte arrays are M3).*
   Three hooks in [guios.h](guios.h) / [guios_w32.cpp](guios_w32.cpp), backends lifted verbatim:
@@ -1463,7 +1501,12 @@ J (`std::filesystem` dialogs), K (charset), L (`CTadsApp`/keyboard), M (`guimain
 **M3 — fill in portable implementations, cheapest-and-most-certain first.** GLFW-provided services (D) →
 `std::filesystem` dialogs (J) → system colors (E) and shell (F) → settings store (C) → resources (B) →
 fonts (G) → images (H) → audio file I/O (I) → charset (K) → keyboard/accelerators (L).
-Each is landable and testable on Windows alone.
+Each is landable on Windows alone; the pure-portable backends (D/E/F) only *run* once M4's Linux build
+exists.
+
+**D + E + F done** — [guios_portable.cpp](guios_portable.cpp), see the "M3/D-F — portable backend landed"
+note in §5.4 above. Remaining M3 items (J, C, B, G–L) are untouched, and G–L still need their A2 seam
+built first (§5.4, "A2 still to do").
 
 **M4 — flip the three gates (§5.1) and get a Linux build.** Expect a long tail in `htmlgui.cpp`/`tadswin.cpp`
 that no census can predict; that's the point of doing M1–M3 first, so what the compiler finds is a

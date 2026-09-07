@@ -19,17 +19,6 @@
 
 /* ------------------------------------------------------------------------ */
 /*
- *   D. Millisecond tick clock
- */
-
-unsigned long os_get_tick_ms(void)
-{
-    return GetTickCount();
-}
-
-
-/* ------------------------------------------------------------------------ */
-/*
  *   D. Clipboard (plain text)
  */
 
@@ -93,39 +82,16 @@ char *os_clipboard_get_text(void)
 
 /* ------------------------------------------------------------------------ */
 /*
- *   D. Mouse cursor
+ *   D. Wait cursor
  */
 
-static HCURSOR cursor_for(os_mouse_cursor_t which)
+os_cursor_token_t os_set_wait_cursor(void)
 {
-    switch (which)
-    {
-    case OS_MOUSE_CURSOR_IBEAM:
-        return LoadCursor(NULL, IDC_IBEAM);
-
-    case OS_MOUSE_CURSOR_HAND:
-        {
-            /* prefer the app's custom "HAND_CURSOR" resource, as the old
-               inline LoadCursor() did, then fall back to the stock hand */
-            HCURSOR c = LoadCursor(GetModuleHandle(NULL), "HAND_CURSOR");
-            return c != NULL ? c : LoadCursor(NULL, IDC_HAND);
-        }
-
-    case OS_MOUSE_CURSOR_WAIT:
-        return LoadCursor(NULL, IDC_WAIT);
-
-    case OS_MOUSE_CURSOR_ARROW:
-    default:
-        return LoadCursor(NULL, IDC_ARROW);
-    }
+    /* stock cursors are cached by the OS, so LoadCursor() on demand is fine */
+    return (os_cursor_token_t)SetCursor(LoadCursor(NULL, IDC_WAIT));
 }
 
-os_cursor_token_t os_set_mouse_cursor(os_mouse_cursor_t which)
-{
-    return (os_cursor_token_t)SetCursor(cursor_for(which));
-}
-
-void os_restore_mouse_cursor(os_cursor_token_t prev)
+void os_restore_cursor(os_cursor_token_t prev)
 {
     SetCursor((HCURSOR)prev);
 }

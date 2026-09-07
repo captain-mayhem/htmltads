@@ -27,8 +27,8 @@
  *   A free-running millisecond counter for measuring short intervals (link
  *   double-click timing, "Working..." throttling, elapsed play time, drag
  *   auto-scroll pacing).  Only the difference between two readings is
- *   meaningful; the value wraps roughly every 49 days.  Windows:
- *   GetTickCount().
+ *   meaningful.  Implemented once for every platform (guios_common.cpp) on
+ *   std::chrono::steady_clock, measured from the first call.
  */
 unsigned long os_get_tick_ms(void);
 
@@ -57,26 +57,22 @@ char *os_clipboard_get_text(void);
 
 /* ------------------------------------------------------------------------ */
 /*
- *   D. Mouse cursor
+ *   D. Wait cursor
  *
- *   guit3 only ever asks for one of a few semantic shapes.  The wait cursor
- *   is swapped in around long synchronous operations that run outside the
- *   frame loop and restored afterwards, so os_set_mouse_cursor() returns an
- *   opaque token for the previously-active cursor that os_restore_mouse_cursor()
- *   takes back; callers that don't restore just ignore it.
+ *   Every hover-shape cursor (arrow, I-beam, hand) is handled entirely by
+ *   ImGui::SetMouseCursor() from inside the frame loop.  The one case ImGui
+ *   can't cover is the busy cursor shown around long synchronous operations
+ *   (text search, formatting, cache pruning): those block the render loop, so
+ *   an ImGui cursor request - which only takes effect at the next NewFrame -
+ *   would never be applied.  os_set_wait_cursor() sets the OS-level busy
+ *   cursor immediately and returns an opaque token for the previously-active
+ *   cursor; os_restore_cursor() takes that token back once the operation
+ *   completes.  Callers that don't restore just ignore the token.
  */
-enum os_mouse_cursor_t
-{
-    OS_MOUSE_CURSOR_ARROW,
-    OS_MOUSE_CURSOR_IBEAM,
-    OS_MOUSE_CURSOR_HAND,
-    OS_MOUSE_CURSOR_WAIT
-};
-
 typedef void *os_cursor_token_t;
 
-os_cursor_token_t os_set_mouse_cursor(os_mouse_cursor_t which);
-void os_restore_mouse_cursor(os_cursor_token_t prev);
+os_cursor_token_t os_set_wait_cursor(void);
+void os_restore_cursor(os_cursor_token_t prev);
 
 
 /* ------------------------------------------------------------------------ */

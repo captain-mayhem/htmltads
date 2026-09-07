@@ -57,11 +57,12 @@ add_executable(guit3
 	guifont.h
 
 	# guit3 OS-service platform hooks (shell, system colors, clipboard,
-	# cursors, tick clock) - neutral header + one backend per platform,
-	# same shape as guifont.cpp's os_font_family_is_present().  See
-	# migration.md 5.4/D-F and 5.5 (M2/A2).
+	# cursors, tick clock) - neutral header + hooks that are the same code
+	# everywhere (guios_common.cpp) + one per-platform backend selected
+	# below.  Same shape as guifont.cpp's os_font_family_is_present().  See
+	# migration.md 5.4/D-F and 5.5.
 	guios.h
-	guios_w32.cpp
+	guios_common.cpp
 
 	# Persistent settings store (app options, per-theme "profile" trees,
 	# per-game theme associations) - neutral interface + one backend per
@@ -127,6 +128,15 @@ else()
 	# no-op Game Chest stubs, used whenever the real (Web UI-dependent)
 	# implementation isn't built in - see migration.md 5.4/O
 	target_sources(guit3 PRIVATE guinogch.cpp)
+endif()
+
+# guios.h per-platform backend: the Win32 code lifted verbatim, or the
+# portable (GLFW / POSIX) implementation.  guios_common.cpp (above) carries
+# the hooks that are identical on both.  See migration.md 5.4/D-F.
+if (WIN32)
+	target_sources(guit3 PRIVATE guios_w32.cpp)
+else()
+	target_sources(guit3 PRIVATE guios_portable.cpp)
 endif()
 
 target_compile_definitions(guit3 PRIVATE
