@@ -389,7 +389,7 @@ int CHtmlSysSoundDigitized_win32::play_sound(
                             win, done_func, done_func_ctx);
 
     /* if the player couldn't open the file, fail */
-    if (player_->get_file_handle() == INVALID_HANDLE_VALUE)
+    if (player_->get_file_handle() == 0)
     {
         /* flag the error */
         oshtml_dbg_printf("compressed audio player: "

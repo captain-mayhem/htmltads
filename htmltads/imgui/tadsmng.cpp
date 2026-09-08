@@ -94,57 +94,31 @@ int CTadsMng::init_mng_canvas(mng_handle handle, int width, int height)
     width_ = width;
     height_ = height;
 
-    /* 
+    /*
      *   Figure the number of bits per pixel in the canvas.  Always use 8-bit
-     *   RBG format, but optionally include alpha.  If the image has alpha,
-     *   then include alpha if we have Windows AlphaBlend support.
-     *   
-     *   We'll consider the image to have alpha if it has at least one bit of
-     *   transparency information.  
+     *   RGB format, adding an alpha channel when the image carries any
+     *   transparency (at least one bit of alpha depth).
+     *
+     *   htmlt3 only kept the alpha channel when the Win32 AlphaBlend API was
+     *   usable, and otherwise had the MNG decoder pre-composite the alpha
+     *   onto a fixed light-gray background (mng_set_bgcolor()).  guit3 always
+     *   blends through OpenGL, so it always keeps the real alpha channel -
+     *   see migration.md section 5.4/H.
      */
     if (mng_get_alphadepth(handle) != 0)
     {
-        /* 
-         *   The image has alpha; if the platform supports alpha blending,
-         *   then ask for RGBA format, otherwise ask the MNG decoder to apply
-         *   the alpha to a default background.  
-         */
-        if (get_alphablend_proc() != 0)
-        {
-            /* 
-             *   we have AlphaBlend - use 8-bit BGRA format, with
-             *   pre-multiplied alpha 
-             */
-            mng_set_canvasstyle(handle, MNG_CANVAS_BGRA8PM);
+        /* transparent - 8-bit BGRA canvas with pre-multiplied alpha */
+        mng_set_canvasstyle(handle, MNG_CANVAS_BGRA8PM);
 
-            /* this is a 32 bit-per-pixel format */
-            bpp_ = 32;
+        /* this is a 32 bit-per-pixel format */
+        bpp_ = 32;
 
-            /* note that we have alpha */
-            has_alpha_ = TRUE;
-        }
-        else
-        {
-            /* no AlphaBlend - ask for a regular 8-bit BGR format */
-            mng_set_canvasstyle(handle, MNG_CANVAS_BGR8);
-
-            /* this is a 24 bit-per-pixel format */
-            bpp_ = 24;
-            
-            /* 
-             *   Since we can't blend alpha onto the real background, ask the
-             *   MNG decoder to blend the image onto a fixed background when
-             *   constructing the canvas.  Use a light gray background; don't
-             *   use an exact gray level just in case the MNG library
-             *   inherited the same bug PNG has with background color
-             *   rendering (see htmlpng.cpp).  
-             */
-            mng_set_bgcolor(handle, 0xE000, 0xE000, 0xE001);
-        }
+        /* note that we have alpha */
+        has_alpha_ = TRUE;
     }
     else
     {
-        /* there's no alpha in the image - use a 8-bit BGR format */
+        /* opaque - a plain 8-bit BGR canvas is enough */
         mng_set_canvasstyle(handle, MNG_CANVAS_BGR8);
         bpp_ = 24;
     }

@@ -20,8 +20,10 @@ Function
   / halt_playback_buffer() exactly as before.  See
   htmltads/imgui/migration.md section 3.7.
 Notes
-  The file-reading layer still uses a Win32 file HANDLE; porting that to the
-  TADS osfile API is a separate step (see the migration notes).
+  The file-reading layer streams from disk through the portable TADS osfile
+  API (osfoprb / osfrbc / osfseek / osfcls) - there is no Win32 file HANDLE
+  anywhere in the digitized-audio path any more.  See
+  htmltads/imgui/migration.md section 5.4/I.
 Modified
   04/26/02 MJRoberts  - Creation
 */
@@ -36,6 +38,9 @@ Modified
 #include <mutex>
 
 #include "tadsplat.h"
+
+/* TADS OS layer - for osfildef and the portable file-I/O calls */
+#include <os.h>
 
 #include "tadshtml.h"
 #include "tadssnd.h"
@@ -85,8 +90,8 @@ public:
     /* halt playback */
     void stop(int sync);
 
-    /* get our file handle */
-    HANDLE get_file_handle() const { return in_file_; }
+    /* get our open input file (null if the file couldn't be opened) */
+    osfildef *get_file_handle() const { return in_file_; }
 
     /*
      *   CTadsAudioPlayer implementation
@@ -113,9 +118,10 @@ protected:
      *   should open the audio buffer once it knows the playback format,
      *   then decode the data and write it to the playback buffer as it
      *   does.  Data should be written in small chunks to ensure that
-     *   decoding stays ahead of playback.
+     *   decoding stays ahead of playback.  'fp' is our open input file,
+     *   already positioned at the start of the audio stream.
      */
-    virtual void do_decoding(HANDLE hfile, DWORD file_size) = 0;
+    virtual void do_decoding(osfildef *fp, DWORD file_size) = 0;
 
     /*
      *   Get/set the decoder 'stop' flag.  This flag tells us we should stop
@@ -168,7 +174,7 @@ protected:
      *   size in bytes
      */
     CStringBuf fname_;
-    HANDLE in_file_;
+    osfildef *in_file_;
     DWORD in_file_start_;
     DWORD in_file_size_;
 

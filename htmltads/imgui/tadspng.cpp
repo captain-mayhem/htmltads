@@ -74,22 +74,15 @@ int CTadsPng::load_from_png(CHtmlPng *png)
 }
 
 /*
- *   Initialize alpha channel support
+ *   Initialize alpha channel support.
+ *
+ *   Nothing to do in guit3: PNG transparency is composited as a real alpha
+ *   channel through OpenGL on every platform, so the PNG loader always keeps
+ *   alpha.  htmlt3 cleared it here (HTMLPNG_OPT_NO_ALPHA) when the Win32
+ *   AlphaBlend API was unavailable - see migration.md section 5.4/H.  The
+ *   entry point is kept so guimain.cpp's startup call site is undisturbed.
  */
 void CTadsPng::init_alpha_support()
 {
-    /* 
-     *   check for availability of the AlphaBlend function - if it's
-     *   available, we can support alpha blending, otherwise we cannot 
-     */
-    if (get_alphablend_proc() == 0)
-    {
-        /* 
-         *   Alpha blending isn't available on this version of Windows.  Tell
-         *   the PNG loader to discard alpha channel information by blending
-         *   the alpha explicitly during loading into a default background.  
-         */
-        CHtmlPng::set_options(CHtmlPng::get_options() | HTMLPNG_OPT_NO_ALPHA);
-    }
 }
 

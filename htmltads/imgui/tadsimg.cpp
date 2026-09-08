@@ -39,19 +39,6 @@ Modified
 #endif
 #include <imgui/imgui_internal.h>
 
-/* some versions of the win sdk don't have this defined yet */
-#ifndef AC_SRC_ALPHA
-#define AC_SRC_ALPHA 1                                     /* from wingdi.h */
-#endif
-
-
-/*
- *   statics 
- */
-BOOL (WINAPI *CTadsImage::alphablend_proc_)
-    (HDC, int, int, int, int, HDC, int, int, int, int, BLENDFUNCTION) = 0;
-int CTadsImage::linked_alphablend_proc_ = FALSE;
-
 /*
  *   Display content-scale factor - the one guit3 uses everywhere, defined in
  *   CTadsFont (get_screen_dpi() there returns 96 * this).
@@ -71,9 +58,6 @@ CTadsImage::CTadsImage()
 
     /* no mask buffer yet */
     mask_ = 0;
-
-    /* no DIB section yet */
-    dibsect_ = 0;
 
     /* no dimensions yet */
     width_ = 0;
@@ -102,17 +86,17 @@ CTadsImage::~CTadsImage()
  */
 void CTadsImage::delete_image()
 {
-    /* if we have a DIB section, delete it */
-    if (dibsect_ != 0)
-        DeleteObject(dibsect_);
+    /* if we have a pixel buffer, free it */
+    if (pix_ != 0)
+        os_free_huge(pix_);
 
     /* if we have a mask buffer, delete it */
     if (mask_ != 0)
         os_free_huge(mask_);
 
     /* clear members */
-    dibsect_ = 0;
     pix_ = 0;
+    mask_ = 0;
     width_ = 0;
     height_ = 0;
 
@@ -327,12 +311,13 @@ int CTadsImage::create_pix_dword_aligned(const unsigned char *const *src_rows,
     /* figure the number of bytes per pixel of the input */
     in_bytes_per_pixel = in_width_bytes / width_pix;
 
-    /* 
-     *   keep the alpha channel in the output if (a) we have alpha in the
-     *   input (indicated by 32 bits == 4 bytes per pixel), and (b) we have
-     *   support on this version of Windows for the AlphaBlend API 
+    /*
+     *   Keep the alpha channel in the output whenever the input has one
+     *   (indicated by 32 bits == 4 bytes per pixel).  htmlt3 also gated this
+     *   on the Win32 AlphaBlend API being usable; guit3 always blends through
+     *   OpenGL, so alpha is always kept - see migration.md section 5.4/H.
      */
-    has_alpha_ = (in_bytes_per_pixel >= 4 && get_alphablend_proc() != 0);
+    has_alpha_ = (in_bytes_per_pixel >= 4);
 
     /* 
      *   Figure the bytes per pixel of the output:
@@ -458,100 +443,36 @@ int CTadsImage::create_pix_dword_aligned(const unsigned char *const *src_rows,
 }
 
 /*
- *   Allocate our DIB section.  This creates the DIB section object and
- *   allocates the memory for our pixels (storing a pointer to the pixel
- *   memory in pix_).  
+ *   Allocate our pixel buffer.  This used to be a GDI DIB section created
+ *   against the desktop DC; nothing blits it any more (draw() goes through an
+ *   OpenGL texture - see the file header), so it is now just an
+ *   os_alloc_huge() block.  The buffer keeps the DIB memory layout the
+ *   decoders' row walkers and create_texture() still assume: rows bottom-up,
+ *   each row padded to a 4-byte (DWORD) boundary.  See migration.md 5.4/H.
  */
 int CTadsImage::alloc_dib()
 {
-    BITMAPINFO bmi;
-    HDC deskdc;
+    /* use the stored bit depth, or 24-bit RGB if it hasn't been set yet */
+    int bpp = (bpp_ != 0 ? bpp_ : 24);
 
-    /* fill in the bitmap info header */
-    bmi.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
-    bmi.bmiHeader.biWidth = width_;
-    bmi.bmiHeader.biHeight = height_;
-    bmi.bmiHeader.biPlanes = 1;
-    bmi.bmiHeader.biCompression = BI_RGB;
-    bmi.bmiHeader.biSizeImage = 0;
-    bmi.bmiHeader.biXPelsPerMeter = 0;
-    bmi.bmiHeader.biYPelsPerMeter = 0;
-    bmi.bmiHeader.biClrUsed = 0;
-    bmi.bmiHeader.biClrImportant = 0;
-
-    /* 
-     *   set the bits per pixel to the setting stored in the image - if bpp_
-     *   is zero, though, assume we're using 24-bit RGB 
-     */
-    bmi.bmiHeader.biBitCount = (WORD)(bpp_ != 0 ? bpp_ : 24);
-
-    /* get the desktop DC */
-    deskdc = GetDC(GetDesktopWindow());
-
-    /* create the DIB section */
-    dibsect_ = CreateDIBSection(deskdc, &bmi, DIB_RGB_COLORS,
-                                (void **)&pix_, 0, 0);
-
-    /* done with the desktop DC */
-    ReleaseDC(GetDesktopWindow(), deskdc);
-
-    /* indicate failure if the DIB handle is null */
-    return (dibsect_ == 0);
-}
-
-/*
- *   Get the address of the Win32 API function AlphaBlend(), if it's
- *   available.  If we haven't dynamically linked to the routine yet, we'll
- *   do so now.  Returns null if the procedure isn't available.  
- */
-BOOL (WINAPI *CTadsImage::get_alphablend_proc())
-    (HDC, int, int, int, int, HDC, int, int, int, int, BLENDFUNCTION)
-{
-    HMODULE dll;
-
-    /* 
-     *   if we've already linked to the routine (or tried), return the
-     *   address we found previously 
-     */
-    if (linked_alphablend_proc_)
-        return alphablend_proc_;
-
-    /* note that we've now linked to the routine (or at least tried) */
-    linked_alphablend_proc_ = TRUE;
+    /* DWORD-align each row, exactly as CreateDIBSection did */
+    unsigned long row_bytes =
+        ((width_ * (unsigned long)bpp + 31) / 32) * 4;
+    unsigned long siz = row_bytes * height_;
+    if (siz == 0)
+        return 1;
 
     /*
-     *   Check to see if this is Windows 98.  If this is Win98, the
-     *   AlphaBlend function will be available, but will be unusable because
-     *   it's too buggy.  (In particular, the Win98 AlphaBlend routine is
-     *   unable to accept negative destination coordinates, and completely
-     *   ignores source coordinates.  This makes it impossible to perform
-     *   necessary translations during drawing; for example, it makes it
-     *   impossible to draw an image whose top is slightly above the top of
-     *   the window due to scrolling of the page.)
-     *   
-     *   Since we can't use AlphaBlend on Win98, note the OS version, and if
-     *   it is indeed Win98, don't even bother looking to see if AlphaBlend
-     *   is present, and simply indicate that alpha blending is not
-     *   available.  
+     *   Allocate the buffer.  CreateDIBSection zero-filled its memory and a
+     *   few paths (e.g. an interlaced MNG's first frame) read the canvas
+     *   before every pixel has been written, so clear it here too.
      */
-    if (CTadsApp::get_app()->is_win98())
-    {
-        /* we're on Win98 - do not use AlphaBlend */
-        alphablend_proc_ = 0;
-        return 0;
-    }
+    pix_ = (OS_HUGEPTR(unsigned char))os_alloc_huge(siz);
+    if (pix_ == 0)
+        return 1;
+    memset(pix_, 0, siz);
 
-    /* load the DLL containing AlphaBlend */
-    dll = LoadLibrary("Msimg32.dll");
-
-    /* if we found the library, try getting the AlphaBlend address */
-    if (dll != 0)
-        alphablend_proc_ = (BOOL (WINAPI *)
-                            (HDC, int, int, int, int,
-                             HDC, int, int, int, int, BLENDFUNCTION))
-                           GetProcAddress(dll, "AlphaBlend");
-
-    /* return the AlphaBlend address, if we got it */
-    return alphablend_proc_;
+    /* success */
+    return 0;
 }
 

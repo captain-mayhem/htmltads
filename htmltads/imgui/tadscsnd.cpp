@@ -11,7 +11,8 @@ Function
   Streams decoded PCM from a decoder subclass to the sound card.  The output
   path is CTadsAudioDevice (miniaudio); the DirectSound triple-buffer that
   this file used to carry from the Win32 htmlt3 client is gone.  See
-  htmltads/imgui/migration.md section 3.7.
+  htmltads/imgui/migration.md section 3.7.  The input file is read through
+  the portable TADS osfile API (section 5.4/I) - no Win32 file HANDLE.
 Notes
 
 Modified
@@ -22,6 +23,9 @@ Modified
 #include <string.h>
 
 #include <Windows.h>
+
+/* TADS OS layer - portable file I/O (osfoprb / osfseek / osfcls) */
+#include <os.h>
 
 #include "tadshtml.h"
 #include "tadsapp.h"
@@ -75,17 +79,16 @@ CTadsCompressedAudio::CTadsCompressedAudio(
     /* remember the filename */
     fname_.set(fname);
 
-    /* open the file */
-    in_file_ = CreateFile(fname, GENERIC_READ, FILE_SHARE_READ,
-                          0, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, 0);
+    /* open the file for binary reading through the OS layer */
+    in_file_ = osfoprb(fname, OSFTBIN);
 
     /* remember the file starting seek position and size */
     in_file_start_ = file_start_ofs;
     in_file_size_ = file_size;
 
-    /* seek to the start of the stream */
-    if (in_file_ != INVALID_HANDLE_VALUE)
-        SetFilePointer(in_file_, file_start_ofs, 0, FILE_BEGIN);
+    /* seek to the start of the stream (for an embedded resource) */
+    if (in_file_ != 0)
+        osfseek(in_file_, file_start_ofs, OSFSK_SET);
 }
 
 /*
@@ -115,8 +118,8 @@ CTadsCompressedAudio::~CTadsCompressedAudio()
     audio_control_->audioctl_release();
 
     /* close our file */
-    if (in_file_ != INVALID_HANDLE_VALUE)
-        CloseHandle(in_file_);
+    if (in_file_ != 0)
+        osfcls(in_file_);
 }
 
 /*

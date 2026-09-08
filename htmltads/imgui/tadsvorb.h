@@ -36,15 +36,15 @@ public:
     long get_track_len_ms();
 
     /* decode the file */
-    virtual void do_decoding(HANDLE hfile, DWORD file_size);
+    virtual void do_decoding(osfildef *fp, DWORD file_size);
 
     /* get/set our 'stop' flag */
     virtual int get_decoder_stopping() { return stop_flag_; }
     void set_decoder_stopping(int f) { stop_flag_ = f; }
 
 private:
-    /* file information */
-    HANDLE hfile_;
+    /* file information (currently unused - kept for ABI parity) */
+    osfildef *hfile_;
     DWORD file_size_;
 
     /* decoder stop flag */

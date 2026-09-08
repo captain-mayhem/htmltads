@@ -30,45 +30,50 @@ Modified
 #endif
 
 
+/* the one WAVE format tag we treat specially (uncompressed PCM) */
+#define TADS_WAVE_FORMAT_PCM  1
+
 /*
- *   WAV file header information 
+ *   The fields of the RIFF "fmt " chunk that the decoder actually uses.  This
+ *   used to be a Win32 WAVEFORMATEX read straight off disk as a packed struct;
+ *   it is now filled in field by field with explicit little-endian reads
+ *   (osrp2/osrp4), so the code no longer depends on <mmreg.h> struct layout or
+ *   host byte order.  Any format-specific extra bytes after this common
+ *   header are skipped - nothing here consumes them.
+ */
+struct tads_wav_format
+{
+    unsigned short format_tag;         /* wFormatTag        */
+    unsigned short channels;           /* nChannels         */
+    unsigned long  samples_per_sec;    /* nSamplesPerSec    */
+    unsigned long  avg_bytes_per_sec;  /* nAvgBytesPerSec   */
+    unsigned short block_align;        /* nBlockAlign       */
+    unsigned short bits_per_sample;    /* wBitsPerSample    */
+};
+
+/*
+ *   WAV file header information
  */
 struct tads_wav_hdr_info
 {
     tads_wav_hdr_info()
     {
-        wavefmt_ = 0;
+        have_fmt_ = FALSE;
+        memset(&fmt_, 0, sizeof(fmt_));
     }
 
-    ~tads_wav_hdr_info()
-    {
-        if (wavefmt_ != 0)
-            th_free(wavefmt_);
-    }
-
-    /* allocate the format data */
-    void alloc_wavefmt(size_t extra_len)
-    {
-        /* delete any existing structure */
-        if (wavefmt_ != 0)
-            th_free(wavefmt_);
-
-        /* allocate the new space */
-        wavefmt_ = (WAVEFORMATEX *)
-                   th_malloc(sizeof(WAVEFORMATEX) + extra_len);
-    }
-
-    /* 
+    /*
      *   seek position in file of start of byte stream containing the actual
-     *   digitized sound data 
+     *   digitized sound data
      */
     unsigned long data_fpos_;
 
     /* size of the data chunk */
     unsigned long data_len_;
 
-    /* format data */
-    WAVEFORMATEX *wavefmt_;
+    /* the parsed "fmt " chunk (valid only if have_fmt_ is set) */
+    tads_wav_format fmt_;
+    int have_fmt_;
 
     /* flags: we've found the header and data chunks in the file */
     int found_header_ : 1;
@@ -89,7 +94,7 @@ public:
     long get_track_len_ms();
 
     /* decode the file */
-    virtual void do_decoding(HANDLE hfile, DWORD file_size);
+    virtual void do_decoding(osfildef *fp, DWORD file_size);
 
     /* get/set our 'stop' flag */
     virtual int get_decoder_stopping() { return stop_flag_; }
@@ -97,17 +102,17 @@ public:
 
 protected:
     /*
-     *   Read a WAV file header.  This parses the file header and sets up
-     *   the WAVEFORMATEX structure.  Returns zero on success, non-zero on
-     *   failure.  
+     *   Read a WAV file header.  This parses the RIFF header and fills in the
+     *   tads_wav_format fields.  Returns zero on success, non-zero on failure.
      */
-    int read_header(HANDLE hfile, struct tads_wav_hdr_info *info);
+    int read_header(osfildef *fp, struct tads_wav_hdr_info *info);
 
-    /* 
-     *   get a pointer to the WAVEFORMATEX structure (the contents of this
-     *   structure aren't valid until the header has been read in) 
+    /*
+     *   get a pointer to the parsed "fmt " chunk (valid only after the header
+     *   has been read in successfully)
      */
-    WAVEFORMATEX *get_wavefmtex() const { return hdr_.wavefmt_; }
+    const tads_wav_format *get_wave_format() const
+        { return hdr_.have_fmt_ ? &hdr_.fmt_ : 0; }
 
     /* seek to the start of the wave data stream */
     void seek_data_start() { data_read_ofs_ = 0; }
@@ -117,9 +122,9 @@ protected:
      *   on error.  *bytes_read returns with the actual number of bytes
      *   that we read; if we reach the end of the file before the full
      *   request is satisfied, we'll return success with *bytes_read
-     *   indicating that the buffer is only partially filled. 
+     *   indicating that the buffer is only partially filled.
      */
-    int read_data(HANDLE hfile, char *buf, unsigned long bytes_to_read,
+    int read_data(osfildef *fp, char *buf, unsigned long bytes_to_read,
                   unsigned long *bytes_read, int repeat, int *repeats_done);
 
     /* get the total length of the wave data byte stream */

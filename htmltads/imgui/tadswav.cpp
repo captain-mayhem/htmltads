@@ -67,32 +67,30 @@ long CWavW32::get_track_len_ms()
     long ms = 0;
 
     /* open a separate handle to the file, to avoid thread interference */
-    HANDLE hfile = CreateFile(fname_.get(), GENERIC_READ, FILE_SHARE_READ,
-                              0, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, 0);
-    if (hfile == 0)
+    osfildef *fp = osfoprb(fname_.get(), OSFTBIN);
+    if (fp == 0)
         return 0;
 
     /* seek to the start of the sound, in case it's an embedded resource */
-    SetFilePointer(hfile, in_file_start_, 0, FILE_BEGIN);
+    osfseek(fp, in_file_start_, OSFSK_SET);
 
     /* read the header */
     tads_wav_hdr_info hdr;
-    if (!read_header(hfile, &hdr) && hdr.wavefmt_ != 0)
+    if (!read_header(fp, &hdr) && hdr.have_fmt_)
     {
-        /* 
+        /*
          *   The play time is the data length (in bytes) divided by the
          *   average data rate (in bytes per second).  If the average data
          *   rate in the header is zero, and the format is PCM, we can
          *   calculate the average data rate as the samples per second times
          *   the block alignment; for other formats we can't compute this,
-         *   since the data could be compressed.  
+         *   since the data could be compressed.
          */
-        DWORD avg_rate = hdr.wavefmt_->nAvgBytesPerSec;
-        if (avg_rate == 0 && hdr.wavefmt_->wFormatTag == WAVE_FORMAT_PCM)
+        DWORD avg_rate = hdr.fmt_.avg_bytes_per_sec;
+        if (avg_rate == 0 && hdr.fmt_.format_tag == TADS_WAVE_FORMAT_PCM)
         {
             /* it's PCM, so calculate the average based on the sample rate */
-            avg_rate = hdr.wavefmt_->nSamplesPerSec
-                       * hdr.wavefmt_->nBlockAlign;
+            avg_rate = hdr.fmt_.samples_per_sec * hdr.fmt_.block_align;
         }
 
         /* if we have an average data rate, figure the play time */
@@ -107,31 +105,31 @@ long CWavW32::get_track_len_ms()
     }
 
     /* done with the file */
-    CloseHandle(hfile);
+    osfcls(fp);
 
     /* return the time in millisecond */
     return ms;
 }
 
 /*
- *   Decode the file 
+ *   Decode the file
  */
-void CWavW32::do_decoding(HANDLE hfile, DWORD file_size)
+void CWavW32::do_decoding(osfildef *fp, DWORD file_size)
 {
     int repeats_done;
 
     /* not stopping yet */
     stop_flag_ = FALSE;
 
-    /* 
+    /*
      *   read the header - if that fails, or we can't find the format
-     *   structure, we can't read the file 
+     *   information, we can't read the file
      */
-    if (read_header(hfile, &hdr_)
-        || hdr_.wavefmt_ == 0
+    if (read_header(fp, &hdr_)
+        || !hdr_.have_fmt_
         || !hdr_.found_data_
         || !hdr_.found_header_
-        || hdr_.wavefmt_->wBitsPerSample == 0)
+        || hdr_.fmt_.bits_per_sample == 0)
     {
         // $$$ should probably report the error
 
@@ -140,9 +138,9 @@ void CWavW32::do_decoding(HANDLE hfile, DWORD file_size)
     }
 
     /* open the playback buffer */
-    open_playback_buffer(hdr_.wavefmt_->nSamplesPerSec,
-                         hdr_.wavefmt_->wBitsPerSample,
-                         hdr_.wavefmt_->nChannels);
+    open_playback_buffer(hdr_.fmt_.samples_per_sec,
+                         hdr_.fmt_.bits_per_sample,
+                         hdr_.fmt_.channels);
 
     /* start at the beginning of the file */
     data_read_ofs_ = 0;
@@ -153,7 +151,7 @@ void CWavW32::do_decoding(HANDLE hfile, DWORD file_size)
         unsigned long actual;
 
         /* read bytes into our buffer */
-        read_data(hfile, pcmbuf_, sizeof(pcmbuf_), &actual,
+        read_data(fp, pcmbuf_, sizeof(pcmbuf_), &actual,
                   1, &repeats_done);
 
         /* if we didn't get any data, we've reached the end */
@@ -165,42 +163,40 @@ void CWavW32::do_decoding(HANDLE hfile, DWORD file_size)
     }
 
 done: ;
-}    
+}
 
 /*
- *   Read a WAV file header.  Before calling this, seek to the point in
- *   the file where the WAV data begins.  This parses the file header and
- *   sets up the WAVEFORMATEX structure.  Returns zero on success,
- *   non-zero on failure.  
+ *   Read a WAV file header.  Before calling this, seek to the point in the
+ *   file where the WAV data begins.  This parses the RIFF header and fills in
+ *   the tads_wav_format fields, using explicit little-endian reads rather than
+ *   a packed-struct overlay.  Returns zero on success, non-zero on failure.
  */
-int CWavW32::read_header(HANDLE hfile, tads_wav_hdr_info *hdr)
+int CWavW32::read_header(osfildef *fp, tads_wav_hdr_info *hdr)
 {
-    unsigned char buf[12];
+    unsigned char buf[16];
     unsigned long chunklen;
     unsigned long fpos, endpos;
-    DWORD bytes_read;
 
-    /* read the RIFF header, first chunk length, and first chunk type */
-    if (ReadFile(hfile, buf, 12, &bytes_read, 0) == 0 || bytes_read != 12)
+    /* read the RIFF header (12 bytes: "RIFF" + 4-byte length + "WAVE") */
+    if (osfrb(fp, buf, 12))
         return 1;
 
-    /* 
+    /*
      *   check the header - make sure it's a RIFF file whose first chunk
-     *   is WAVE 
+     *   is WAVE
      */
     if (memcmp(buf, "RIFF", 4) != 0 || memcmp(buf + 8, "WAVE", 4) != 0)
         return 2;
 
     /* note our current location */
-    fpos = SetFilePointer(hfile, 0, 0, FILE_CURRENT);
+    fpos = (unsigned long)osfpos(fp);
 
-    /* 
-     *   Get the length of the WAV chunk - it's a 4-byte little-endian value,
-     *   just like our own native unsigned long type (as this is Windows-only
-     *   code reading a Windows file format, what a coincidence!).  From the
-     *   length, calculate the ending location.  
+    /*
+     *   Get the length of the RIFF chunk from buf+4 - a 4-byte little-endian
+     *   value (osrp4 reads it portably).  From the length, calculate the
+     *   ending location; subtract 4 for the "WAVE" tag already consumed.
      */
-    memcpy(&chunklen, buf + 4, 4);
+    chunklen = osrp4(buf + 4);
     endpos = fpos + chunklen - 4;
 
     /* presume we won't find the subchunks */
@@ -211,18 +207,18 @@ int CWavW32::read_header(HANDLE hfile, tads_wav_hdr_info *hdr)
      *   labelled "fmt " with the WAV header, and one labelled "data" with
      *   the PCM byte stream.  We want to read the "fmt " header and
      *   remember the location of the "data" chunk so that we can stream
-     *   it in for playback later.  
+     *   it in for playback later.
      */
     while (fpos < endpos)
     {
         unsigned long sublen;
-            
-        /* read the next chunk header (type code plus 4-byte length) */
-        if (ReadFile(hfile, buf, 8, &bytes_read, 0) == 0 || bytes_read != 8)
+
+        /* read the next chunk header (4-byte tag plus 4-byte LE length) */
+        if (osfrb(fp, buf, 8))
             return 0;
 
         /* get the subchunk length */
-        memcpy(&sublen, buf + 4, 4);
+        sublen = osrp4(buf + 4);
 
         /* note the change in file position */
         fpos += 8;
@@ -230,63 +226,32 @@ int CWavW32::read_header(HANDLE hfile, tads_wav_hdr_info *hdr)
         /* see what we have */
         if (memcmp(buf, "fmt ", 4) == 0)
         {
-            PCMWAVEFORMAT pcmwavefmt;
-            WORD extra_len;
-            
+            unsigned char fmtbuf[16];
+
             /* this is the header chunk */
             hdr->found_header_ = TRUE;
 
-            /* 
-             *   make sure it's big enough to be a WAV file - it has to at
-             *   least contain a PCMWAVEFORMAT structure 
+            /*
+             *   The common part of a "fmt " chunk is 16 bytes (what Win32
+             *   calls PCMWAVEFORMAT).  Non-PCM formats add a 2-byte cbSize
+             *   and cbSize more bytes of format-specific data after that;
+             *   nothing here uses those, and the seek to the next subchunk
+             *   at the bottom of the loop skips over them.
              */
-            if (sublen < sizeof(PCMWAVEFORMAT))
+            if (sublen < 16)
                 return 0;
 
-            /* read the PCMWAVEFORMAT structure */
-            if (ReadFile(hfile, &pcmwavefmt, sizeof(pcmwavefmt),
-                         &bytes_read, 0) == 0
-                || bytes_read != sizeof(pcmwavefmt))
+            if (osfrb(fp, fmtbuf, 16))
                 return 0;
 
-            /* 
-             *   Check the format tag.  If it's WAVE_FORMAT_PCM, it means
-             *   that the PCMWAVEFORMAT structure we just read is the
-             *   whole thing.  Otherwise, read a 16-bit integer which will
-             *   tell us how many extra bytes there are in the structure. 
-             */
-            if (pcmwavefmt.wf.wFormatTag == WAVE_FORMAT_PCM)
-            {
-                /* vanilla PCMWAVEFORMAT structure; nothing extra */
-                extra_len = 0;
-            }
-            else
-            {
-                /* 
-                 *   the next 16-bit word in the file is the number of
-                 *   extra header bytes 
-                 */
-                if (ReadFile(hfile, &extra_len, sizeof(extra_len),
-                             &bytes_read, 0) == 0
-                    || bytes_read != sizeof(extra_len))
-                    return 0;
-            }
-
-            /* allocate space for the header structure */
-            hdr->alloc_wavefmt(extra_len);
-
-            /* copy the PCMWAVEFORMAT base structure */
-            memcpy(hdr->wavefmt_, &pcmwavefmt, sizeof(pcmwavefmt));
-
-            /* read the extra bytes, if there are any */
-            hdr->wavefmt_->cbSize = extra_len;
-            if (extra_len != 0
-                && (ReadFile(hfile,
-                             (((BYTE *)&hdr->wavefmt_->cbSize)
-                              + sizeof(hdr->wavefmt_->cbSize)), extra_len,
-                             &bytes_read, 0) == 0
-                    || bytes_read != extra_len))
-                return 9;
+            /* pull out the fields with explicit little-endian reads */
+            hdr->fmt_.format_tag        = (unsigned short)osrp2(fmtbuf + 0);
+            hdr->fmt_.channels          = (unsigned short)osrp2(fmtbuf + 2);
+            hdr->fmt_.samples_per_sec   = osrp4(fmtbuf + 4);
+            hdr->fmt_.avg_bytes_per_sec = osrp4(fmtbuf + 8);
+            hdr->fmt_.block_align       = (unsigned short)osrp2(fmtbuf + 12);
+            hdr->fmt_.bits_per_sample   = (unsigned short)osrp2(fmtbuf + 14);
+            hdr->have_fmt_ = TRUE;
         }
         else if (memcmp(buf, "data", 4) == 0)
         {
@@ -300,9 +265,9 @@ int CWavW32::read_header(HANDLE hfile, tads_wav_hdr_info *hdr)
             /* ignore other subchunk types */
         }
 
-        /* seek to the start of the next subchunk */
+        /* seek to the start of the next subchunk (chunks are word-aligned) */
         fpos += ((sublen + 1) & ~1);
-        SetFilePointer(hfile, fpos, 0, FILE_BEGIN);
+        osfseek(fp, fpos, OSFSK_SET);
     }
 
     /* if we didn't find either chunk, it's not a valid file */
@@ -314,22 +279,19 @@ int CWavW32::read_header(HANDLE hfile, tads_wav_hdr_info *hdr)
 }
 
 /*
- *   Read from the data section 
+ *   Read from the data section
  */
-int CWavW32::read_data(HANDLE hfile, char *buf,
+int CWavW32::read_data(osfildef *fp, char *buf,
                        unsigned long bytes_to_read,
                        unsigned long *bytes_read,
                        int repeat, int *repeats_done)
 {
-    DWORD actual_read;
-    unsigned long org_bytes_to_read = bytes_to_read;
+    unsigned long actual_read;
     unsigned long avail;
-    unsigned char *org_buf = (unsigned char *)buf;
     unsigned char *cur_buf;
 
     /* seek to the next read position */
-    if (SetFilePointer(hfile, hdr_.data_fpos_ + data_read_ofs_, 0,
-                       FILE_BEGIN) == 0xffffffff)
+    if (osfseek(fp, hdr_.data_fpos_ + data_read_ofs_, OSFSK_SET))
         return 1;
 
     /*
@@ -381,23 +343,21 @@ int CWavW32::read_data(HANDLE hfile, char *buf,
          bytes_to_read != 0 ; )
     {
         unsigned long cur_len;
-        unsigned long cur_actual;
 
         /* read up to the amount left on the current iteration */
         cur_len = bytes_to_read;
         if (cur_len > hdr_.data_len_ - data_read_ofs_)
             cur_len = hdr_.data_len_ - data_read_ofs_;
 
-        /* read this block */
-        if (ReadFile(hfile, cur_buf, cur_len, &cur_actual, 0) == 0
-            || cur_actual != cur_len)
+        /* read this block - a short read here is a failure */
+        if (osfrbc(fp, cur_buf, cur_len) != cur_len)
             return 1;
 
         /* add this read into the total */
-        actual_read += cur_actual;
+        actual_read += cur_len;
 
         /* advance the read offset */
-        data_read_ofs_ += cur_actual;
+        data_read_ofs_ += cur_len;
 
         /* advance the buffer pointer */
         cur_buf += cur_len;
@@ -419,8 +379,7 @@ int CWavW32::read_data(HANDLE hfile, char *buf,
         {
             /* reset to the start of the data stream */
             data_read_ofs_ = 0;
-            if (SetFilePointer(hfile, hdr_.data_fpos_, 0, FILE_BEGIN)
-                == 0xffffffff)
+            if (osfseek(fp, hdr_.data_fpos_, OSFSK_SET))
                 return 1;
         }
     }

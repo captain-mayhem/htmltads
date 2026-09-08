@@ -1051,8 +1051,8 @@ across the files `guit3` actually compiles, largest first:
 | `guimain.cpp` | 21 | 956 | Startup/shutdown — §5.4/M. |
 | `tadsmidi.cpp` | 20 | 2219 | Already `#ifdef _WIN32`. Phase two. |
 | `foldsel2.cpp`/`guifndlg.cpp`/`iconmenu.cpp` | 20/16/12 | 2351 | Dead — §5.3. |
-| `tadsimg.cpp`/`.h` | 15/8 | 700 | `CreateDIBSection` allocator, `AlphaBlend` gate — §5.4/H. |
-| `tadsvorb.cpp`/`tadswav.cpp`/`mpegamp_w32.cpp`/`tadscsnd.cpp` | 10/8/9/2 | — | Decoder file I/O — §5.4/I. |
+| `tadsimg.cpp`/`.h` | 15/8 | 700 | **Win32-free now (M2/A2/H).** `alloc_dib()` is a plain `os_alloc_huge()`; the `AlphaBlend` dynamic-link gate is gone (alpha always on). Dead `<windows.h>`/`tadsapp.h` includes remain per the A1 convention. |
+| `tadsvorb.cpp`/`tadswav.cpp`/`mpegamp_w32.cpp`/`tadscsnd.cpp` | 10/8/9/2 | — | **Win32-file-API-free now (M2/A2/I).** Decoder file I/O is on the portable `osfile` API; the packed WAV struct parse is explicit LE field reads. `getbits.cpp` forked into `imgui/` for the same reason. Dead `<Windows.h>` includes remain (A1 convention). |
 | `tadsfont.cpp`/`guifont.cpp`/`tadsfont.h` | 4/6/3 | 493 | The GDI font-bytes lookup and enumeration — §5.4/G. **A2 seam done**: both are behind `os_font_data_for_name()` / `os_font_family_is_present()` in `guifont.cpp`; what's left here is the fontconfig/CoreText backends (M3). |
 | `tadsfiledlg.cpp`/`tadsfolderdlg.cpp` | 5/2 | — | `FindFirstFileA`/`PathMatchSpecA` — §5.4/J. |
 
@@ -1202,6 +1202,40 @@ lookup on Windows and fixed sensible values (or the ImGui style palette) elsewhe
 at all; off Windows this must simply return true, and arguably should on Windows too since GL always blends.
 `guiimg.cpp`'s `*_win32` class names are cosmetic — rename opportunistically, not as a task.
 
+**A2 seam done — and it needed no `os_*` hook.** Unlike D–G, item H had nothing to *abstract*: the two Win32
+calls just get deleted, because their replacements are already portable or constant.
+[tadsimg.cpp](tadsimg.cpp) / [tadsimg.h](tadsimg.h) / [tadsmng.cpp](tadsmng.cpp) / [tadspng.cpp](tadspng.cpp):
+
+- `CTadsImage::alloc_dib()` no longer creates a GDI DIB section against the desktop DC — it is a plain
+  `os_alloc_huge()` (already a portable `th_malloc()` alias in [hos_gui.h](hos_gui.h)) of
+  `dword_aligned_row_bytes * height_`, `memset` to zero to match `CreateDIBSection`'s zero-fill (an
+  interlaced MNG reads the canvas before every pixel is written). The buffer keeps the DIB memory layout
+  the decoders' row walkers and `create_texture()` still assume (rows bottom-up, each padded to a 4-byte
+  boundary); only the GDI object is gone. The `HBITMAP dibsect_` member and its `DeleteObject()` teardown
+  are removed; `delete_image()` `os_free_huge()`s `pix_` instead. The name `alloc_dib()` is kept — the
+  *layout* it produces really is a DIB layout, and renaming would only churn three call sites.
+- Alpha is now unconditionally supported. `CTadsImage::is_alpha_supported()` returns `TRUE`;
+  `create_pix_dword_aligned()` keeps the alpha channel whenever the input has one
+  (`in_bytes_per_pixel >= 4`), with no `get_alphablend_proc()` gate. The whole dynamic-link machinery —
+  `get_alphablend_proc()`, `alphablend_proc_`, `linked_alphablend_proc_`, the Win98 exclusion, the
+  `LoadLibrary("Msimg32.dll")` — is deleted. `CTadsMng::init_mng_canvas()` always asks libmng for a
+  `MNG_CANVAS_BGRA8PM` canvas when the image has transparency (the old non-AlphaBlend fallback that
+  pre-composited alpha onto a gray `mng_set_bgcolor()` background is gone); `CTadsPng::init_alpha_support()`
+  is now an empty stub (it only ever set `HTMLPNG_OPT_NO_ALPHA`, which never applied any more).
+  `CTadsImage::disable_alpha_support()` (the `-noalphablend` command-line option) is a no-op stub so the
+  option is still accepted and ignored.
+- `tadsimg.cpp` no longer calls any Win32 API (its `<windows.h>` / `tadsapp.h` includes are now dead but
+  left in place per the A1 "`.cpp` files keep `<windows.h>` until M4" convention). `guiimg.cpp`'s cosmetic
+  `*_win32` class names were left alone as the item says.
+
+**Verified**: clean build + link of `guit3`, `0 warnings` on the four touched TUs (plus `htmlgui.cpp`, which
+includes `tadsimg.h`), and a fresh smoke-test launch on `ditch3.t3` — the game's `RETURN to DITCH DAY`
+cover **JPEG renders with correct colors and no corruption**, which exercises the new `alloc_dib()`
+allocator and `create_pix_dword_aligned()` end to end (`create_jpeg()` → `load_from_jpeg()` →
+`create_pix_dword_aligned()` → `alloc_dib()` → `create_texture()`); toolbar, menu bar and status-bar
+elapsed clock intact, no charmap warning, no crash. PNG/MNG transparency was not exercised (nothing in
+`tests/` uses it) but the decoder changes are the same constant-fold of a now-always-true condition.
+
 **I. Audio — the decoders' file I/O is the last real blocker for a non-Windows digitized path.**
 `CreateFile`/`ReadFile`/`SetFilePointer`/`CloseHandle` in `tadscsnd.cpp` (the shared `in_file_`),
 `tadswav.cpp` (header + data reads), `tadsvorb.cpp` (the `datasource_t` callbacks) and `mpegamp_w32.cpp`
@@ -1219,6 +1253,45 @@ it against 0 — it now caches a non-null sentinel (`reinterpret_cast<IDirectSou
 "available" instead of a real COM pointer, and the destructor's `directsound_->Release()` had to be dropped
 accordingly (nothing to release any more). All DirectSound WinAPI calls, the `DSBCAPS_CTRLDEFAULT` macro shim,
 and `#include <dsound.h>` are gone from `htmlgui.cpp`; `dxguid.lib` is gone from `CMakeLists.txt`.
+
+**A2 seam done — the digitized-audio path is Win32-file-API-free.** Every `CreateFile` / `ReadFile` /
+`SetFilePointer` / `CloseHandle` in the WAV, Ogg and MP3 decoders now goes through the portable TADS
+`osfile` API (`osfoprb` / `osfrb` / `osfrbc` / `osfseek` / `osfpos` / `osfcls`, `OSFTBIN`), already linked
+via `tr32h`. `CTadsCompressedAudio::in_file_` is an `osfildef *` (was `HANDLE`) and the shared
+`do_decoding()` virtual takes `osfildef *fp` (was `HANDLE hfile`); a failed open is now `0` rather than
+`INVALID_HANDLE_VALUE`, so `guisnd.cpp`'s post-`create_player()` check compares against `0`.
+
+- **`tadscsnd.cpp`** — the shared `in_file_` open/seek/close (`osfoprb(fname, OSFTBIN)` +
+  `osfseek(..., OSFSK_SET)` + `osfcls`). Header now `#include <os.h>` for `osfildef`.
+- **`tadswav.cpp` / `tadswav.h`** — `get_track_len_ms()`, `read_header()` and `read_data()` on `osfile`.
+  The packed-struct WAV parse is gone: `tads_wav_hdr_info` no longer holds a heap-allocated `WAVEFORMATEX`
+  read straight off disk; it holds a plain `tads_wav_format` whose six fields are filled by explicit
+  little-endian reads (`osrp2` / `osrp4`) of the 16-byte common "fmt " header. Format-specific bytes after
+  that header (the Win32 `cbSize` + extra data) are skipped by the existing seek-to-next-subchunk step —
+  nothing consumed them. `WAVE_FORMAT_PCM` → local `TADS_WAVE_FORMAT_PCM`; the dead `get_wavefmtex()`
+  accessor became `get_wave_format()`.
+- **`tadsvorb.cpp` / `tadsvorb.h`** — the `datasource_t` context and the four `ov_callbacks`
+  (`cb_read`/`cb_seek`/`cb_close`/`cb_tell`) stream from an `osfildef *`; `cb_read` uses `osfrbc`'s
+  returned count, `cb_seek` resolves every `SEEK_*` to an absolute `osfseek(..., OSFSK_SET)` keeping the
+  stream-base offset so an embedded `.ogg` resource still seeks within its own slice. `get_track_len_ms()`
+  likewise. The unused 64-bit `SetFilePointer` high-word dance and `INVALID_SET_FILE_POINTER` shim are
+  gone.
+- **MP3** — `CMpegAmp::in_file` stays declared `HANDLE` in the *shared* `../win32/mpegamp/mpegamp.h`
+  (untouched, so the legacy `htmlt3` build is unaffected). Only **`getbits.cpp` was forked into `imgui/`**
+  (joining the existing `mpegamp_w32.cpp`/`.h` forks): its two file-touching functions, `get_input()` and
+  `dummy_getinfo()`, now call `osfrbc` / `osfseek` on `(osfildef *)in_file`. `mpegamp_w32.h`'s
+  `do_decoding()` stores `in_file = (HANDLE)fp` and `mpegamp_w32.cpp`'s `CMpegTimeParser` opens/seeks/closes
+  through `osfile` with the same cast. `CMakeLists.txt` now compiles `imgui/getbits.cpp` instead of
+  `../win32/mpegamp/getbits.cpp`; the other six shared amp `.cpp`s are unchanged. `osfrbc` can't tell a
+  read error from EOF, so `get_input()`'s former `GETHDR_ERR`-vs-`GETHDR_EOF` split collapses to
+  `GETHDR_EOF` (both paths stop playback gracefully).
+
+**Verified**: clean build + link of `guit3`, `0 warnings` on the five touched/forked TUs (`getbits.cpp`,
+`tadscsnd.cpp`, `tadswav.cpp`, `tadsvorb.cpp`, `mpegamp_w32.cpp`) plus `guisnd.cpp` and `htmlgui.cpp`, and
+a smoke-test launch of `ditch3.t3` (renders and runs normally — no audio regression in startup/shutdown
+wiring). **The decode paths themselves are still unverified by ear** — nothing in `tests/` plays a sound,
+exactly the gap §3.7 / this item's opening note calls out. Sourcing a sound-bearing `.t3`/`.gam` and
+playing one WAV, one Ogg and one MP3 through the new code is the remaining confirmation.
 
 **J. File-system browsing in the ImGui dialogs.** `tadsfiledlg.cpp` and `tadsfolderdlg.cpp` use
 `FindFirstFileA`/`FindNextFileA`/`GetFileAttributesA`/`GetFullPathNameA`/`PathMatchSpecA`. → `std::filesystem`
@@ -1527,8 +1600,11 @@ the current call site, one landable commit per subsystem, Windows build kept byt
   `get_max_chars_in_width()` in the formatter's line-break path), menu/toolbar/status bar intact, no
   character-map warning, no crash.
 
-**A2 still to do**: items H (images), I (audio file I/O),
+**A2 still to do**: items
 J (`std::filesystem` dialogs), K (charset), L (`CTadsApp`/keyboard), M (`guimain.cpp` startup/shutdown).
+(H — images — is done; it turned out to need no `os_*` hook, just deletion of the two Win32 calls, §5.4/H.
+I — audio file I/O — is done: WAV/Ogg/MP3 decoders on the `osfile` API, `getbits.cpp` forked into `imgui/`,
+§5.4/I. Neither needed a portable backend for M3.)
 
 **M3 — fill in portable implementations, cheapest-and-most-certain first.** GLFW-provided services (D) →
 `std::filesystem` dialogs (J) → system colors (E) and shell (F) → settings store (C) → resources (B) →
@@ -1538,7 +1614,9 @@ exists.
 
 **D + E + F done** — [guios_portable.cpp](guios_portable.cpp), see the "M3/D-F — portable backend landed"
 note in §5.4 above. Remaining M3 items (J, C, B, G–L) are untouched; G's A2 seam is built (so its M3 work is
-the fontconfig/CoreText backends), and H–L still need their A2 seam built first (§5.4, "A2 still to do").
+the fontconfig/CoreText backends), H and I are fully done (neither needed an `os_*` hook or a portable
+backend — H removed the Win32 image calls outright, I moved the decoders onto the already-portable `osfile`
+API; §5.4/H, §5.4/I), and J–L still need their A2 seam built first (§5.4, "A2 still to do").
 
 **M4 — flip the three gates (§5.1) and get a Linux build.** Expect a long tail in `htmlgui.cpp`/`tadswin.cpp`
 that no census can predict; that's the point of doing M1–M3 first, so what the compiler finds is a

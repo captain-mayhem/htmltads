@@ -22,15 +22,14 @@ Modified
 #include <math.h>
 #include <io.h>
 
+/* TADS OS layer - portable file I/O (osfrbc / osfseek / osfpos) */
+#include <os.h>
+
 #include "vorbis/codec.h"
 #include "vorbis/vorbisfile.h"
 
 #include "tadscsnd.h"
 #include "tadsvorb.h"
-
-#ifndef INVALID_SET_FILE_POINTER
-#define INVALID_SET_FILE_POINTER -1
-#endif
 
 /* ------------------------------------------------------------------------ */
 /*
@@ -49,28 +48,30 @@ CVorbisW32::CVorbisW32(
 
 /* ------------------------------------------------------------------------ */
 /*
- *   Callbacks for data source operations.  We want to use a Windows native
- *   file handle rather than a stdio FILE object, so we implement our own
- *   set of data source callbacks.  
+ *   Callbacks for data source operations.  We stream from an already-open
+ *   TADS osfile handle (which may be positioned at a non-zero offset, for an
+ *   Ogg resource embedded in a .gam/.t3/resource file), rather than letting
+ *   vorbisfile fopen() a path of its own, so we supply our own data-source
+ *   callbacks.
  */
 
 /* data source - this is the context for our callbacks */
 struct datasource_t
 {
-    datasource_t(HANDLE hf, unsigned long siz)
+    datasource_t(osfildef *f, unsigned long siz)
     {
-        /* remember the file handle */
-        hfile = hf;
+        /* remember the file */
+        hfile = f;
 
         /* remember the starting seek location */
-        stream_base = SetFilePointer(hf, 0, 0, FILE_CURRENT);
+        stream_base = (unsigned long)osfpos(f);
 
-        /* remember the file size */
+        /* remember the stream size */
         stream_size = siz;
     }
-    
-    /* the Windows file handle */
-    HANDLE hfile;
+
+    /* the open input file */
+    osfildef *hfile;
 
     /* 
      *   The seek location of the start of our data stream in the file.  If
@@ -94,62 +95,49 @@ struct datasource_t
 static size_t cb_read(void *buf, size_t siz, size_t cnt, void *fp)
 {
     datasource_t *ds = (datasource_t *)fp;
-    DWORD req;
-    DWORD actual;
 
     /* calculate the size in bytes */
-    req = siz * cnt;
+    unsigned long req = (unsigned long)(siz * cnt);
 
-    /* limit the request to the remaining file size */
-    DWORD cur_ofs = SetFilePointer(ds->hfile, 0, 0, FILE_CURRENT)
-                    - ds->stream_base;
+    /* limit the request to the bytes remaining in our stream */
+    unsigned long cur_ofs =
+        (unsigned long)osfpos(ds->hfile) - ds->stream_base;
     if (cur_ofs + req > ds->stream_size)
         req = ds->stream_size - cur_ofs;
 
-    /* read the data */
-    if (ReadFile(ds->hfile, buf, req, &actual, 0))
-    {
-        /* success - return the number of bytes actually read */
-        return actual;
-    }
-    else
-    {
-        /* failure - return zero */
-        return 0;
-    }
+    /* read the data - osfrbc() returns the number of bytes actually read */
+    return osfrbc(ds->hfile, buf, req);
 }
 
 /* seek */
 static int cb_seek(void *fp, ogg_int64_t offset, int whence)
 {
     datasource_t *ds = (datasource_t *)fp;
-    DWORD mode;
-    LONG result;
+    long pos;
 
-    /* translate the stdio-style mode to the Windows mode */
+    /*
+     *   Translate the stdio-style seek to an absolute position within the
+     *   file, keeping everything relative to our stream base so an embedded
+     *   Ogg resource seeks within its own slice rather than the whole file.
+     */
     switch(whence)
     {
     case SEEK_SET:
-        /* relative to start of file */
-        mode = FILE_BEGIN;
-
-        /* adjust for the stream base, in case we're an embedded resource */
-        offset += ds->stream_base;
+        /* relative to the start of our stream */
+        pos = (long)(ds->stream_base + offset);
         break;
 
     case SEEK_CUR:
-        /* relative to current position */
-        mode = FILE_CURRENT;
+        /* relative to the current position */
+        pos = (long)(osfpos(ds->hfile) + offset);
         break;
-        
+
     case SEEK_END:
-        /* 
-         *   seek to the end of the data stream, NOT the end of the overall
-         *   file - do this by seeking to the stream base plus the data
-         *   stream size 
+        /*
+         *   relative to the end of the data stream, NOT the end of the
+         *   overall file - stream base plus stream size
          */
-        mode = FILE_BEGIN;
-        offset += (ds->stream_base + ds->stream_size);
+        pos = (long)(ds->stream_base + ds->stream_size + offset);
         break;
 
     default:
@@ -157,29 +145,16 @@ static int cb_seek(void *fp, ogg_int64_t offset, int whence)
         return -1;
     }
 
-    /* decompose the destination into 32-bit values */
-    LONG pos_lo = (LONG)offset;
-    LONG pos_hi = (LONG)(offset >> 32);
-
-    /* set the file position */
-    result = SetFilePointer(
-        ds->hfile, pos_lo, pos_hi == 0 ? 0 : &pos_hi, mode);
-
-    /* if there's no high part, decoding the result is easy */
-    if (pos_hi == 0)
-        return (result == INVALID_SET_FILE_POINTER ? -1 : 0);
-
-    /* if there's a high part, we have to check GetLastError */
-    return (result == INVALID_SET_FILE_POINTER && GetLastError() != NO_ERROR
-            ? -1 : 0);
+    /* set the file position (osfseek returns non-zero on error) */
+    return osfseek(ds->hfile, pos, OSFSK_SET) != 0 ? -1 : 0;
 }
 
 /* close */
 static int cb_close(void *fp)
 {
-    /* 
-     *   the file handle is managed externally to the decoder, so we don't
-     *   need to do anything here 
+    /*
+     *   the file is managed externally to the decoder, so we don't need to
+     *   do anything here
      */
     return 0;
 }
@@ -189,11 +164,8 @@ static long cb_tell(void *fp)
 {
     datasource_t *ds = (datasource_t *)fp;
 
-    /* 
-     *   get the current file position by seeking to the current position,
-     *   and adjust it so that it's relative to the stream base address 
-     */
-    return SetFilePointer(ds->hfile, 0, 0, FILE_CURRENT) - ds->stream_base;
+    /* current file position, relative to our stream base */
+    return (long)(osfpos(ds->hfile) - ds->stream_base);
 }
 
 
@@ -211,25 +183,26 @@ long CVorbisW32::get_track_len_ms()
         &cb_close,
         &cb_tell
     };
-    HANDLE hfile;
+    osfildef *fp;
 
-    /* 
+    /*
      *   open the file - use a separate handle so that we don't interfere
-     *   with playback in another thread 
+     *   with playback in another thread
      */
-    hfile = CreateFile(fname_.get(), GENERIC_READ, FILE_SHARE_READ,
-                       0, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, 0);
+    fp = osfoprb(fname_.get(), OSFTBIN);
+    if (fp == 0)
+        return 0;
 
     /* seek to the start of the sound, in case it's an embedded resource */
-    SetFilePointer(hfile, in_file_start_, 0, FILE_BEGIN);
+    osfseek(fp, in_file_start_, OSFSK_SET);
 
     /* set up our vorbis data source on the file */
-    datasource_t ds(hfile, in_file_size_);
+    datasource_t ds(fp, in_file_size_);
 
-    /* final layer: open the vorbisfile descriptor on the stdio FILE */
+    /* final layer: open the vorbisfile descriptor on our data source */
     if (ov_open_callbacks(&ds, &vf, 0, 0, cb) < 0)
     {
-        CloseHandle(hfile);
+        osfcls(fp);
         return 0;
     }
 
@@ -243,7 +216,7 @@ long CVorbisW32::get_track_len_ms()
 
     /* cleanup */
     ov_clear(&vf);
-    CloseHandle(hfile);
+    osfcls(fp);
 
     /* return the time */
     return ms;
@@ -253,7 +226,7 @@ long CVorbisW32::get_track_len_ms()
 /*
  *   Decode a file 
  */
-void CVorbisW32::do_decoding(HANDLE hfile, DWORD file_size)
+void CVorbisW32::do_decoding(osfildef *fp, DWORD file_size)
 {
     OggVorbis_File vf;
     vorbis_info *vi;
@@ -266,7 +239,7 @@ void CVorbisW32::do_decoding(HANDLE hfile, DWORD file_size)
         &cb_tell
     };
     int active_sect;
-    datasource_t ds(hfile, file_size);
+    datasource_t ds(fp, file_size);
 
     /* open the vorbisfile descriptor on our file handle */
     if (ov_open_callbacks(&ds, &vf, 0, 0, cb) < 0)

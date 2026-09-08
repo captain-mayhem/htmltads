@@ -68,28 +68,23 @@ public:
      */
     static float disp_scale();
 
-    /* do we have alpha support? */
-    static int is_alpha_supported()
-    {
-        /* alpha is supported if the AlphaBlend API is avialable */
-        return get_alphablend_proc() != 0;
-    }
+    /*
+     *   Do we have alpha support?  Always yes in guit3: images are drawn as
+     *   straight-alpha RGBA textures and the GL/ImGui blend function always
+     *   applies them.  (htmlt3's answer depended on the dynamically-linked
+     *   Win32 AlphaBlend API being present and non-buggy; the GDI blit path
+     *   it backed is gone - see migration.md section 5.4/H.)
+     */
+    static int is_alpha_supported() { return TRUE; }
 
     /*
-     *   Disable alpha support.  This can be used to prevent alpha blending
-     *   from being enabled even if the platform supports it.  This can be
-     *   useful if alpha blending is too slow for the local hardware, or
-     *   (more likely) if the local implementation is buggy, as it appears to
-     *   be in WineX as of April 2003. 
+     *   Formerly disabled the Win32 AlphaBlend path (for hardware where it
+     *   was too slow, or implementations - WineX in 2003 - where it was
+     *   buggy).  guit3 composites every image through OpenGL, which always
+     *   blends, so there is nothing to disable; kept as a no-op so the
+     *   "-noalphablend" command-line option is still accepted and ignored.
      */
-    static void disable_alpha_support()
-    {
-        /* forget any AlphaBlend API we've found */
-        alphablend_proc_ = 0;
-
-        /* do not attempt to link to the AlphaBlend API */
-        linked_alphablend_proc_ = TRUE;
-    }
+    static void disable_alpha_support() { }
 
 protected:
     /* create the DWORD-aligned version of the image data */
@@ -99,7 +94,13 @@ protected:
                                  unsigned long height,
                                  int *pix_bytes_per_pixel);
 
-    /* allocate the DIB section object */
+    /*
+     *   Allocate the pixel buffer (pix_).  The buffer keeps the classic
+     *   Windows-DIB memory layout - rows bottom-up, each row padded to a
+     *   4-byte boundary - because create_texture() and the decoders' row
+     *   walkers still expect it; it is now just a plain os_alloc_huge()
+     *   block, not a GDI DIB section (nothing blits it any more).
+     */
     int alloc_dib();
 
     /*
@@ -111,10 +112,6 @@ protected:
      */
     void create_texture();
 
-    /* get the AlphaBlend function, if available */
-    static BOOL (WINAPI *get_alphablend_proc())
-        (HDC, int, int, int, int, HDC, int, int, int, int, BLENDFUNCTION);
-
     /* delete any existing image */
     void delete_image();
 
@@ -123,9 +120,6 @@ protected:
 
     /* pixel buffer for the transparency mask, if present */
     OS_HUGEPTR(unsigned char) mask_;
-
-    /* DIB section containing the source image */
-    HBITMAP dibsect_;
 
     /* flag: we have alpha information in the bitmap */
     int has_alpha_;
@@ -139,24 +133,11 @@ protected:
      */
     unsigned long width_bytes_;
 
-    /* 
+    /*
      *   bits per pixel - if this is zero, we assume that the stored image
-     *   has been converted to the same bit depth as the active display 
+     *   has been converted to the same bit depth as the active display
      */
     int bpp_;
-
-    /*
-     *   Address of dynamically-linked win32 API function AlphaBlend().  We
-     *   link to this function at run-time so that we can run on Windows
-     *   versions (95, NT4) that don't provide the function - on those
-     *   platforms, we'll fail to find the function and fall back to simple
-     *   transparency without alpha blending.  
-     */
-    static BOOL (WINAPI *alphablend_proc_)
-        (HDC, int, int, int, int, HDC, int, int, int, int, BLENDFUNCTION);
-
-    /* flag: we've attempted to link to AlphaBlend() */
-    static int linked_alphablend_proc_;
 
     uint32_t m_texture;
 };

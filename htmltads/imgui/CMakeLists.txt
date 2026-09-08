@@ -37,13 +37,14 @@ add_executable(guit3
 	../win32/mpegamp/layer3.cpp
 	../win32/mpegamp/layer2.cpp
 	../win32/mpegamp/getdata.cpp
-	../win32/mpegamp/getbits.cpp
 	../win32/mpegamp/huffman.cpp
 	../win32/mpegamp/transform.cpp
-	# guit3-local fork of the amp MPEG driver: same as
-	# ../win32/mpegamp/mpegamp_w32.cpp but with the DirectSound/HWND params
-	# dropped from CMpegAmpW32's ctor (miniaudio output path).  See
-	# migration.md 3.7.  The rest of win32/mpegamp/* is unchanged and shared.
+	# guit3-local forks of the amp MPEG driver.  mpegamp_w32.cpp/.h drop the
+	# DirectSound/HWND ctor params (miniaudio output path, migration.md 3.7);
+	# getbits.cpp routes its two file-I/O functions through the portable TADS
+	# osfile API instead of ReadFile/SetFilePointer (migration.md 5.4/I).
+	# The rest of win32/mpegamp/* is unchanged and shared with htmlt3.
+	getbits.cpp
 	mpegamp_w32.cpp
 	mpegamp_w32.h
 

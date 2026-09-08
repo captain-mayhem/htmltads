@@ -12,13 +12,14 @@ Function
 Notes
   Derived from amp 0.7.6 for use in HTML TADS on Windows 95/98/NT.
 
-  guit3 fork of win32/mpegamp/mpegamp_w32.cpp.  The only difference from the
-  legacy Win32 version is CMpegAmpW32's constructor: guit3's
+  guit3 fork of win32/mpegamp/mpegamp_w32.cpp.  Two differences from the
+  legacy Win32 version: (1) CMpegAmpW32's constructor - guit3's
   CTadsCompressedAudio streams through CTadsAudioDevice (miniaudio) rather
   than a DirectSound buffer, so the IDirectSound* / HWND parameters are gone
-  from the whole digitized-audio ctor chain.  See
-  htmltads/imgui/migration.md section 3.7.  Keep everything else in this file
-  in sync with win32/mpegamp/mpegamp_w32.cpp.
+  from the whole digitized-audio ctor chain (migration.md 3.7); (2) the
+  CMpegTimeParser file I/O goes through the portable TADS osfile API instead
+  of CreateFile / SetFilePointer / CloseHandle (migration.md 5.4/I).  Keep
+  everything else in this file in sync with win32/mpegamp/mpegamp_w32.cpp.
 Modified
   10/24/98 MJRoberts  - Creation
 */
@@ -29,6 +30,9 @@ Modified
 
 #include <Windows.h>
 #include <dsound.h>
+
+/* TADS OS layer - portable file I/O for CMpegTimeParser */
+#include <os.h>
 
 #include "tadshtml.h"
 #include "mpegamp_w32.h"
@@ -336,13 +340,17 @@ void CMpegAmp::dump(int *)
 CMpegTimeParser::CMpegTimeParser(const char *fname,
                                  DWORD file_start_ofs, DWORD file_len)
 {
-    /* open the file */
-    in_file = CreateFile(fname, GENERIC_READ, FILE_SHARE_READ,
-                         0, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, 0);
+    /*
+     *   Open the file through the OS layer.  CMpegAmp::in_file is a HANDLE
+     *   (void*) in the shared mpegamp.h; we stash the osfildef* there and the
+     *   forked getbits.cpp casts it back for the reads.  osfoprb() returns
+     *   null on failure.  See migration.md section 5.4/I.
+     */
+    in_file = (HANDLE)osfoprb(fname, OSFTBIN);
 
     /* if we got a file, seek to the start */
     if (in_file != 0)
-        SetFilePointer(in_file, file_start_ofs, 0, FILE_BEGIN);
+        osfseek((osfildef *)in_file, file_start_ofs, OSFSK_SET);
 
     /* remember the available size */
     file_bytes_avail = file_len;
@@ -356,14 +364,14 @@ CMpegTimeParser::CMpegTimeParser(const char *fname,
 
 CMpegTimeParser::~CMpegTimeParser()
 {
-    if (in_file != INVALID_HANDLE_VALUE)
-        CloseHandle(in_file);
+    if (in_file != 0)
+        osfcls((osfildef *)in_file);
 }
 
 long CMpegTimeParser::get_play_time_ms()
 {
     /* if we haven't done a decoding pass yet, do it now */
-    if (!did_decode_ && in_file != INVALID_HANDLE_VALUE)
+    if (!did_decode_ && in_file != 0)
     {
         decodeMPEG();
         did_decode_ = TRUE;

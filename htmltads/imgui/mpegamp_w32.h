@@ -64,10 +64,15 @@ public:
 
 protected:
     /* decode a file */
-    void do_decoding(HANDLE hfile, DWORD file_size)
+    void do_decoding(osfildef *fp, DWORD file_size)
     {
-        /* remember the file in the decoder's member variables */
-        in_file = hfile;
+        /*
+         *   Stash the file in the decoder's member variables.  CMpegAmp::in_file
+         *   is declared HANDLE (void*) in the shared mpegamp.h; guit3's forked
+         *   getbits.cpp casts it back to osfildef* for the actual reads.  See
+         *   migration.md section 5.4/I.
+         */
+        in_file = (HANDLE)fp;
         file_bytes_avail = file_size;
 
         /* we're set up now, so decode the file */
