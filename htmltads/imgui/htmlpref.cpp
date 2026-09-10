@@ -22,7 +22,6 @@ Modified
 
 #include <windows.h>
 #include <commctrl.h>
-#include <shlwapi.h>
 #include <stdio.h>
 
 #ifndef TADSHTML_H
@@ -446,7 +445,9 @@ void CHtmlPreferences::init_standard_profiles()
     if (CTadsApp::get_my_docs_path(fname, sizeof(fname)))
     {
         /* build the full filename */
-        PathAppend(fname, "TADS\\GameChest.txt");
+        char dir[OSFNMAX];
+        strcpy(dir, fname);
+        os_build_full_path(fname, sizeof(fname), dir, "TADS\\GameChest.txt");
     }
     else
     {
@@ -1236,7 +1237,7 @@ void CHtmlPreferences::opt_render_start_tab()
         textchar_t fname[OSFNMAX];
         strcpy(fname, opt_init_folder_);
         if (fname[0] == '\0')
-            GetCurrentDirectory(sizeof(fname), fname);
+            os_get_abs_filename(fname, sizeof(fname), ".");
 
         CTadsFolderDialog::open("Initial \"Open\" Folder:",
             "Select Initial Folder", fname,

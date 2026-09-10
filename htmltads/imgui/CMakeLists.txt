@@ -174,7 +174,6 @@ target_link_libraries(guit3 PRIVATE
 	Wininet.lib
 	Mpr.lib
 	Version.lib
-	Shlwapi.lib
 )
 
 target_link_libraries(guit3 PRIVATE

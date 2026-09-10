@@ -16066,8 +16066,9 @@ void CHtmlSys_mainwin::notify_load_game(const char *fname)
          */
         standalone_exe_ = (stricmp(fname, exe_name) == 0);
 
-        /* get the full path */
-        GetFullPathName(fname, sizeof(fullname), fullname, &root_name);
+        /* get the full path, and a pointer to its root filename portion */
+        os_get_abs_filename(fullname, sizeof(fullname), fname);
+        root_name = os_get_root_name(fullname);
 
         /* set the open-file path to the game's path */
         CTadsApp::get_app()->set_openfile_dir(fullname);

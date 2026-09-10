@@ -4,17 +4,19 @@
  *   See tadsfolderdlg.h for the overall design. This file holds the
  *   dialog's entire working state as file-local statics, since only one
  *   instance can ever be showing at a time (it's a modal). The directory-
- *   scanning/navigation logic (FindFirstFileA/FindNextFileA, GetFullPathNameA
- *   resolution, the editable path bar, the "Up" button) mirrors
- *   CTadsFileDialog (tadsfiledlg.cpp) closely, minus the filename field and
- *   file-type filter and with the listing restricted to directories only.
+ *   scanning/navigation logic (os_open_dir()/os_read_dir(),
+ *   os_get_abs_filename() resolution, the editable path bar, the "Up"
+ *   button) mirrors CTadsFileDialog (tadsfiledlg.cpp) closely, minus the
+ *   filename field and file-type filter and with the listing restricted to
+ *   directories only.
  */
 
-#include <windows.h>
 #include <vector>
 #include <string>
 #include <cstring>
 #include <algorithm>
+
+#include <os.h>
 
 #include <imgui/imgui.h>
 
@@ -40,7 +42,7 @@ namespace
         int sel_idx = -1;
         bool need_refresh = false;
 
-        char path_buf[MAX_PATH] = { 0 };
+        char path_buf[OSFNMAX] = { 0 };
 
         std::string error_msg;
 
@@ -81,14 +83,16 @@ namespace
     /* navigate to a (possibly relative) directory; defers the listing refresh */
     void navigate_to(const std::string &dir)
     {
-        char full[MAX_PATH];
-        if (!dir.empty() && GetFullPathNameA(dir.c_str(), MAX_PATH, full, 0) != 0)
+        char full[OSFNMAX];
+        if (!dir.empty()
+            && os_get_abs_filename(full, sizeof(full), dir.c_str()))
             s_dlg.cur_dir = full;
         else
             s_dlg.cur_dir = dir;
 
-        /* strip a trailing backslash, except for a bare drive root ("C:\") */
-        if (s_dlg.cur_dir.size() > 3 && s_dlg.cur_dir.back() == '\\')
+        /* strip a trailing separator, except for a bare root ("C:\" or "/") */
+        if (s_dlg.cur_dir.size() > 3
+            && s_dlg.cur_dir.back() == OSPATHCHAR)
             s_dlg.cur_dir.pop_back();
 
         s_dlg.need_refresh = true;
@@ -102,32 +106,33 @@ namespace
         s_dlg.sel_idx = -1;
         s_dlg.need_refresh = false;
 
-        std::string pattern = s_dlg.cur_dir;
-        if (!pattern.empty() && pattern.back() != '\\')
-            pattern += '\\';
-        pattern += "*";
-
-        WIN32_FIND_DATAA fd;
-        HANDLE h = FindFirstFileA(pattern.c_str(), &fd);
-        if (h != INVALID_HANDLE_VALUE)
+        osdirhdl_t dh;
+        if (os_open_dir(s_dlg.cur_dir.c_str(), &dh))
         {
-            do
+            char fname[OSFNMAX];
+            while (os_read_dir(dh, fname, sizeof(fname)))
             {
-                if (strcmp(fd.cFileName, ".") == 0)
+                /* skip the "." self-link, but keep ".." for navigating up */
+                if (os_is_special_file(fname) == OS_SPECFILE_SELF)
                     continue;
 
-                if ((fd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) == 0)
+                /* directories only */
+                char full[OSFNMAX];
+                os_build_full_path(full, sizeof(full),
+                                   s_dlg.cur_dir.c_str(), fname);
+                unsigned long fmode = 0;
+                if (!osfmode(full, TRUE, &fmode, 0)
+                    || (fmode & OSFMODE_DIR) == 0)
                     continue;
 
-                s_dlg.entries.push_back(fd.cFileName);
+                s_dlg.entries.push_back(fname);
             }
-            while (FindNextFileA(h, &fd));
-            FindClose(h);
+            os_close_dir(dh);
         }
 
         std::sort(s_dlg.entries.begin(), s_dlg.entries.end(),
             [](const std::string &a, const std::string &b)
-            { return _stricmp(a.c_str(), b.c_str()) < 0; });
+            { return stricmp(a.c_str(), b.c_str()) < 0; });
     }
 
     /* close the dialog and invoke the completion callback, if any */
@@ -195,14 +200,15 @@ namespace
         /* "Up" button + editable current-directory path */
         if (ImGui::Button("Up"))
         {
-            size_t slash = s_dlg.cur_dir.find_last_of('\\');
-            if (slash != std::string::npos)
-            {
-                std::string parent = (slash <= 2)
-                    ? s_dlg.cur_dir.substr(0, 3)
-                    : s_dlg.cur_dir.substr(0, slash);
-                navigate_to(parent);
-            }
+            /*
+             *   Combine the current directory with ".." and let the osifc
+             *   layer canonicalize it; at a filesystem root this leaves the
+             *   root unchanged.
+             */
+            char parent[OSFNMAX];
+            os_build_full_path(parent, sizeof(parent),
+                               s_dlg.cur_dir.c_str(), "..");
+            navigate_to(parent);
         }
         ImGui::SameLine();
         strncpy(s_dlg.path_buf, s_dlg.cur_dir.c_str(),
@@ -240,7 +246,10 @@ namespace
                 s_dlg.sel_idx = i;
                 if (ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left))
                 {
-                    navigate_to(s_dlg.cur_dir + "\\" + name);
+                    char sub[OSFNMAX];
+                    os_build_full_path(sub, sizeof(sub),
+                                       s_dlg.cur_dir.c_str(), name.c_str());
+                    navigate_to(sub);
                     break;
                 }
             }
@@ -296,9 +305,10 @@ void CTadsFolderDialog::open(const char *prompt, const char *caption,
         dir = initial_folder;
     else
     {
-        char cwd[MAX_PATH];
-        GetCurrentDirectoryA(sizeof(cwd), cwd);
-        dir = cwd;
+        /* default to the current working directory, in absolute form */
+        char cwd[OSFNMAX];
+        if (os_get_abs_filename(cwd, sizeof(cwd), "."))
+            dir = cwd;
     }
     navigate_to(dir);
 

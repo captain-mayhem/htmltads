@@ -1293,12 +1293,25 @@ wiring). **The decode paths themselves are still unverified by ear** — nothing
 exactly the gap §3.7 / this item's opening note calls out. Sourcing a sound-bearing `.t3`/`.gam` and
 playing one WAV, one Ogg and one MP3 through the new code is the remaining confirmation.
 
-**J. File-system browsing in the ImGui dialogs.** `tadsfiledlg.cpp` and `tadsfolderdlg.cpp` use
-`FindFirstFileA`/`FindNextFileA`/`GetFileAttributesA`/`GetFullPathNameA`/`PathMatchSpecA`. → `std::filesystem`
-(C++17) plus a small glob matcher to replace `PathMatchSpecA`. Self-contained, two files, no interface
-change, and it removes `Shlwapi.lib`. Also fix the path separator assumption in `CTadsFileDialog::open()`
-(`strrchr('\\')`, §3.3). Related: `SetCurrentDirectory`/`GetFullPathName` in `htmlgui.cpp:14237`/`:16136` and
-`GetCurrentDirectory` ×3 in `htmlpref.cpp`.
+**J. File-system browsing in the ImGui dialogs — done (see §5.5).** `tadsfiledlg.cpp` and
+`tadsfolderdlg.cpp` used `FindFirstFileA`/`FindNextFileA`/`GetFileAttributesA`/`GetFullPathNameA`/
+`GetCurrentDirectoryA`/`PathMatchSpecA`. Like H and I, this needed **no new `os_*` hook** — the TADS OS
+layer already has a complete portable filesystem API (`os_open_dir()`/`os_read_dir()`/`os_close_dir()`,
+`osfmode()`+`OSFMODE_DIR`, `os_get_abs_filename()`, `os_build_full_path()`, `os_get_path_name()`/
+`os_get_root_name()`, `os_is_special_file()`), implemented for Windows in `../../tads-runner/tads2/osnoui.c`
++ `tads2/msdos/osdosnui.c` and for Unix in `tads3/unix/osunix.c`. Routing the two dialogs through it makes
+them Win32-free **and** portable in one step (so A2 and M3 collapse for this item). `PathMatchSpecA` — which
+has no osifc equivalent — is replaced by a small in-file `wildcard_match()`/`spec_match()` in
+`tadsfiledlg.cpp` (`*`/`?`, `;`-separated alternatives, case-insensitive, `*.*`/`*` match everything). All
+hard-coded `'\\'` path splitting/joining is gone (the "Up" button is now `os_build_full_path(cur, "..")`).
+`tadsfolderdlg.cpp` is fully `<windows.h>`-free; `tadsfiledlg.cpp` keeps `<windows.h>` only for
+`open_blocking()`'s `window == 0` native-`GetOpenFileName()` fallback (both call sites document the window
+always exists — A1's "`.cpp` stays Windows-only until M4" convention). Related sites also cleaned up:
+`htmlpref.cpp`'s `PathAppend` → `os_build_full_path` and its `GetCurrentDirectory` → `os_get_abs_filename(".")`,
+`htmlgui.cpp:notify_load_game()`'s `GetFullPathName(..., &root_name)` → `os_get_abs_filename()` +
+`os_get_root_name()`. With those, `Shlwapi.lib` is dropped from [CMakeLists.txt](CMakeLists.txt). Still on
+raw Win32, deliberately: `htmlgui.cpp:load_new_game()`'s `SetCurrentDirectory()` — there is no portable
+`os_*` chdir, so it needs a broader decision (a new hook), not this item.
 
 **K. Character encoding.** `MultiByteToWideChar`/`WideCharToMultiByte` with `CP_ACP`, 10 sites in
 `htmlgui.cpp` — `measure_text()`, `draw_text()`, `get_max_chars_in_width()` and the clipboard paths all
@@ -1600,23 +1613,48 @@ the current call site, one landable commit per subsystem, Windows build kept byt
   `get_max_chars_in_width()` in the formatter's line-break path), menu/toolbar/status bar intact, no
   character-map warning, no crash.
 
+- **J. File dialogs** — *done (A2 + M3 in one; no `guios` hook).* `tadsfiledlg.cpp` / `tadsfolderdlg.cpp`
+  now scan and resolve paths through the portable `osifc` API already provided by the TADS runner
+  (`os_open_dir()`/`os_read_dir()`/`os_close_dir()`, `osfmode()`+`OSFMODE_DIR`, `os_get_abs_filename()`,
+  `os_build_full_path()`, `os_get_path_name()`/`os_get_root_name()`, `os_is_special_file()` to drop `.` but
+  keep `..`). `PathMatchSpecA` → an in-file `wildcard_match()`/`spec_match()` (`*`/`?`, `;`-alternatives,
+  case-insensitive, `*.*` matches all). Every hard-coded `'\\'` split/join removed; the "Up" button is
+  `os_build_full_path(cur_dir, "..")`. `tadsfolderdlg.cpp` is now fully `<windows.h>`-free;
+  `tadsfiledlg.cpp` keeps it only for `open_blocking()`'s `window == 0` native fallback. Swept up with it:
+  `htmlpref.cpp` `PathAppend`→`os_build_full_path`, `GetCurrentDirectory`→`os_get_abs_filename(".")`;
+  `htmlgui.cpp` `notify_load_game()` `GetFullPathName(&root_name)`→`os_get_abs_filename()`+
+  `os_get_root_name()`; `Shlwapi.lib` removed from [CMakeLists.txt](CMakeLists.txt).
+  `load_new_game()`'s `SetCurrentDirectory()` stays on Win32 (no portable `os_*` chdir).
+
+  **Verified**: clean build + link, `0 warnings` on the four touched TUs, fresh smoke-test launch — from a
+  no-game start, `File > Open New Game...` shows the ImGui file dialog with the cwd resolved via
+  `os_get_abs_filename(".")`, only `ditch3.t3` listed under the `*.t3` "T3 Applications" filter (glob
+  matcher), `[Dir] ..` shown; double-clicking `..` navigates to `C:\Projects\tads-runner` and lists its
+  subdirectories sorted; descending back into `tests` and double-clicking `ditch3.t3` loads and renders the
+  game. `Edit > Options > Starting > Browse...` opens the folder picker (directories only) nested in the
+  Options modal, path resolved the same way. No crash in either.
+
 **A2 still to do**: items
-J (`std::filesystem` dialogs), K (charset), L (`CTadsApp`/keyboard), M (`guimain.cpp` startup/shutdown).
+K (charset), L (`CTadsApp`/keyboard), M (`guimain.cpp` startup/shutdown).
 (H — images — is done; it turned out to need no `os_*` hook, just deletion of the two Win32 calls, §5.4/H.
 I — audio file I/O — is done: WAV/Ogg/MP3 decoders on the `osfile` API, `getbits.cpp` forked into `imgui/`,
-§5.4/I. Neither needed a portable backend for M3.)
+§5.4/I. J — file-dialog browsing — is done: both dialogs routed through the existing portable `osifc`
+filesystem API (`os_open_dir()` et al.), `PathMatchSpecA` replaced by an in-file glob matcher, `Shlwapi.lib`
+dropped, §5.4/J. H, I and J each collapsed A2 and M3 — no `os_*` hook, no separate portable backend.)
 
 **M3 — fill in portable implementations, cheapest-and-most-certain first.** GLFW-provided services (D) →
-`std::filesystem` dialogs (J) → system colors (E) and shell (F) → settings store (C) → resources (B) →
+file dialogs (J) → system colors (E) and shell (F) → settings store (C) → resources (B) →
 fonts (G) → images (H) → audio file I/O (I) → charset (K) → keyboard/accelerators (L).
 Each is landable on Windows alone; the pure-portable backends (D/E/F) only *run* once M4's Linux build
 exists.
 
-**D + E + F done** — [guios_portable.cpp](guios_portable.cpp), see the "M3/D-F — portable backend landed"
-note in §5.4 above. Remaining M3 items (J, C, B, G–L) are untouched; G's A2 seam is built (so its M3 work is
-the fontconfig/CoreText backends), H and I are fully done (neither needed an `os_*` hook or a portable
-backend — H removed the Win32 image calls outright, I moved the decoders onto the already-portable `osfile`
-API; §5.4/H, §5.4/I), and J–L still need their A2 seam built first (§5.4, "A2 still to do").
+**D + E + F + J done** — [guios_portable.cpp](guios_portable.cpp) (D/E/F), see the "M3/D-F — portable
+backend landed" note in §5.4 above; J routed the two file dialogs straight through the existing portable
+`osifc` filesystem API so it needed no `guios` backend at all (§5.4/J). Remaining M3 items (C, B, G, K, L)
+are untouched; G's A2 seam is built (so its M3 work is the fontconfig/CoreText backends), H and I are fully
+done (neither needed an `os_*` hook or a portable backend — H removed the Win32 image calls outright, I
+moved the decoders onto the already-portable `osfile` API; §5.4/H, §5.4/I), and K–L still need their A2
+seam built first (§5.4, "A2 still to do").
 
 **M4 — flip the three gates (§5.1) and get a Linux build.** Expect a long tail in `htmlgui.cpp`/`tadswin.cpp`
 that no census can predict; that's the point of doing M1–M3 first, so what the compiler finds is a

@@ -7,11 +7,13 @@
  */
 
 #include <windows.h>
-#include <shlwapi.h>
 #include <vector>
 #include <string>
 #include <cstring>
+#include <cctype>
 #include <algorithm>
+
+#include <os.h>
 
 #include <imgui/imgui.h>
 #include <imgui/imgui_impl_glfw.h>
@@ -58,8 +60,8 @@ namespace
         int sel_idx = -1;
         bool need_refresh = false;
 
-        char name_buf[MAX_PATH] = { 0 };
-        char path_buf[MAX_PATH] = { 0 };
+        char name_buf[OSFNMAX] = { 0 };
+        char path_buf[OSFNMAX] = { 0 };
 
         std::string error_msg;
         bool show_overwrite_confirm = false;
@@ -105,6 +107,80 @@ namespace
         s_dlg.filter_idx = 0;
     }
 
+    /*
+     *   Match a filename against a single wildcard pattern, case-insensitively.
+     *   '*' matches any run of characters (including none); '?' matches any one
+     *   character.  This is the portable stand-in for the one job the Shlwapi
+     *   PathMatchSpec() used here previously did per pattern.
+     */
+    bool wildcard_match(const char *pat, const char *str)
+    {
+        const char *star_pat = 0;
+        const char *star_str = 0;
+
+        while (*str != '\0')
+        {
+            if (*pat == '?'
+                || tolower((unsigned char)*pat) == tolower((unsigned char)*str))
+            {
+                ++pat;
+                ++str;
+            }
+            else if (*pat == '*')
+            {
+                /* remember the '*' and where we tried to start matching it */
+                star_pat = pat++;
+                star_str = str;
+            }
+            else if (star_pat != 0)
+            {
+                /* mismatch after a '*' - let the '*' absorb one more char */
+                pat = star_pat + 1;
+                str = ++star_str;
+            }
+            else
+                return false;
+        }
+
+        /* trailing '*'s in the pattern can match the empty remainder */
+        while (*pat == '*')
+            ++pat;
+        return *pat == '\0';
+    }
+
+    /*
+     *   Match a filename against a Win32-style type spec: one or more wildcard
+     *   patterns separated by ';' (e.g. "*.jpg;*.jpeg;*.png").  A "*.*" or "*"
+     *   pattern matches everything, including names with no extension - the
+     *   quirk callers depend on for their "All Files" group (PathMatchSpec()
+     *   behaved the same way).
+     */
+    bool spec_match(const char *name, const std::string &spec)
+    {
+        for (size_t start = 0; ; )
+        {
+            size_t semi = spec.find(';', start);
+            std::string one = spec.substr(
+                start,
+                semi == std::string::npos ? std::string::npos : semi - start);
+
+            /* trim surrounding whitespace from the pattern */
+            size_t a = one.find_first_not_of(" \t");
+            size_t b = one.find_last_not_of(" \t");
+            one = (a == std::string::npos) ? std::string()
+                                           : one.substr(a, b - a + 1);
+
+            if (one == "*.*" || one == "*")
+                return true;
+            if (!one.empty() && wildcard_match(one.c_str(), name))
+                return true;
+
+            if (semi == std::string::npos)
+                return false;
+            start = semi + 1;
+        }
+    }
+
     /* split a path into directory and filename parts */
     void split_initial_path(const char *initial_path, std::string &dir,
                             std::string &name)
@@ -115,42 +191,39 @@ namespace
         if (initial_path == 0 || *initial_path == '\0')
             return;
 
-        DWORD attr = GetFileAttributesA(initial_path);
-        if (attr != INVALID_FILE_ATTRIBUTES
-            && (attr & FILE_ATTRIBUTE_DIRECTORY) != 0)
+        unsigned long fmode = 0;
+        if (osfmode(initial_path, TRUE, &fmode, 0)
+            && (fmode & OSFMODE_DIR) != 0)
         {
             /* it's an existing directory - use it as-is, no filename */
             dir = initial_path;
             return;
         }
 
-        const char *slash = strrchr(initial_path, '\\');
-        if (slash == 0)
-            slash = strrchr(initial_path, '/');
-
-        if (slash != 0)
-        {
-            dir.assign(initial_path, slash - initial_path);
-            name = slash + 1;
-        }
-        else
-        {
-            /* no path separator - it's a bare filename in the cwd */
-            name = initial_path;
-        }
+        /*
+         *   Split the path prefix (if any) from the root filename using the
+         *   portable osifc helpers, rather than scanning for a hard-coded
+         *   separator.
+         */
+        char pathbuf[OSFNMAX];
+        os_get_path_name(pathbuf, sizeof(pathbuf), initial_path);
+        dir = pathbuf;
+        name = os_get_root_name(initial_path);
     }
 
     /* navigate to a (possibly relative) directory; defers the listing refresh */
     void navigate_to(const std::string &dir)
     {
-        char full[MAX_PATH];
-        if (!dir.empty() && GetFullPathNameA(dir.c_str(), MAX_PATH, full, 0) != 0)
+        char full[OSFNMAX];
+        if (!dir.empty()
+            && os_get_abs_filename(full, sizeof(full), dir.c_str()))
             s_dlg.cur_dir = full;
         else
             s_dlg.cur_dir = dir;
 
-        /* strip a trailing backslash, except for a bare drive root ("C:\") */
-        if (s_dlg.cur_dir.size() > 3 && s_dlg.cur_dir.back() == '\\')
+        /* strip a trailing separator, except for a bare root ("C:\" or "/") */
+        if (s_dlg.cur_dir.size() > 3
+            && s_dlg.cur_dir.back() == OSPATHCHAR)
             s_dlg.cur_dir.pop_back();
 
         s_dlg.need_refresh = true;
@@ -164,36 +237,36 @@ namespace
         s_dlg.sel_idx = -1;
         s_dlg.need_refresh = false;
 
-        std::string pattern = s_dlg.cur_dir;
-        if (!pattern.empty() && pattern.back() != '\\')
-            pattern += '\\';
-        pattern += "*";
-
         const std::string &spec = s_dlg.filters[s_dlg.filter_idx].pattern;
 
-        WIN32_FIND_DATAA fd;
-        HANDLE h = FindFirstFileA(pattern.c_str(), &fd);
-        if (h != INVALID_HANDLE_VALUE)
+        osdirhdl_t dh;
+        if (os_open_dir(s_dlg.cur_dir.c_str(), &dh))
         {
-            do
+            char fname[OSFNMAX];
+            while (os_read_dir(dh, fname, sizeof(fname)))
             {
-                if (strcmp(fd.cFileName, ".") == 0)
+                /* skip the "." self-link, but keep ".." for navigating up */
+                if (os_is_special_file(fname) == OS_SPECFILE_SELF)
                     continue;
 
-                bool is_dir =
-                    (fd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) != 0;
+                /* classify the entry as a directory or a plain file */
+                char full[OSFNMAX];
+                os_build_full_path(full, sizeof(full),
+                                   s_dlg.cur_dir.c_str(), fname);
+                unsigned long fmode = 0;
+                bool is_dir = osfmode(full, TRUE, &fmode, 0)
+                              && (fmode & OSFMODE_DIR) != 0;
 
                 /* only files are filtered by the type spec - dirs always show */
-                if (!is_dir && !PathMatchSpecA(fd.cFileName, spec.c_str()))
+                if (!is_dir && !spec_match(fname, spec))
                     continue;
 
                 FileDlgEntry e;
-                e.name = fd.cFileName;
+                e.name = fname;
                 e.is_dir = is_dir;
                 s_dlg.entries.push_back(e);
             }
-            while (FindNextFileA(h, &fd));
-            FindClose(h);
+            os_close_dir(dh);
         }
 
         std::sort(s_dlg.entries.begin(), s_dlg.entries.end(),
@@ -201,18 +274,17 @@ namespace
             {
                 if (a.is_dir != b.is_dir)
                     return a.is_dir;
-                return _stricmp(a.name.c_str(), b.name.c_str()) < 0;
+                return stricmp(a.name.c_str(), b.name.c_str()) < 0;
             });
     }
 
     /* build the full path from the current directory + name field */
     std::string full_selected_path()
     {
-        std::string p = s_dlg.cur_dir;
-        if (!p.empty() && p.back() != '\\')
-            p += '\\';
-        p += s_dlg.name_buf;
-        return p;
+        char buf[OSFNMAX];
+        os_build_full_path(buf, sizeof(buf),
+                           s_dlg.cur_dir.c_str(), s_dlg.name_buf);
+        return buf;
     }
 
     /* close the dialog and invoke the completion callback, if any */
@@ -236,9 +308,9 @@ namespace
         }
 
         std::string full = full_selected_path();
-        DWORD attr = GetFileAttributesA(full.c_str());
-        bool exists = (attr != INVALID_FILE_ATTRIBUTES);
-        bool is_dir = exists && (attr & FILE_ATTRIBUTE_DIRECTORY) != 0;
+        unsigned long fmode = 0;
+        bool exists = osfmode(full.c_str(), TRUE, &fmode, 0);
+        bool is_dir = exists && (fmode & OSFMODE_DIR) != 0;
 
         if (is_dir)
         {
@@ -321,14 +393,15 @@ namespace
         /* "Up" button + editable current-directory path */
         if (ImGui::Button("Up"))
         {
-            size_t slash = s_dlg.cur_dir.find_last_of('\\');
-            if (slash != std::string::npos)
-            {
-                std::string parent = (slash <= 2)
-                    ? s_dlg.cur_dir.substr(0, 3)
-                    : s_dlg.cur_dir.substr(0, slash);
-                navigate_to(parent);
-            }
+            /*
+             *   Combine the current directory with ".." and let the osifc
+             *   layer canonicalize it; at a filesystem root this leaves the
+             *   root unchanged.
+             */
+            char parent[OSFNMAX];
+            os_build_full_path(parent, sizeof(parent),
+                               s_dlg.cur_dir.c_str(), "..");
+            navigate_to(parent);
         }
         ImGui::SameLine();
         strncpy(s_dlg.path_buf, s_dlg.cur_dir.c_str(),
@@ -361,7 +434,11 @@ namespace
                 {
                     if (dbl)
                     {
-                        navigate_to(s_dlg.cur_dir + "\\" + e.name);
+                        char sub[OSFNMAX];
+                        os_build_full_path(sub, sizeof(sub),
+                                           s_dlg.cur_dir.c_str(),
+                                           e.name.c_str());
+                        navigate_to(sub);
                         break;
                     }
                 }
@@ -484,9 +561,10 @@ void CTadsFileDialog::open(TadsFileDlgMode mode, const char *title,
     split_initial_path(initial_path, dir, name);
     if (dir.empty())
     {
-        char cwd[MAX_PATH];
-        GetCurrentDirectoryA(sizeof(cwd), cwd);
-        dir = cwd;
+        /* default to the current working directory, in absolute form */
+        char cwd[OSFNMAX];
+        if (os_get_abs_filename(cwd, sizeof(cwd), "."))
+            dir = cwd;
     }
     navigate_to(dir);
 
