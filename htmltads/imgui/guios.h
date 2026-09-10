@@ -35,23 +35,32 @@ unsigned long os_get_tick_ms(void);
 
 /* ------------------------------------------------------------------------ */
 /*
- *   D. Clipboard (plain text)
+ *   D. Clipboard (plain text, UTF-8)
  *
- *   The engine only ever puts/gets CF_TEXT.  The caller is responsible for
- *   CR/LF normalization (as it always was); these hooks just move bytes.
- *   Windows: the OpenClipboard()/GlobalAlloc() dance; later:
- *   glfwSetClipboardString()/glfwGetClipboardString().
+ *   set/get move UTF-8 bytes to/from the system clipboard - on every
+ *   platform this is glfwSet/GetClipboardString(), so those two live in the
+ *   shared guios_common.cpp.  The engine's own text is local-codepage, so
+ *   the copy/paste call sites convert with os_local_to_utf8() /
+ *   os_utf8_to_local() (item K) on the way through; CR/LF normalization
+ *   stays the caller's job, as it always was.
+ *
+ *   has_text stays per-platform: GLFW has no "is there text" query short of
+ *   a full fetch, and can_paste() - hence this - runs every frame from the
+ *   toolbar, so the Win32 backend keeps the cheap IsClipboardFormatAvailable()
+ *   probe (guios_w32.cpp) and only the non-Windows backend pays for the
+ *   fetch (guios_portable.cpp).
  */
 
-/* Replace the clipboard contents with the given NUL-terminated string.
-   Returns nonzero on success. */
+/* Replace the clipboard contents with the given NUL-terminated UTF-8 string.
+   Returns nonzero on success.  (guios_common.cpp) */
 int os_clipboard_set_text(const char *text);
 
-/* Nonzero if the clipboard currently holds text. */
+/* Nonzero if the clipboard currently holds text.  (per-platform backend) */
 int os_clipboard_has_text(void);
 
-/* Return a copy of the clipboard's text, allocated with th_malloc() (free
-   it with th_free()), or null if the clipboard holds no text. */
+/* Return a copy of the clipboard's text as UTF-8, allocated with th_malloc()
+   (free it with th_free()), or null if the clipboard holds no text.
+   (guios_common.cpp) */
 char *os_clipboard_get_text(void);
 
 
@@ -159,6 +168,74 @@ unsigned char *os_load_toolbar_rgba(int *width, int *height);
  *   Windows: FindResource()/LoadResource() of the "TEXTFILE" resource.
  */
 char *os_load_license_text(size_t *len);
+
+
+/* ------------------------------------------------------------------------ */
+/*
+ *   K. Character encoding
+ *
+ *   The HTML engine hands the GUI its text as bytes in the local character
+ *   set - a Win32 code page, the font's oshtml_charset_id_t::codepage
+ *   (CP_ACP for the default ANSI set).  Dear ImGui wants UTF-8, and the
+ *   line-break measurement loop wants one array entry per character.  These
+ *   these hooks do that conversion.  The Win32 backend is the
+ *   MultiByteToWideChar / WideCharToMultiByte pair lifted verbatim from the
+ *   call sites in htmlgui.cpp (measure_text(), draw_text(),
+ *   get_max_chars_in_width()); os_utf8_to_local() is the same pair run
+ *   backwards, for the paste path (do_paste() -> insert_text_from_hglobal(),
+ *   which is shared with the OLE drag sink and stays local-codepage).  A
+ *   non-Windows backend routes all of this through the TADS charmap layer the
+ *   VM already loads (charmap/cmaplib.t3r) rather than a second parallel
+ *   encoding assumption - that portable half is migration.md's M3 work; see
+ *   migration.md 5.4/K.
+ */
+
+/*
+ *   One UTF-16 code unit.  Deliberately unsigned short rather than wchar_t:
+ *   guios.h stays windows.h-free, and wchar_t's width is platform-dependent
+ *   (16 bits on Windows, 32 on most Unix) while this is always UTF-16.
+ */
+typedef unsigned short os_utf16_t;
+
+/*
+ *   Convert 'srclen' bytes of 'src', interpreted in code page 'codepage', to
+ *   a newly allocated NUL-terminated UTF-8 string.  On success returns the
+ *   buffer (free it with th_free()) and, when 'out_len' is non-null, stores
+ *   the length in bytes excluding the terminator there.  Returns null on
+ *   failure.  Windows: MultiByteToWideChar(MB_PRECOMPOSED) then
+ *   WideCharToMultiByte(CP_UTF8).
+ */
+char *os_local_to_utf8(unsigned int codepage,
+                       const char *src, size_t srclen, size_t *out_len);
+
+/*
+ *   Convert 'srclen' bytes of 'src', interpreted in code page 'codepage', to
+ *   a newly allocated array of UTF-16 code units (NOT NUL-terminated).  On
+ *   success returns the array (free it with th_free()) and stores the unit
+ *   count in *out_cnt.  Returns null on failure.  Windows:
+ *   MultiByteToWideChar(MB_PRECOMPOSED).
+ *
+ *   The one caller (get_max_chars_in_width()) treats each returned unit as
+ *   one character - one glyph-advance lookup.  That is exact for the local
+ *   single- and double-byte code pages in play (none can produce a
+ *   character outside the Basic Multilingual Plane, so no surrogate pairs)
+ *   and matches the assumption the inline Win32 code already made.
+ */
+os_utf16_t *os_local_to_utf16(unsigned int codepage,
+                              const char *src, size_t srclen, size_t *out_cnt);
+
+/*
+ *   Convert a NUL-terminated UTF-8 string to a newly allocated
+ *   NUL-terminated string in code page 'codepage'.  On success returns the
+ *   buffer (free it with th_free()) and, when 'out_len' is non-null, stores
+ *   the length in bytes excluding the terminator there.  Returns null on
+ *   failure.  Characters with no representation in the target code page are
+ *   replaced with that code page's default substitute (typically '?') -
+ *   the same lossy behavior the old CF_TEXT paste path had.  Windows:
+ *   MultiByteToWideChar(CP_UTF8) then WideCharToMultiByte(codepage).
+ */
+char *os_utf8_to_local(unsigned int codepage,
+                       const char *utf8, size_t *out_len);
 
 
 #endif /* GUIOS_H */

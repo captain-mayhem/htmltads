@@ -1321,6 +1321,47 @@ rather than adding a second, parallel encoding assumption. Note the existing cod
 "wide-char count == source character count" in `get_max_chars_in_width()` (true for single-byte codepages,
 false in general) — decide explicitly whether to keep that assumption.
 
+**A2 seam done — Win32 backend; the charmap-backed portable half is M3.** Three hooks in
+[guios.h](guios.h) / [guios_w32.cpp](guios_w32.cpp), Windows backends lifted verbatim from the call sites:
+
+- `os_local_to_utf8(codepage, src, srclen, &out_len)` — the
+  `MultiByteToWideChar(MB_PRECOMPOSED)` + `WideCharToMultiByte(CP_UTF8)` pair, returning a `th_malloc()`'d
+  NUL-terminated buffer plus its byte length. Routes `measure_text()`, `draw_text()` (`draw_text_clip()`)
+  and — see below — `do_copy()`. `measure_text()`/`draw_text()` kept measuring/drawing against the
+  *converted* buffer's length (`utf8size`), not the source's, so a character that expands under UTF-8
+  (`©`, em-dash, …) still isn't truncated.
+- `os_local_to_utf16(codepage, src, srclen, &out_cnt)` — the `MultiByteToWideChar` half alone, returning a
+  `th_malloc()`'d array of `os_utf16_t` (`unsigned short` — `guios.h` stays `windows.h`-free and can't name
+  `wchar_t`, whose width is platform-dependent). Routes `get_max_chars_in_width()`'s glyph-advance loop.
+  **The "one array unit == one character" assumption the doc above flags is deliberately kept** — exact for
+  the single-/double-byte code pages actually in play (no BMP-external characters, so no surrogate pairs),
+  and the portable charmap backend can revisit it.
+- `os_utf8_to_local(codepage, utf8, &out_len)` — the same pair run backwards (`MultiByteToWideChar(CP_UTF8)`
+  + `WideCharToMultiByte(codepage)`), for `do_paste()`. Un-representable characters get the code page's
+  default substitute, same lossy behavior the old `CF_TEXT` paste had.
+
+**Clipboard unified onto GLFW at the same time** (this is what the §5.5 "M3/D-F" clipboard note deferred
+"to item K"). `os_clipboard_set_text()` / `os_clipboard_get_text()` are now one GLFW implementation in
+[guios_common.cpp](guios_common.cpp) (`glfwSet/GetClipboardString`, UTF-8 / `CF_UNICODETEXT` on Windows) —
+the `OpenClipboard`/`GlobalAlloc`/`CF_TEXT` versions are gone from both `guios_w32.cpp` and
+`guios_portable.cpp`. `do_copy()` converts local→UTF-8 (`os_local_to_utf8`) before setting; `do_paste()`
+converts UTF-8→local (`os_utf8_to_local`) after getting, because `insert_text_from_hglobal()` is shared
+with the OLE drag sink (item O) and stays local-codepage. Both use `CP_ACP` — the encoding the old
+`CF_TEXT` path used implicitly; a per-window-charset refinement is possible later. This also *improves*
+interop: game text now lands on the clipboard as real Unicode instead of raw local-codepage bytes.
+`os_clipboard_has_text()` stays per-platform: `can_paste()` calls it every frame from
+`render_toolbar()`, and only Win32's `IsClipboardFormatAvailable()` answers without opening the clipboard
+— the portable backend has to do a full `glfwGetClipboardString` fetch. `tadsole.cpp`'s own `CF_TEXT` use
+(the OLE `IDataObject`, item O) is untouched.
+
+`guios_portable.cpp` documents the K conversion gap (same as item B). **Verified**: clean build + link of
+`guit3`, `0 warnings`, and an interactive test on `ditch3.t3` — with `café-rt “x”` (é + curly quotes) on
+the Windows clipboard, `Edit > Paste` at the game's `>` prompt inserts it intact (exercises
+`os_clipboard_has_text` per frame → Paste enabled, then `glfwGetClipboardString` → `os_utf8_to_local` →
+`insert_text_from_hglobal` → the K text-render hooks); game text (em-dash, `“budget economy class”`) and
+`Copyright ©2004` render correctly throughout. `do_copy()` (needs a drag-selection) was not click-tested —
+it is the symmetric `os_local_to_utf8` + `glfwSetClipboardString` path.
+
 **L. `CTadsApp`, keyboard, and accelerators.**
 
 - **Correction found during M1 (§5.5): this bullet's premise was wrong about the big one.**
@@ -1481,7 +1522,10 @@ the current call site, one landable commit per subsystem, Windows build kept byt
     `insert_text_from_hglobal()`, and `th_free()`s it. `copy_to_new_hglobal()` /
     `insert_text_from_hglobal()` are untouched — still shared with the OLE drag path (item O). The `has_text`
     backend uses `IsClipboardFormatAvailable(CF_TEXT)` in place of the old `OpenClipboard` +
-    `EnumClipboardFormats` loop (equivalent, and no clipboard-open needed).
+    `EnumClipboardFormats` loop (equivalent, and no clipboard-open needed). *(Updated by item K: `set`/`get`
+    moved to the shared GLFW path in `guios_common.cpp` and the transfer format became UTF-8, with
+    `do_copy()`/`do_paste()` converting through `os_local_to_utf8()`/`os_utf8_to_local()`; `has_text` and the
+    `copy_to_new_hglobal`/`insert_text_from_hglobal` framing are as described. §5.4/K.)*
   - Cursors: the four `HCURSOR` members (`ibeam_csr_`/`hand_csr_` on `CHtmlSysWin_win32`,
     `arrow_cursor_`/`wait_cursor_` on `CTadsWin`), their `LoadCursor()` init and their `DestroyCursor()`
     teardown are **gone**. The hover-shape cursors (arrow / I-beam / hand, set from `do_setcursor()` /
@@ -1514,10 +1558,11 @@ the current call site, one landable commit per subsystem, Windows build kept byt
     only ever diff two readings). Measured from the first call; as an `unsigned long` it wraps after ~49 days
     of process uptime where `long` is 32-bit and effectively never where it is 64-bit.
   - **D clipboard** → `glfwGet/SetClipboardString(NULL, …)` (the window arg is deprecated-and-ignored since
-    GLFW 3.0), CR/LF normalization left to the caller as before. Portable backend only for now — **not**
-    shared, because GLFW's Win32 clipboard is `CF_UNICODETEXT`/UTF-8 while the current `guios_w32.cpp` path
-    and its callers still traffic in `CF_TEXT`/local-codepage `textchar_t` bytes; unifying it belongs with
-    item K (charset), so `guios_w32.cpp` keeps the `OpenClipboard`/`GlobalAlloc` version.
+    GLFW 3.0), CR/LF normalization left to the caller as before. *(Superseded by item K: `set`/`get` were
+    unified onto this one GLFW path in `guios_common.cpp` — Windows included — when the charset hooks landed;
+    the callers now convert local↔UTF-8 with `os_local_to_utf8()`/`os_utf8_to_local()`. Only
+    `os_clipboard_has_text()` stays per-platform, since it runs every frame from the toolbar and GLFW has no
+    probe short of a full fetch. See §5.4/K.)*
   - **D wait cursor** → **no-op** on the portable side (GLFW 3.5 has no busy/hourglass standard cursor, and
     these ops block the frame loop; the "Working…" status-line message still shows, so the cue isn't lost — a
     real busy cursor needs a bundled image via `glfwCreateCursor()`, deferred with B's other embedded
@@ -1634,8 +1679,23 @@ the current call site, one landable commit per subsystem, Windows build kept byt
   game. `Edit > Options > Starting > Browse...` opens the folder picker (directories only) nested in the
   Options modal, path resolved the same way. No crash in either.
 
+- **K. Character encoding** — *done (Win32 backend; charmap-backed portable half is M3).*
+  `os_local_to_utf8()` / `os_local_to_utf16()` / `os_utf8_to_local()` in [guios.h](guios.h) /
+  [guios_w32.cpp](guios_w32.cpp), the `MultiByteToWideChar`/`WideCharToMultiByte` pairs lifted verbatim out
+  of `htmlgui.cpp`'s `measure_text()`, `draw_text()` (`draw_text_clip()`) and `get_max_chars_in_width()`,
+  plus the reverse for `do_paste()`. `get_max_chars_in_width()`'s "one wide unit == one character"
+  assumption is deliberately kept (exact for the single-/double-byte code pages in play).
+  **The clipboard was unified onto GLFW at the same time**: `os_clipboard_set_text()` /
+  `os_clipboard_get_text()` are now one `glfwSet/GetClipboardString` implementation in
+  [guios_common.cpp](guios_common.cpp) (UTF-8 / `CF_UNICODETEXT` on Windows), the `CF_TEXT`
+  `OpenClipboard`/`GlobalAlloc` versions deleted from both per-platform backends; `do_copy()`/`do_paste()`
+  convert local↔UTF-8 through the K hooks. Only `os_clipboard_has_text()` stays per-platform (per-frame
+  toolbar call; Win32 keeps `IsClipboardFormatAvailable`). **Verified**: clean build + link, `0 warnings`;
+  interactive `ditch3.t3` test — `café-rt “x”` on the clipboard pastes intact at the `>` prompt via
+  `Edit > Paste`; game text + `Copyright ©2004` render correctly. See §5.4/K.
+
 **A2 still to do**: items
-K (charset), L (`CTadsApp`/keyboard), M (`guimain.cpp` startup/shutdown).
+L (`CTadsApp`/keyboard), M (`guimain.cpp` startup/shutdown).
 (H — images — is done; it turned out to need no `os_*` hook, just deletion of the two Win32 calls, §5.4/H.
 I — audio file I/O — is done: WAV/Ogg/MP3 decoders on the `osfile` API, `getbits.cpp` forked into `imgui/`,
 §5.4/I. J — file-dialog browsing — is done: both dialogs routed through the existing portable `osifc`
@@ -1651,10 +1711,12 @@ exists.
 **D + E + F + J done** — [guios_portable.cpp](guios_portable.cpp) (D/E/F), see the "M3/D-F — portable
 backend landed" note in §5.4 above; J routed the two file dialogs straight through the existing portable
 `osifc` filesystem API so it needed no `guios` backend at all (§5.4/J). Remaining M3 items (C, B, G, K, L)
-are untouched; G's A2 seam is built (so its M3 work is the fontconfig/CoreText backends), H and I are fully
-done (neither needed an `os_*` hook or a portable backend — H removed the Win32 image calls outright, I
-moved the decoders onto the already-portable `osfile` API; §5.4/H, §5.4/I), and K–L still need their A2
-seam built first (§5.4, "A2 still to do").
+are untouched; G's and K's A2 seams are built (so G's M3 work is the fontconfig/CoreText backends, K's is
+just the charmap-backed local↔Unicode conversion in `guios_portable.cpp` — the clipboard was already
+unified onto GLFW in `guios_common.cpp` when K landed), H and I are fully done (neither needed an `os_*`
+hook or a portable backend — H removed the Win32 image calls outright, I moved the decoders onto the
+already-portable `osfile` API; §5.4/H, §5.4/I), and L still needs its A2 seam built first (§5.4, "A2 still
+to do").
 
 **M4 — flip the three gates (§5.1) and get a Linux build.** Expect a long tail in `htmlgui.cpp`/`tadswin.cpp`
 that no census can predict; that's the point of doing M1–M3 first, so what the compiler finds is a

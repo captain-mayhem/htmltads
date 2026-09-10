@@ -1339,8 +1339,15 @@ int CHtmlSysWin_win32::do_copy()
     if (txt == 0)
         return FALSE;
 
-    /* put it on the clipboard, then release our temporary copy */
-    int ok = os_clipboard_set_text(txt);
+    /*
+     *   The clipboard hooks traffic in UTF-8; the selection text is
+     *   local-codepage bytes (CP_ACP - the encoding the old CF_TEXT path
+     *   used implicitly).  Convert, put it on the clipboard, then release
+     *   both temporary copies.
+     */
+    char *u8 = os_local_to_utf8(CP_ACP, txt, strlen(txt), 0);
+    int ok = os_clipboard_set_text(u8);
+    th_free(u8);
     GlobalFree((HGLOBAL)txt);
     return ok;
 }
@@ -1422,12 +1429,19 @@ int CHtmlSysWin_win32::do_paste()
     if (cmdtag_ == 0 || !started_reading_cmd_)
         return FALSE;
 
-    /* fetch the clipboard text; nothing to do if there isn't any */
-    char *buf = os_clipboard_get_text();
-    if (buf == 0)
+    /* fetch the clipboard text (UTF-8); nothing to do if there isn't any */
+    char *u8 = os_clipboard_get_text();
+    if (u8 == 0)
         return FALSE;
 
-    /* insert the text, then release the copy the hook handed us */
+    /*
+     *   insert_text_from_hglobal() (shared with the OLE drag sink) wants
+     *   local-codepage bytes; convert back through CP_ACP, matching do_copy().
+     */
+    char *buf = os_utf8_to_local(CP_ACP, u8, 0);
+    th_free(u8);
+
+    /* insert the text, then release the converted copy */
     int disp_change = insert_text_from_hglobal(buf);
     th_free(buf);
 
@@ -5834,25 +5848,23 @@ CHtmlPoint CHtmlSysWin_win32::measure_text(CHtmlSysFont *font,
     GetTextMetrics(dc, &tm);
     txtsiz.cy = tm.tmHeight;
 
-    int bufsize = MultiByteToWideChar(font->get_charset().codepage, MB_PRECOMPOSED, txt, len, NULL, 0);
-    std::vector<wchar_t> strdata;
-    strdata.resize(bufsize);
-    MultiByteToWideChar(font->get_charset().codepage, MB_PRECOMPOSED, txt, len, strdata.data(), bufsize);
-    int utf8size = WideCharToMultiByte(CP_UTF8, 0, strdata.data(), bufsize, NULL, 0, NULL, NULL);
-    std::vector<char> utf8data;
-    utf8data.resize(utf8size);
-    WideCharToMultiByte(CP_UTF8, 0, strdata.data(), bufsize, utf8data.data(), utf8size, NULL, NULL);
     /*
-     *   Measure the *converted* UTF-8 buffer using its own byte length
-     *   (utf8size), not the original ANSI/codepage string's byte length
-     *   (len) - any character that expands under UTF-8 (em-dashes, curly
-     *   quotes, accented letters, ...) makes utf8size > len, so using len
-     *   here truncated the measurement short of what draw_text() (below)
-     *   actually renders, undershooting the reported width for any text
-     *   containing such a character and throwing off the HTML formatter's
-     *   line-wrapping/spacing math that depends on this result.
+     *   Convert the engine's local-codepage bytes to the UTF-8 Dear ImGui
+     *   wants (K seam - migration.md 5.4/K), then measure the *converted*
+     *   buffer using its own byte length (utf8size), not the original
+     *   string's byte length (len): any character that expands under UTF-8
+     *   (em-dashes, curly quotes, accented letters, ...) makes utf8size >
+     *   len, so using len here truncated the measurement short of what
+     *   draw_text() (below) actually renders, undershooting the reported
+     *   width for any text containing such a character and throwing off the
+     *   HTML formatter's line-wrapping/spacing math that depends on this
+     *   result.
      */
-    ImVec2 size = ImGui::CalcTextSize(utf8data.data(), utf8data.data() + utf8size);
+    size_t utf8size = 0;
+    char *utf8data = os_local_to_utf8(
+        font->get_charset().codepage, txt, len, &utf8size);
+    ImVec2 size = ImGui::CalcTextSize(utf8data, utf8data + utf8size);
+    th_free(utf8data);
 
     /* return the ascender height if the caller wants it */
     if (ascent != 0)
@@ -5895,24 +5907,28 @@ size_t CHtmlSysWin_win32::get_max_chars_in_width(
      *   within the same pixel width, letting rendered text run past the
      *   available line width (e.g. under the scrollbar).
      */
-    int bufsize = MultiByteToWideChar(font->get_charset().codepage,
-                                      MB_PRECOMPOSED, str, (int)len, NULL, 0);
-    std::vector<wchar_t> strdata;
-    strdata.resize(bufsize);
-    MultiByteToWideChar(font->get_charset().codepage, MB_PRECOMPOSED, str,
-                        (int)len, strdata.data(), bufsize);
+    /*
+     *   Convert the local-codepage bytes to UTF-16 units and treat each unit
+     *   as one character (K seam - migration.md 5.4/K).  Exact for the
+     *   single-/double-byte code pages in play, and the same assumption the
+     *   inline MultiByteToWideChar() call already made.
+     */
+    size_t unit_cnt = 0;
+    os_utf16_t *units = os_local_to_utf16(
+        font->get_charset().codepage, str, len, &unit_cnt);
 
     ImFontBaked *baked = ImGui::GetFont()->GetFontBaked(ImGui::GetFontSize());
     float total = 0.0f;
     int fit = 0;
-    for (int i = 0 ; i < bufsize ; ++i)
+    for (size_t i = 0 ; i < unit_cnt ; ++i)
     {
-        float adv = baked->GetCharAdvance((ImWchar)strdata[i]);
+        float adv = baked->GetCharAdvance((ImWchar)units[i]);
         if (total + adv > (float)wid)
             break;
         total += adv;
         ++fit;
     }
+    th_free(units);
 
     ImGui::PopFont();
 
@@ -6143,19 +6159,15 @@ void CHtmlSysWin_win32::draw_text_clip(int hilite, long x, long y,
     /* restore original background mode */
     SetBkMode(hdc_, oldbkmode);
     if (ImGui::GetCurrentContext()->CurrentWindow) {
-        int bufsize = MultiByteToWideChar(font->get_charset().codepage, MB_PRECOMPOSED, str, len, NULL, 0);
-        std::vector<wchar_t> strdata;
-        strdata.resize(bufsize);
-        MultiByteToWideChar(font->get_charset().codepage, MB_PRECOMPOSED, str, len, strdata.data(), bufsize);
-        int utf8size = WideCharToMultiByte(CP_UTF8, 0, strdata.data(), bufsize, NULL, 0, NULL, NULL);
-        std::vector<char> utf8data;
-        utf8data.resize(utf8size);
-        WideCharToMultiByte(CP_UTF8, 0, strdata.data(), bufsize, utf8data.data(), utf8size, NULL, NULL);
-        
+        /* local codepage -> UTF-8 for Dear ImGui (K seam - migration.md 5.4/K) */
+        size_t utf8size = 0;
+        char *utf8data = os_local_to_utf8(
+            font->get_charset().codepage, str, len, &utf8size);
+
         ImGui::SetCursorPos(ImVec2(x, y));
         ImGui::PushStyleColor(ImGuiCol_Text, textColor);
         if (font->get_font_desc_ref()->underline || drawBackground) {
-            const ImVec2 text_size = ImGui::CalcTextSize(utf8data.data(), utf8data.data() + utf8size);
+            const ImVec2 text_size = ImGui::CalcTextSize(utf8data, utf8data + utf8size);
             CHtmlFontMetrics metrics;
             font->get_font_metrics(&metrics);
             //register text without drawing it, so that we get the right cursor position
@@ -6171,8 +6183,9 @@ void CHtmlSysWin_win32::draw_text_clip(int hilite, long x, long y,
             }
         }
         ImGui::SetCursorPos(ImVec2(x, y));
-        ImGui::TextUnformatted(utf8data.data(), utf8data.data() + utf8size);
+        ImGui::TextUnformatted(utf8data, utf8data + utf8size);
         ImGui::PopStyleColor();
+        th_free(utf8data);
     }
     ImGui::PopFont();
 }

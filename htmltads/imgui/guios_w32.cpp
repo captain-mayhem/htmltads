@@ -19,64 +19,19 @@
 
 /* ------------------------------------------------------------------------ */
 /*
- *   D. Clipboard (plain text)
+ *   D. Clipboard - has_text only
+ *
+ *   set/get are the shared glfwSet/GetClipboardString() path in
+ *   guios_common.cpp.  Only this probe stays per-platform: it runs every
+ *   frame from render_toolbar()'s Paste-button enable check, and
+ *   IsClipboardFormatAvailable() answers it without opening the clipboard,
+ *   which the GLFW fetch the portable backend uses cannot.
  */
-
-int os_clipboard_set_text(const char *text)
-{
-    size_t len = strlen(text) + 1;
-
-    /* stage the text in a movable global block, as CF_TEXT requires */
-    HGLOBAL hmem = GlobalAlloc(GHND, len);
-    if (hmem == 0)
-        return 0;
-    memcpy(GlobalLock(hmem), text, len);
-    GlobalUnlock(hmem);
-
-    if (!OpenClipboard(NULL))
-    {
-        GlobalFree(hmem);
-        return 0;
-    }
-    EmptyClipboard();
-    if (SetClipboardData(CF_TEXT, hmem) == 0)
-    {
-        /* the clipboard didn't take ownership - release it ourselves */
-        CloseClipboard();
-        GlobalFree(hmem);
-        return 0;
-    }
-    CloseClipboard();
-    return 1;
-}
 
 int os_clipboard_has_text(void)
 {
-    return IsClipboardFormatAvailable(CF_TEXT);
-}
-
-char *os_clipboard_get_text(void)
-{
-    char *result = 0;
-
-    if (!OpenClipboard(NULL))
-        return 0;
-
-    HANDLE hmem = GetClipboardData(CF_TEXT);
-    if (hmem != 0)
-    {
-        const char *src = (const char *)GlobalLock(hmem);
-        if (src != 0)
-        {
-            size_t len = strlen(src) + 1;
-            result = (char *)th_malloc(len);
-            memcpy(result, src, len);
-            GlobalUnlock(hmem);
-        }
-    }
-
-    CloseClipboard();
-    return result;
+    return IsClipboardFormatAvailable(CF_TEXT)
+        || IsClipboardFormatAvailable(CF_UNICODETEXT);
 }
 
 
@@ -221,4 +176,73 @@ char *os_load_license_text(size_t *len)
     memcpy(result, mem, sz);
     *len = sz;
     return result;
+}
+
+
+/* ------------------------------------------------------------------------ */
+/*
+ *   K. Character encoding
+ *
+ *   The local-codepage -> UTF-16 -> UTF-8 pair that htmlgui.cpp's
+ *   measure_text() / draw_text() ran inline, and the local-codepage ->
+ *   UTF-16 half that get_max_chars_in_width() ran inline, moved here
+ *   unchanged.
+ */
+
+char *os_local_to_utf8(unsigned int codepage,
+                       const char *src, size_t srclen, size_t *out_len)
+{
+    int wlen = MultiByteToWideChar(codepage, MB_PRECOMPOSED,
+                                   src, (int)srclen, NULL, 0);
+    wchar_t *wbuf = (wchar_t *)th_malloc((wlen > 0 ? wlen : 1) * sizeof(wchar_t));
+    MultiByteToWideChar(codepage, MB_PRECOMPOSED,
+                        src, (int)srclen, wbuf, wlen);
+
+    int u8len = WideCharToMultiByte(CP_UTF8, 0, wbuf, wlen,
+                                    NULL, 0, NULL, NULL);
+    char *u8buf = (char *)th_malloc(u8len + 1);
+    WideCharToMultiByte(CP_UTF8, 0, wbuf, wlen, u8buf, u8len, NULL, NULL);
+    u8buf[u8len] = '\0';
+
+    th_free(wbuf);
+
+    if (out_len != 0)
+        *out_len = (size_t)u8len;
+    return u8buf;
+}
+
+os_utf16_t *os_local_to_utf16(unsigned int codepage,
+                              const char *src, size_t srclen, size_t *out_cnt)
+{
+    int wlen = MultiByteToWideChar(codepage, MB_PRECOMPOSED,
+                                   src, (int)srclen, NULL, 0);
+    os_utf16_t *wbuf =
+        (os_utf16_t *)th_malloc((wlen > 0 ? wlen : 1) * sizeof(os_utf16_t));
+    MultiByteToWideChar(codepage, MB_PRECOMPOSED,
+                        src, (int)srclen, (wchar_t *)wbuf, wlen);
+
+    if (out_cnt != 0)
+        *out_cnt = (size_t)(wlen > 0 ? wlen : 0);
+    return wbuf;
+}
+
+char *os_utf8_to_local(unsigned int codepage, const char *utf8, size_t *out_len)
+{
+    /* UTF-8 -> UTF-16 -> local code page, the inverse of os_local_to_utf8() */
+    int wlen = MultiByteToWideChar(CP_UTF8, 0, utf8, -1, NULL, 0);
+    wchar_t *wbuf = (wchar_t *)th_malloc((wlen > 0 ? wlen : 1) * sizeof(wchar_t));
+    MultiByteToWideChar(CP_UTF8, 0, utf8, -1, wbuf, wlen);
+
+    /* wlen counts the terminating NUL (source was -1), so the result is
+       NUL-terminated too and clen includes it */
+    int clen = WideCharToMultiByte(codepage, 0, wbuf, wlen,
+                                   NULL, 0, NULL, NULL);
+    char *cbuf = (char *)th_malloc(clen > 0 ? clen : 1);
+    WideCharToMultiByte(codepage, 0, wbuf, wlen, cbuf, clen, NULL, NULL);
+
+    th_free(wbuf);
+
+    if (out_len != 0)
+        *out_len = (size_t)(clen > 0 ? clen - 1 : 0);
+    return cbuf;
 }

@@ -7,7 +7,9 @@
  *   on WIN32, this file everywhere else (see htmltads/imgui/CMakeLists.txt).
  *
  *   Coverage as of M3/D-F (see migration.md 5.4/D-F, 5.5):
- *     - D. clipboard ........ glfwGet/SetClipboardString
+ *     - D. clipboard has_text  glfwGetClipboardString probe (set/get are the
+ *                              shared glfwSet/GetClipboardString() path in
+ *                              guios_common.cpp)
  *     - D. wait cursor ...... no-op (GLFW has no busy cursor shape; see below)
  *     - E. system colors .... fixed sensible values
  *     - F. shell ............ xdg-open / open via fork+exec
@@ -15,13 +17,18 @@
  *   D's tick clock is platform-independent (std::chrono) and lives in the
  *   shared guios_common.cpp, not here.
  *
- *   NOT yet implemented here (item B - resources): os_load_string(),
- *   os_load_toolbar_rgba(), os_load_license_text().  Those need the generated
- *   string table and the embedded runtbar.bmp / license.txt byte arrays
- *   (migration.md 5.4/B, still M3 work); until they land, a non-Windows link
- *   of guit3 is incomplete.  The build gate in CMakeLists.txt (if NOT WIN32
- *   return()) is still closed, so nothing links this yet - that gate lifts in
- *   M4.
+ *   NOT yet implemented here:
+ *     - item B (resources): os_load_string(), os_load_toolbar_rgba(),
+ *       os_load_license_text() - need the generated string table and the
+ *       embedded runtbar.bmp / license.txt byte arrays (migration.md 5.4/B).
+ *     - item K (character encoding): os_local_to_utf8(), os_local_to_utf16(),
+ *       os_utf8_to_local() - the A2 seam is built (guios.h + guios_w32.cpp)
+ *       but the portable backend has to route local-codepage <-> Unicode
+ *       through the TADS charmap layer (charmap/cmaplib.t3r) rather than
+ *       assume a code page (migration.md 5.4/K).
+ *   Both are still M3 work; until they land, a non-Windows link of guit3 is
+ *   incomplete.  The build gate in CMakeLists.txt (if NOT WIN32 return()) is
+ *   still closed, so nothing links this yet - that gate lifts in M4.
  */
 
 #ifdef _WIN32
@@ -42,44 +49,20 @@
 
 /* ------------------------------------------------------------------------ */
 /*
- *   D. Clipboard (plain text)
+ *   D. Clipboard - has_text only
  *
- *   GLFW moves UTF-8 bytes to/from the system clipboard for us; the window
- *   argument has been deprecated-and-ignored since GLFW 3.0, so NULL is fine.
- *   CR/LF normalization stays the caller's job, exactly as with the Win32
- *   backend (the copy path hands us text with the newline convention it
- *   wants; do_paste() feeds whatever we return straight into the engine).
+ *   set/get are the shared glfwSet/GetClipboardString() path in
+ *   guios_common.cpp.  GLFW offers no format query, so the only "is there
+ *   text" test is a full fetch; unlike Win32 (IsClipboardFormatAvailable),
+ *   this backend has nothing cheaper, and can_paste() - which calls this -
+ *   runs every frame from the toolbar.  Acceptable for now; a real
+ *   non-Windows port can add a lighter probe if it matters.
  */
-
-int os_clipboard_set_text(const char *text)
-{
-    glfwSetClipboardString(NULL, text);
-    return 1;
-}
 
 int os_clipboard_has_text(void)
 {
-    /* GLFW offers no format query, so an actual fetch is the only test; it
-       returns NULL (and raises GLFW_FORMAT_UNAVAILABLE) when the clipboard
-       holds no text.  can_paste() is not a hot path. */
     const char *s = glfwGetClipboardString(NULL);
     return s != NULL && s[0] != '\0';
-}
-
-char *os_clipboard_get_text(void)
-{
-    const char *s = glfwGetClipboardString(NULL);
-    if (s == NULL)
-        return NULL;
-
-    size_t len = strlen(s) + 1;
-    char *result = (char *)th_malloc(len);
-    if (result != NULL)
-        memcpy(result, s, len);
-
-    /* GLFW owns 's' and keeps it valid until the next clipboard call, so the
-       copy above must happen before we return */
-    return result;
 }
 
 
