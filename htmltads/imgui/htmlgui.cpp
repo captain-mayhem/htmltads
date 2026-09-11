@@ -10963,7 +10963,6 @@ void CHtmlSys_mainwin::set_winpos_prefs(const CHtmlRect *winpos)
 void CHtmlSys_mainwin::do_create()
 {
     RECT panel_pos;
-    char title[256];
 
     /* inherit default creation */
     CHtmlSys_framewin::do_create();
@@ -11003,14 +11002,13 @@ void CHtmlSys_mainwin::do_create()
     /* set up the correct accelerators the preferences */
     main_panel_->set_current_accel();
 
-    /* 
-     *   create the "about" box window -- we'll just create the window and
-     *   keep it hidden for now 
+    /*
+     *   The "about this game" box (aboutbox_) is NOT created here - see
+     *   create_aboutbox_win() below for why creating its (parentless)
+     *   system window this early, nested inside our own still-in-progress
+     *   create_system_window() call, is unsafe.  guimain.cpp calls
+     *   create_aboutbox_win() once our own window is fully up.
      */
-    aboutbox_ = new CHtmlSys_aboutgamewin(prefs_);
-    SetRect(&panel_pos, 0, 0, 500, 300);
-    os_load_string(IDS_ABOUT_GAME_WIN_TITLE, title, sizeof(title));
-    aboutbox_->create_system_window(this, FALSE, title, &panel_pos);
 
     /* establish our accelerator */
     CTadsApp::get_app()->set_accel(main_panel_->get_accel(), this);
@@ -11022,7 +11020,43 @@ void CHtmlSys_mainwin::do_create()
 }
 
 /*
- *   initialize a pop-up menu 
+ *   Create the "about this game" box window -- we'll just create the
+ *   window and keep it hidden for now.  Pass a null parent, not 'this'
+ *   (the main window), so CTadsWin::do_render_content_begin() treats it as
+ *   a real floating overlay window (like CHtmlSys_abouttadswin's
+ *   About/Credits boxes) rather than an always-rendered BeginChild()
+ *   permanently nested inside the main window's own content - as a plain
+ *   child, it would (a) never get real modal click-isolation from the
+ *   game text underneath (see the dedicated topdlg hit-testing in
+ *   event_loop(), which only applies to windows on the active-dialog
+ *   stack - see push_active_dialog()) and (b) have its m_pos/m_size read
+ *   as parent-relative rather than the absolute screen coordinates
+ *   run_aboutbox() computes.  See migration.md 5.4/N.
+ *
+ *   This can't run inside do_create() (where it used to live): do_create()
+ *   is called *from inside* our own create_system_window(), before that
+ *   call has gotten to actually standing up our real GLFW window/OpenGL
+ *   context (see CTadsWin::create_system_window()) - a parentless child's
+ *   create_system_window() tries to create ITS OWN GLFW window too
+ *   (CTadsSyswin::syswin_create_system_window()'s GLFW overload only
+ *   refuses when a context already exists), so doing this from do_create()
+ *   raced a second, premature GLFW/GL init against our own and crashed on
+ *   startup.  Called from guimain.cpp once our own create_system_window()
+ *   has returned, the same way the debug log window is created there.
+ */
+void CHtmlSys_mainwin::create_aboutbox_win()
+{
+    RECT panel_pos;
+    char title[256];
+
+    aboutbox_ = new CHtmlSys_aboutgamewin(prefs_);
+    SetRect(&panel_pos, 0, 0, 500, 300);
+    os_load_string(IDS_ABOUT_GAME_WIN_TITLE, title, sizeof(title));
+    aboutbox_->create_system_window(0, FALSE, title, &panel_pos);
+}
+
+/*
+ *   initialize a pop-up menu
  */
 void CHtmlSys_mainwin::init_menu_popup(HMENU menuhdl, unsigned int pos,
                                        int sysmenu)
@@ -13766,8 +13800,16 @@ int CHtmlSys_mainwin::do_command(int notify_code,
         return TRUE;
 
     case ID_HELP_ABOUT_GAME:
+        /*
+         *   Deferred for the same reason as ID_HELP_ABOUT above: we're
+         *   still mid-frame here (do_command(), called from
+         *   render_menu_bar(), called from do_render()), and
+         *   run_aboutbox() pumps its own nested event_loop(), which would
+         *   call ImGui::NewFrame() again before this frame's matching
+         *   Render() ever ran.
+         */
         if (!main_panel_->get_eof_flag())
-            aboutbox_->run_aboutbox(this);
+            queue_deferred_dialog([this] { aboutbox_->run_aboutbox(this); });
         return TRUE;
 
     case ID_FILE_RECENT_NONE:
@@ -15835,7 +15877,7 @@ int CHtmlSys_mainwin::event_loop(int* flag) {
          *   which no longer does anything on its own now that none of
          *   these are real HWNDs.
          */
-        CHtmlSys_top_win *topdlg =
+        CTadsWin *topdlg =
             active_dialogs_.empty() ? nullptr : active_dialogs_.back();
         bool mouse_over_topdlg = topdlg != nullptr && topdlg->isVisible()
             && io.MousePos.x >= topdlg->m_pos.x
@@ -15906,7 +15948,7 @@ int CHtmlSys_mainwin::event_loop(int* flag) {
          *   children of main_win_ (see CHtmlSys_abouttadswin::run_dlg()), so
          *   nothing else renders them.
          */
-        for (CHtmlSys_top_win *dlg : active_dialogs_)
+        for (CTadsWin *dlg : active_dialogs_)
             dlg->do_render();
 
         // Rendering
@@ -18289,24 +18331,16 @@ const int okbtn_ht = 20;
 
 void CHtmlSys_aboutgamewin::do_create()
 {
-    RECT rc;
-
     /* inherit default */
     CTadsWin::do_create();
 
-    /* create the dismiss button */
-    get_client_rect(&rc);
-    okbtn_ = CreateWindow("BUTTON", "OK",
-                          WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON,
-                          (rc.right - okbtn_wid)/2,
-                          rc.bottom - okbtn_ht - 2,
-                          okbtn_wid, okbtn_ht, handle_, (HMENU)IDOK,
-                          CTadsApp::get_app()->get_instance(), 0);
-
-    /* set the button to use the default dialog font */
-    PostMessage(okbtn_, WM_SETFONT,
-                (WPARAM)(HFONT)GetStockObject(DEFAULT_GUI_FONT),
-                MAKELPARAM(TRUE, 0));
+    /*
+     *   No native "OK" button any more - handle_ isn't a real HWND (see
+     *   CTadsWin::create_system_window()), so the CreateWindow("BUTTON", ...)
+     *   this used to do here was silently failing every time, and the button
+     *   never existed.  It's drawn as a plain ImGui button instead, in
+     *   do_render_content_end() below.
+     */
 
     /* no subpanel yet */
     html_subwin_ = 0;
@@ -18375,68 +18409,80 @@ void CHtmlSys_aboutgamewin::delete_html_subwin()
 
 
 /*
- *   Run the dialog 
+ *   Run the dialog.  Ported to the same "floating overlay" pattern as
+ *   CHtmlSys_abouttadswin::run_dlg() (migration.md 5.4/N): this window used
+ *   to be a real top-level HWND, sized/positioned in real desktop screen
+ *   coordinates via GetWindowRect()/MoveWindow() on 'handle_' - none of
+ *   which does anything any more now that 'handle_' is just an opaque
+ *   token (CTadsWin::create_system_window()), so the box always rendered
+ *   at its stale creation-time size/position, off in whatever direction
+ *   those now-meaningless absolute coordinates happened to push it, and
+ *   was never registered with the main window's active-dialog stack, so
+ *   event_loop() didn't even know to draw it.
  */
-void CHtmlSys_aboutgamewin::run_aboutbox(CTadsWin *owner)
+void CHtmlSys_aboutgamewin::run_aboutbox(CHtmlSys_mainwin *owner)
 {
     void *ctx;
-    RECT drc;
     RECT rc;
-    RECT wrc;
     int wid, ht;
-    CHtmlRect text_area;
 
-    /* 
+    /*
      *   disable windows owned by the main window while the dialog is
-     *   running 
+     *   running
      */
     ctx = CTadsDialog::modal_dlg_pre(owner->get_handle(), TRUE);
 
-    /* get my size */
-    get_client_rect(&rc);
-    wid = rc.right - rc.left;
-    ht = rc.bottom - rc.top;
+    /* start from our current (creation-time default) size */
+    ImVec2 cur_size = get_win_size();
+    wid = (int)cur_size.x;
+    ht = (int)cur_size.y;
 
-    /* 
+    /*
      *   increase the window's height if necessary to make room for its
-     *   contents 
+     *   contents
      */
-    if (ht < (int)html_subwin_->get_formatter()->get_max_y_pos() + 30)
-        ht = (int)html_subwin_->get_formatter()->get_max_y_pos() + 30;
+    if (html_subwin_ != 0
+        && ht < (int)html_subwin_->get_formatter()->get_max_y_pos()
+                + okbtn_ht + 30)
+        ht = (int)html_subwin_->get_formatter()->get_max_y_pos()
+             + okbtn_ht + 30;
 
-    /* adjust the height and width to include the non-client areas */
-    GetWindowRect(handle_, &wrc);
-    wid += (wrc.right - wrc.left) - (rc.right - rc.left);
-    ht += (wrc.bottom - wrc.top) - (rc.bottom - rc.top);
+    /*
+     *   Center on the main app window, the same way run_dlg() does - there's
+     *   no real desktop to center against any more (see get_win_size()).
+     */
+    ImVec2 mainwin_size = owner->get_win_size();
+    rc.left = (LONG)((mainwin_size.x - wid) / 2);
+    rc.top = (LONG)((mainwin_size.y - ht) / 2);
+    do_move(rc.left, rc.top);
+    do_resize(SIZE_RESTORED, wid, ht);
 
-    /* center my window on the screen */
-    GetWindowRect(GetDesktopWindow(), &drc);
-    MoveWindow(handle_, drc.left + (drc.right - drc.left - wid)/2,
-               drc.top + (drc.bottom - drc.top - ht)/2, wid, ht, TRUE);
-
-    /* 
-     *   show the window and enable it - it will have been disabled by the
-     *   modal_dlg_pre setup above, so we need to re-enable it now 
+    /*
+     *   Show the window, and register it so event_loop() knows to render it
+     *   and route mouse input to it each frame (see push_active_dialog()).
      */
     setVisible(true);
-    EnableWindow(handle_, TRUE);
+    owner->push_active_dialog(this);
 
     /* enter a recursive event loop until the window is closed */
     AddRef();
     if (!CTadsApp::get_app()->event_loop(&closing_))
     {
-        /* 
+        /*
          *   terminating - post another quit message to the enclosing
-         *   event loop 
+         *   event loop
          */
         PostQuitMessage(0);
     }
 
+    owner->pop_active_dialog();
+
     /* re-enable the windows we disabled before running the dialog */
     CTadsDialog::modal_dlg_post(ctx);
 
-    /* hide myself again */
+    /* hide myself again, and reset for the next time we're opened */
     setVisible(false);
+    closing_ = FALSE;
 
     /* release our self-reference */
     Release();
@@ -18457,7 +18503,10 @@ int CHtmlSys_aboutgamewin::do_close()
 }
 
 /*
- *   resize the window - move all of the controls to compensate 
+ *   Resize the window - move the HTML subpanel to compensate.  The "OK"
+ *   button no longer needs a move here - it's an immediate-mode ImGui
+ *   button (do_render_content_end()) that's simply redrawn wherever it
+ *   belongs each frame, not a real child window with a position to track.
  */
 void CHtmlSys_aboutgamewin::do_resize(int mode, int x, int y)
 {
@@ -18474,20 +18523,24 @@ void CHtmlSys_aboutgamewin::do_resize(int mode, int x, int y)
     default:
         {
             RECT rc;
-            
+
             /* inherit default handling */
             CTadsWin::do_resize(mode, x, y);
-            
-            /* move the "OK" button */
-            get_client_rect(&rc);
-            MoveWindow(okbtn_, (rc.right - okbtn_wid) / 2,
-                       rc.bottom - okbtn_ht - 2,
-                       okbtn_wid, okbtn_ht, TRUE);
 
-            /* move the main panel */
-            MoveWindow(html_subwin_->get_handle(),
-                       rc.left, rc.top, rc.right,
-                       rc.bottom - okbtn_ht - 4, TRUE);
+            /*
+             *   Move the main panel, leaving room for the "OK" button
+             *   strip.  reposition() (not do_move()/do_resize() directly -
+             *   those are protected, and this class isn't in
+             *   CHtmlSysWin_win32's hierarchy) is the portable replacement
+             *   for the MoveWindow() this used to do on html_subwin_'s
+             *   (no longer real) HWND.
+             */
+            if (html_subwin_ != 0)
+            {
+                get_client_rect(&rc);
+                html_subwin_->reposition(rc.left, rc.top, rc.right,
+                                         rc.bottom - okbtn_ht - 4);
+            }
         }
     }
 }
@@ -18513,28 +18566,40 @@ int CHtmlSys_aboutgamewin::do_char(TCHAR ch, long /*keydata*/)
 }
 
 /*
- *   handle a command 
+ *   Handle a command.  The "OK" button is a plain ImGui button now
+ *   (do_render_content_end()), not a real child control, so there's no
+ *   WM_COMMAND notification for it to react to here any more.
  */
 int CHtmlSys_aboutgamewin::do_command(int notify_code, int cmd, HWND ctl)
 {
-    /* if it's the "OK" button, set the closing flag */
-    if (ctl == okbtn_)
-    {
-        closing_ = TRUE;
-        return TRUE;
-    }
-
-    /* ignore other commands */
+    /* nothing to do - ignore all commands */
     return FALSE;
 }
 
 /*
- *   erase the background 
+ *   erase the background
  */
 void CHtmlSys_aboutgamewin::do_paint_content(HDC hdc, const RECT *paintrc)
 {
     /* fill the background with gray */
     FillRect(hdc, paintrc, (HBRUSH)GetStockObject(LTGRAY_BRUSH));
+}
+
+/*
+ *   Draw the "OK" button, in the strip create_html_subwin() reserves below
+ *   the HTML panel, then close out our content block as usual.  Runs after
+ *   the HTML subpanel (our one child) has already rendered - do_render()
+ *   renders all of m_children between do_render_content_begin() and
+ *   do_render_content_end() - so the cursor is right below it.
+ */
+void CHtmlSys_aboutgamewin::do_render_content_end()
+{
+    float avail_w = ImGui::GetContentRegionAvail().x;
+    ImGui::SetCursorPosX(ImGui::GetCursorPosX() + (avail_w - okbtn_wid) / 2);
+    if (ImGui::Button("OK", ImVec2((float)okbtn_wid, (float)okbtn_ht)))
+        closing_ = TRUE;
+
+    CTadsWin::do_render_content_end();
 }
 
 /* ------------------------------------------------------------------------ */
@@ -18710,9 +18775,15 @@ void CHtmlSys_top_win::do_resize(int mode, int x, int y)
         get_client_rect(&rc);
         adjust_subwin_rect(&rc);
 
-        /* move the subwindow to its new area */
-        MoveWindow(html_subwin_->get_handle(),
-                   rc.left, rc.top, rc.right, rc.bottom, TRUE);
+        /*
+         *   Move the subwindow to its new area.  html_subwin_->get_handle()
+         *   isn't a real HWND to MoveWindow() any more (see
+         *   CTadsWin::create_system_window()) - use the portable
+         *   reposition() (CHtmlSysWin_win32::do_move()/do_resize() are
+         *   protected, so this class - a sibling, not a base, of
+         *   CHtmlSysWin_win32 - can't call them directly on html_subwin_).
+         */
+        html_subwin_->reposition(rc.left, rc.top, rc.right, rc.bottom);
     }
 }
 
@@ -19174,22 +19245,35 @@ int os_show_popup_menu(int default_pos, int x, int y,
 
     /*
      *   Create a new top-level window, but don't show it yet - we need to
-     *   figure out the size based on the contents.  
+     *   figure out the size based on the contents.
+     *
+     *   Pass a null parent, not the main window, so
+     *   CTadsWin::do_render_content_begin() takes its "floating overlay
+     *   window" branch (same reasoning as CHtmlSys_abouttadswin::run_dlg(),
+     *   migration.md 5.4/N) instead of an undecorated BeginChild() nested
+     *   inside the main window's own content - and register the window with
+     *   the main window's active-dialog stack below so event_loop() actually
+     *   knows to render it and route mouse input to it.  Previously this
+     *   passed the main window as parent and never registered at all, so
+     *   the popup compiled and ran but never appeared on screen.
      */
-    win = new CHtmlSys_popup_menu_win(CHtmlSys_mainwin::get_main_win(),
-                                      txt, txtlen);
+    CHtmlSys_mainwin *mainwin = CHtmlSys_mainwin::get_main_win();
+    win = new CHtmlSys_popup_menu_win(mainwin, txt, txtlen);
 
     /* create the system window */
     SetRect(&rc, 0, 0, 1000, 100);
-    win->create_system_window(CHtmlSys_mainwin::get_main_win(),
-                              FALSE, "PopupMenu", &rc, new CTadsSyswinMenu(win));
+    win->create_system_window(0, FALSE, "PopupMenu", &rc,
+                              new CTadsSyswinMenu(win));
 
     /* size to the window's contents */
     win->set_pos_and_size(default_pos, x, y);
 
     /* track the mouse in the pop-up window, and return the result */
-    return ((CHtmlSysWin_win32_Popup *)win->get_html_subwin())
+    mainwin->push_active_dialog(win);
+    int ret = ((CHtmlSysWin_win32_Popup *)win->get_html_subwin())
         ->track_as_popup_menu(evt);
+    mainwin->pop_active_dialog();
+    return ret;
 }
 
 
@@ -19284,9 +19368,23 @@ void CHtmlSys_popup_menu_win::set_pos_and_size(int default_pos, int x, int y)
     if (x + wid > drc.right)
         x = drc.right - wid;
 
-    /* move the window to the calculated position, and set the size */
-    MoveWindow(handle_, x, y, wid, ht, FALSE);
-    ShowWindow(handle_, SW_SHOWNA);
+    /*
+     *   Move the window to the calculated position, and set the size, and
+     *   show it.  'handle_' isn't a real HWND any more (see
+     *   CTadsWin::create_system_window()), so MoveWindow()/ShowWindow() on
+     *   it were both silent no-ops - do_move()/do_resize()/setVisible()
+     *   directly update the state CTadsWin::do_render_content_begin()'s
+     *   floating-window branch actually draws from.  (x/y/wid/ht above are
+     *   real desktop screen coordinates, per GetCursorPos()/
+     *   GetWindowRect(GetDesktopWindow()) - ImGui's coordinate space is the
+     *   GLFW window's own client area, so on a multi-monitor desktop, or
+     *   with the app window not at the desktop origin, this can land the
+     *   menu at the wrong spot within the app window even though it now
+     *   renders.)
+     */
+    do_move(x, y);
+    do_resize(SIZE_RESTORED, wid, ht);
+    setVisible(true);
 }
 
 /* ------------------------------------------------------------------------ */
@@ -19341,9 +19439,23 @@ int CHtmlSysWin_win32_Popup::track_as_popup_menu(os_event_info_t *evt)
         return OSPOP_EOF;
     }
 
-    /* we're now dismissed, so close our parent window */
-    DestroyWindow(GetParent(handle_));
-    
+    /*
+     *   We're now dismissed, so destroy our parent window (the top-level
+     *   CHtmlSys_popup_menu_win).  GetParent(handle_) doesn't work any more
+     *   - handle_ isn't a real HWND (see CTadsWin::create_system_window())
+     *   - so DestroyWindow() on it was always a silent no-op: the popup's
+     *   window object (and this subwindow) leaked on every use, and
+     *   do_destroy() never ran.  get_parent() is the portable equivalent of
+     *   GetParent().  Use destroy_now() rather than request_close(): real
+     *   DestroyWindow() doesn't consult a WM_CLOSE handler the way
+     *   request_close()'s do_close() call would, and CHtmlSys_top_win::
+     *   do_close() (inherited here, since this class doesn't override it)
+     *   vetoes unless its own 'ending_' flag is set, which only
+     *   CHtmlSys_abouttadswin::run_dlg()'s nested-event-loop dialogs ever
+     *   set - request_close() here would silently do nothing.
+     */
+    get_parent()->destroy_now();
+
     /* return our menu selection indication */
     return ret;
 }

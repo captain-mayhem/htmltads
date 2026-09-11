@@ -1764,7 +1764,8 @@ void CTadsWin::do_render_content_begin()
         ImGui::SetNextWindowSize(m_size, ImGuiCond_FirstUseEver);
         ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0.0f, 0.0f));
         bool *p_open = get_titlebar_open_flag();
-        ImGui::Begin(m_title.c_str(), p_open, ImGuiWindowFlags_NoResize);
+        ImGui::Begin(m_title.c_str(), p_open,
+            ImGuiWindowFlags_NoResize | get_floating_window_flags());
         if (p_open != nullptr && !*p_open)
             on_titlebar_close();
         m_pos = ImGui::GetWindowPos();

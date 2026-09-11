@@ -1032,6 +1032,17 @@ protected:
     virtual void on_titlebar_close() { }
 
     /*
+     *   Extra ImGui window flags for a floating (parent_==nullptr) window's
+     *   own ImGui::Begin() call, on top of the ImGuiWindowFlags_NoResize
+     *   do_render_content_begin() always passes.  Default: no extra flags -
+     *   a normal draggable, titled window (About, Credits, the debug log).
+     *   A borderless, non-draggable overlay like a pop-up menu
+     *   (CHtmlSys_popup_menu_win) overrides this to suppress the title bar
+     *   and dragging, matching its old WS_POPUP window style's intent.
+     */
+    virtual ImGuiWindowFlags get_floating_window_flags() const { return 0; }
+
+    /*
      *   ImGui child-window flags for our content area.  By default we
      *   auto-size the child to fit whatever we draw into it, since most
      *   windows draw a fixed, non-scrolling amount of content.  Windows

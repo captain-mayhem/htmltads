@@ -1464,6 +1464,57 @@ top-level window rendered as an ImGui overlay, including its own menu bar and th
 Porting `CHtmlSys_aboutgamewin` retires the last live entry points in `tadsdlg.cpp` (`modal_dlg_pre`/`post`,
 `set_filedlg_center_hook`), which is what lets §5.3 drop those files.
 
+**Done, both, plus a startup crash found along the way. Correction: `modal_dlg_pre`/`post` are not actually
+retired** - `CHtmlSys_abouttadswin::run_dlg()` still calls them too (for the real, still-functional
+`enable_accel(FALSE)` side effect - accelerators need suppressing while a dialog owns input, independent of
+the dead `GetTopWindow`/`EnableWindow` disable-loop in the same function), so `CHtmlSys_aboutgamewin::
+run_aboutbox()` keeps calling them for the same reason; §5.3 dropping `tadsdlg.cpp` needs a separate look at
+whether `enable_accel()` can be hoisted out first, not a repeat of this bullet's original claim.
+
+Both classes had the same root problem as the rest of this section: real Win32 calls (`CreateWindow`,
+`MoveWindow`, `GetWindowRect`, `EnableWindow`, `DestroyWindow`, `GetParent`) still aimed at `handle_`/a
+subwindow's `handle_`, which stopped being a real HWND a long time ago (`CTadsWin::create_system_window()`) -
+every one of them was a silent no-op. Fixed by switching to the portable equivalents already established
+elsewhere (`do_move()`/`do_resize()` - via a new `CHtmlSysWin_win32::reposition()` public passthrough where
+the caller is a sibling class and they're otherwise protected; `setVisible()`; `get_parent()`; `destroy_now()`)
+and, for both windows, actually registering with `push_active_dialog()`/`pop_active_dialog()` so
+`event_loop()` knows to render them and route mouse input to them at all - neither was ever wired into that
+stack, so on top of the dead Win32 calls, nothing would have drawn them even once fixed.
+`push_active_dialog()`/`active_dialogs_` had to be retyped from `CHtmlSys_top_win *` to the common `CTadsWin *`
+base for this, since `CHtmlSys_aboutgamewin` is a direct `CTadsWin` subclass (its HTML content comes from the
+running game via `create_html_subwin(formatter)`, not from `CHtmlSys_top_win`'s own
+`parser_`/`formatter_`/`build_contents()`), not a `CHtmlSys_top_win`. The native "OK" button
+(`CreateWindow("BUTTON", ...)` on the fake `handle_`, so it never existed) became a plain ImGui button drawn
+in a new `do_render_content_end()` override. `os_show_popup_menu()` was also creating `CHtmlSys_popup_menu_win`
+with the main window as parent instead of null, so it rendered (once the above was fixed) as a title-barred,
+draggable dialog nested in the main window's own content instead of a borderless top-level overlay - fixed by
+passing a null parent and adding `CTadsWin::get_floating_window_flags()` (default no-op, overridden here to
+`ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoMove`) so a floating window can opt out of the normal
+decorated look. Not independently screenshot-verified end to end - no available test game triggers
+`os_show_popup_menu()` (no caller of it was found anywhere in the tree either, core VM included; it may be
+effectively dead in practice), and `ditch3.t3` doesn't define an "About This Game" resource, so
+`ID_HELP_ABOUT_GAME` stayed disabled in manual testing. Verified instead by confirming the already-proven
+`CHtmlSys_abouttadswin` floating-dialog path (same `push_active_dialog()`/`do_render_content_begin()`
+machinery) still renders and dismisses correctly after the `active_dialogs_` retype, by inspection that the
+popup/about-game code now follows that exact same proven pattern, and by a clean 0-warning build.
+
+**Startup-crash correction:** the first version of this fix made `CHtmlSys_aboutgamewin`'s *initial* (still
+hidden) `create_system_window(0, ...)` call directly from `CHtmlSys_mainwin::do_create()`, matching where it
+already lived - but `do_create()` runs *from inside* the main window's own `create_system_window()` call,
+before that call has gotten around to actually creating the real GLFW window/OpenGL context (that happens
+afterward, in the same function, in the `parent == nullptr` branch). A parentless child's own
+`create_system_window()` tries to create *its own* GLFW window too, and
+`CTadsSyswin::syswin_create_system_window()`'s "only one real window" guard
+(`glfwGetCurrentContext() != nullptr`) only refuses when a context already exists - at this exact moment none
+does yet, so it raced a second, premature GLFW/GL init against the main window's own and crashed on every
+launch (`0xc0000005`, reproducible, same offset every time - caught via `Get-WinEvent` against the
+Application Error log, not any on-screen message). Fixed by moving the whole creation call out of
+`do_create()` into a new `CHtmlSys_mainwin::create_aboutbox_win()`, called from `guimain.cpp` right after the
+main window's own `create_system_window()` returns - the same spot and reasoning `CHtmlSys_dbglogwin`'s
+creation already used one function down. Lesson for anything else in this bucket: a window being parentless
+is only safe once *some* real window already exists; check the call site's place in the startup sequence, not
+just whether the window itself looks like existing proven ones.
+
 **O. Gate the Web UI.** `tadswebctl.*`, `guiwebui.h`, `tadscom.*`, `guinogch.cpp` and the `CoInitialize`
 pair behind `TADS_WEBUI_ENABLED`, off by default (§4). `CTadsStatusline::get_handle()` exists solely to keep
 `guiwebui.h` compiling (§3.2) and can go with it.

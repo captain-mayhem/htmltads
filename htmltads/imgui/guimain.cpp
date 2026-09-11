@@ -576,6 +576,14 @@ static void run_game(int argc, char** argv,
     /* create the window */
     win->create_system_window(0, TRUE, w32_titlebar_name, &pos);
 
+    /*
+     *   Create the "About This Game" dialog window now that our own window
+     *   (and its GLFW/OpenGL context) genuinely exists - see
+     *   CHtmlSys_mainwin::create_aboutbox_win() for why this can't happen
+     *   any earlier, e.g. from inside our own do_create().
+     */
+    win->create_aboutbox_win();
+
     /* try loading the .exe resources */
     win->load_exe_resources(exefile);
 

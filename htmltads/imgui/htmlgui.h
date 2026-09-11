@@ -325,6 +325,24 @@ public:
     }
 
     /*
+     *   Move and resize an already-formatted subwindow from outside its own
+     *   class.  do_move()/do_resize() are protected (see
+     *   establish_disp_size() just above for why) - a caller in a different
+     *   branch of the class hierarchy that only holds this as a plain
+     *   CHtmlSysWin_win32* (e.g. CHtmlSys_top_win::do_resize() or
+     *   CHtmlSys_aboutgamewin::do_resize(), repositioning their html_subwin_
+     *   when their own size changes) needs a public passthrough instead.
+     *   Unlike establish_disp_size(), this is for a window that's already
+     *   been formatted once, so it doesn't suppress the normal deferred
+     *   reformat do_resize() schedules when the width actually changes.
+     */
+    void reposition(int x, int y, int wid, int ht)
+    {
+        do_move(x, y);
+        do_resize(SIZE_RESTORED, wid, ht);
+    }
+
+    /*
      *   Set the banner flag.  This should be set for windows that are
      *   being used as banners. 
      */
@@ -2944,6 +2962,24 @@ public:
     virtual class CHtmlSysWin
         *create_aboutbox_window(class CHtmlFormatter *formatter);
 
+    /*
+     *   Create the "About This Game" dialog window itself (aboutbox_) -
+     *   just the empty floating window, not its HTML content, which the
+     *   running game supplies later via create_aboutbox_window() above.
+     *   Called from guimain.cpp right after our own create_system_window()
+     *   returns, the same way the debug log window is created there - NOT
+     *   from do_create() (where this used to live): do_create() runs
+     *   *during* our own create_system_window() call, before our real GLFW
+     *   window/OpenGL context exists yet, and aboutbox_ needs a null
+     *   parent (see run_aboutbox(), migration.md 5.4/N) to render as a
+     *   real floating overlay - calling create_system_window(0, ...) that
+     *   early would hit CTadsSyswin::syswin_create_system_window()'s
+     *   "only one real window" check while no window has been made yet,
+     *   so it would actually try to stand up a second, premature GLFW/GL
+     *   context and crash.
+     */
+    void create_aboutbox_win();
+
     /* remove a banner subwindow */
     virtual void remove_banner_window(class CHtmlSysWin *subwin);
 
@@ -3272,18 +3308,24 @@ public:
         { pending_dialogs_.push_back(fn); }
 
     /*
-     *   Register/unregister a floating top-level dialog (About, Credits, ...
-     *   see CHtmlSys_abouttadswin::run_dlg()) as "currently open," so
-     *   event_loop() knows to render it and route mouse input to it each
-     *   iteration.  Unlike the debug log window (dbgwin_, a single fixed
-     *   slot event_loop() already knows about directly), these are created
-     *   and destroyed dynamically and can nest (Credits opened from within
-     *   an already-open About), so they need an actual stack; push on open,
-     *   pop on close, always in strict LIFO order (guaranteed by run_dlg(),
-     *   the sole caller: it pops right after its own nested event_loop()
-     *   returns, before doing anything else).
+     *   Register/unregister a floating top-level dialog (About, Credits,
+     *   the "About This Game" box, a pop-up menu, ... see
+     *   CHtmlSys_abouttadswin::run_dlg() and CHtmlSys_aboutgamewin::
+     *   run_aboutbox()) as "currently open," so event_loop() knows to
+     *   render it and route mouse input to it each iteration.  Unlike the
+     *   debug log window (dbgwin_, a single fixed slot event_loop() already
+     *   knows about directly), these are created and destroyed dynamically
+     *   and can nest (Credits opened from within an already-open About), so
+     *   they need an actual stack; push on open, pop on close, always in
+     *   strict LIFO order (guaranteed by each caller: it pops right after
+     *   its own nested event_loop() returns, before doing anything else).
+     *   Typed as the common CTadsWin base, not CHtmlSys_top_win, since
+     *   CHtmlSys_aboutgamewin is a direct CTadsWin subclass (it owns its
+     *   HTML content externally, supplied by the running game, rather than
+     *   via CHtmlSys_top_win's own parser_/formatter_/build_contents()) but
+     *   still needs to be rendered and routed to the same way.
      */
-    void push_active_dialog(class CHtmlSys_top_win *w)
+    void push_active_dialog(class CTadsWin *w)
         { active_dialogs_.push_back(w); }
     void pop_active_dialog()
         { active_dialogs_.pop_back(); }
@@ -3297,7 +3339,7 @@ private:
     std::vector<std::function<void()>> pending_dialogs_;
 
     /* currently-open floating dialogs - see push_active_dialog() */
-    std::vector<class CHtmlSys_top_win *> active_dialogs_;
+    std::vector<class CTadsWin *> active_dialogs_;
 
     /* finish command line input */
     void get_input_done();
@@ -4366,6 +4408,7 @@ public:
     {
         html_subwin_ = 0;
         prefs_ = prefs;
+        closing_ = FALSE;
     }
 
     /* process window creation */
@@ -4386,8 +4429,17 @@ public:
     /* get my HTML subwindow */
     class CHtmlSysWin_win32 *get_html_subwin() const { return html_subwin_; }
 
-    /* run the "about" dialog */
-    void run_aboutbox(class CTadsWin *owner);
+    /*
+     *   Run the "about" dialog.  'owner' is always the main window - it's
+     *   typed as such (rather than the generic CTadsWin, as this used to
+     *   take) because running the dialog needs CHtmlSys_mainwin::
+     *   push_active_dialog()/pop_active_dialog() and get_win_size(), the
+     *   same "floating overlay" registration CHtmlSys_abouttadswin::
+     *   run_dlg() uses (see migration.md 5.4/N) - without it, event_loop()
+     *   has no way to know this window exists to render it or route mouse
+     *   input to it.
+     */
+    void run_aboutbox(class CHtmlSys_mainwin *owner);
 
     /* close the window */
     int do_close();
@@ -4400,7 +4452,17 @@ public:
 
     /* handle commands */
     int do_command(int notify_code, int cmd, HWND ctl);
-    
+
+    /*
+     *   Draw the "OK" button below the HTML panel.  This used to be a real
+     *   child HWND (CreateWindow("BUTTON", ...)); handle_ hasn't been a
+     *   real window for any CTadsWin in a long time (see
+     *   CTadsWin::create_system_window()), so that call was silently
+     *   failing and the button never existed at all - part of why this
+     *   window rendered nothing (migration.md 5.4/N).
+     */
+    void do_render_content_end() override;
+
 protected:
     /* leave off the min and max boxes and the size box */
     DWORD get_winstyle()
@@ -4414,9 +4476,6 @@ protected:
 
     /* my HTML subwindow */
     class CHtmlSysWin_win32 *html_subwin_;
-
-    /* handle of the "OK" button */
-    HWND okbtn_;
 
     /* preferences object */
     class CHtmlPreferences *prefs_;
@@ -4663,6 +4722,17 @@ public:
     DWORD get_winstyle()
     {
         return (WS_POPUP | WS_CLIPSIBLINGS | WS_CLIPCHILDREN);
+    }
+
+    /*
+     *   Carry the "no title bar" intent of get_winstyle() above (WS_POPUP)
+     *   over into the ImGui rendering, and don't let the user drag it -
+     *   it's a transient menu, not a normal floating dialog like About or
+     *   Credits (see CTadsWin::get_floating_window_flags()).
+     */
+    ImGuiWindowFlags get_floating_window_flags() const override
+    {
+        return ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoMove;
     }
 
     /* make it a top-most window */
