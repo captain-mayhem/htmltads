@@ -74,6 +74,7 @@ Modified
 #ifndef HTMLPREF_H
 #include "htmlpref.h"
 #endif
+#include "guios.h"
 
 
 /* ------------------------------------------------------------------------ */
@@ -1053,12 +1054,15 @@ protected:
     /* set the keyboard focus to this window */
     virtual void take_focus()
     {
-        /* 
-         *   if I don't already have focus, and I'm allowed to take it, set
-         *   focus to my window handle 
+        /*
+         *   GetFocus()/SetFocus(handle_) is a dead no-op here - handle_ is a
+         *   synthetic, never-registered token (migration.md 3.4a), so this
+         *   never actually changed anything.  Track logical focus ourselves
+         *   instead, via the same portable-substitute pattern already used
+         *   for mouse capture; CHtmlSys_mainwin::get_focus_subwin() (Edit >
+         *   Copy/Cut/Delete/SelectAll's dispatch target) reads it back.
          */
-        if (GetFocus() != handle_)
-            SetFocus(handle_);
+        CTadsApp::get_app()->setLogicalFocus(this);
     }
 
     /* map the foreground object's palette - return true if palette changed */
@@ -1795,6 +1799,16 @@ public:
     /* get my current accelerator */
     HACCEL get_accel() const { return current_accel_; }
 
+    /*
+     *   Get the current accelerator table in portable form - the same
+     *   IDR_ACCEL_WIN/IDR_ACCEL_EMACS bindings as get_accel()'s HACCEL, but
+     *   as canonical-key entries an ImGui-driven dispatcher can check
+     *   without a Win32 message loop.  See CHtmlSys_mainwin::do_accel_keys()
+     *   (migration.md 5.4/L).
+     */
+    void get_accel_entries(const os_accel_entry_t **entries, int *count) const
+        { *entries = current_accel_entries_; *count = current_accel_entry_cnt_; }
+
     /* receive notification of a change to link enabling preferences */
     virtual void notify_link_pref_change();
 
@@ -1959,6 +1973,21 @@ protected:
     /* accelerator tables for different preference settings */
     HACCEL accel_emacs_;
     HACCEL accel_win_;
+
+    /*
+     *   Portable form of the same two tables, loaded alongside the HACCELs
+     *   above via os_load_accel_table() (guios.h) so CHtmlSys_mainwin's
+     *   event_loop() can dispatch them without a Win32 message loop.
+     *   current_accel_entries_/current_accel_entry_cnt_ mirror current_accel_
+     *   and are kept in sync by set_current_accel().  See migration.md 5.4/L.
+     */
+    static const int MAX_ACCEL_ENTRIES = 64;
+    os_accel_entry_t accel_win_entries_[MAX_ACCEL_ENTRIES];
+    int accel_win_entry_cnt_;
+    os_accel_entry_t accel_emacs_entries_[MAX_ACCEL_ENTRIES];
+    int accel_emacs_entry_cnt_;
+    const os_accel_entry_t *current_accel_entries_;
+    int current_accel_entry_cnt_;
 
     /* flag indicating when we've finished reading a command */
     int command_read_;
@@ -3201,6 +3230,16 @@ public:
     int event_loop(int* flag);
 
     /*
+     *   Check the main input panel's current accelerator table
+     *   (main_panel_->get_accel_entries()) against this frame's key state
+     *   and dispatch any newly-pressed match through do_command()/
+     *   check_command(), the same pair render_menu_bar() uses. Called once
+     *   per frame from event_loop(), before the menu bar itself is drawn.
+     *   See migration.md 5.4/L.
+     */
+    void do_accel_keys();
+
+    /*
      *   Queue a dialog-opening callback to run at the next safe point
      *   between frames, rather than calling it immediately.
      *
@@ -3453,6 +3492,25 @@ private:
 
     /* the game's internal character set display name */
     CStringBuf game_internal_charset_;
+
+    /*
+     *   Per-key "was it down last frame" state for do_accel_keys()'s edge
+     *   detection - glfwGetKey() only reports current state, so a keypress
+     *   is "key down this frame and wasn't last frame", tracked here rather
+     *   than through ImGui (whose IsKeyPressed() needs an ImGuiKey, and
+     *   there's no public GLFW-key-to-ImGuiKey conversion).
+     */
+    bool accel_key_down_[GLFW_KEY_LAST + 1];
+
+    /*
+     *   Top-level menu mnemonic requested by Alt+<letter> (e.g. Alt+F for
+     *   File), detected in event_loop() and consumed by render_menu_bar()
+     *   on the next call - this ImGui build has no built-in "&" mnemonic
+     *   support (see the render_menu_bar() gotcha in migration.md 3.1), so
+     *   there's no automatic Alt-key handling to hook into.  0 when no
+     *   mnemonic is pending.  See migration.md 5.4/L.
+     */
+    char pending_menu_mnemonic_;
 
     /* the new game waiting to be loaded after the current game exits */
     CStringBuf pending_new_game_;

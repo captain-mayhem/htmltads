@@ -16,6 +16,11 @@
 #include "htmlres.h"      /* IDB_TERP_TOOLBAR, IDX_LICENSE_TEXT */
 #include "guios.h"
 
+/* this is missing from the Windows Platform SDK in MSVC .Net 2003 */
+#ifndef MAPVK_VK_TO_CHAR
+#define MAPVK_VK_TO_CHAR   2
+#endif
+
 
 /* ------------------------------------------------------------------------ */
 /*
@@ -245,4 +250,193 @@ char *os_utf8_to_local(unsigned int codepage, const char *utf8, size_t *out_len)
     if (out_len != 0)
         *out_len = (size_t)(clen > 0 ? clen - 1 : 0);
     return cbuf;
+}
+
+
+/* ------------------------------------------------------------------------ */
+/*
+ *   L. Keyboard
+ *
+ *   Letters and digits need no table entry: VK_A..VK_Z/VK_0..VK_9,
+ *   GLFW_KEY_A..GLFW_KEY_Z/GLFW_KEY_0..GLFW_KEY_9, and their ASCII codes are
+ *   all numerically identical, so vk_to_glfw_key()/glfw_key_to_vk() treat
+ *   them as the identity.  Everything else - named keys (VK_BACK, VK_F1,
+ *   ...), the numeric keypad, and the punctuation keys reachable through
+ *   os_char_to_key()'s xch[] table in tadskb.cpp - goes through the table
+ *   below.  The punctuation entries (VK_OEM_*) assume a US keyboard layout,
+ *   the same assumption GLFW's own Win32 backend makes internally when it
+ *   translates scan codes to GLFW_KEY_* constants - there is no portable way
+ *   to ask "what layout is this," so the two sides have to agree on one.
+ */
+struct vk_glfw_pair_t { int vk; int glfw_key; };
+static const vk_glfw_pair_t vk_glfw_table[] =
+{
+    { VK_BACK, GLFW_KEY_BACKSPACE },
+    { VK_TAB, GLFW_KEY_TAB },
+    { VK_RETURN, GLFW_KEY_ENTER },
+    { VK_PAUSE, GLFW_KEY_PAUSE },
+    { VK_ESCAPE, GLFW_KEY_ESCAPE },
+    { VK_SPACE, GLFW_KEY_SPACE },
+    { VK_PRIOR, GLFW_KEY_PAGE_UP },
+    { VK_NEXT, GLFW_KEY_PAGE_DOWN },
+    { VK_END, GLFW_KEY_END },
+    { VK_HOME, GLFW_KEY_HOME },
+    { VK_LEFT, GLFW_KEY_LEFT },
+    { VK_UP, GLFW_KEY_UP },
+    { VK_RIGHT, GLFW_KEY_RIGHT },
+    { VK_DOWN, GLFW_KEY_DOWN },
+    { VK_SNAPSHOT, GLFW_KEY_PRINT_SCREEN },
+    { VK_INSERT, GLFW_KEY_INSERT },
+    { VK_DELETE, GLFW_KEY_DELETE },
+    { VK_NUMPAD0, GLFW_KEY_KP_0 },
+    { VK_NUMPAD1, GLFW_KEY_KP_1 },
+    { VK_NUMPAD2, GLFW_KEY_KP_2 },
+    { VK_NUMPAD3, GLFW_KEY_KP_3 },
+    { VK_NUMPAD4, GLFW_KEY_KP_4 },
+    { VK_NUMPAD5, GLFW_KEY_KP_5 },
+    { VK_NUMPAD6, GLFW_KEY_KP_6 },
+    { VK_NUMPAD7, GLFW_KEY_KP_7 },
+    { VK_NUMPAD8, GLFW_KEY_KP_8 },
+    { VK_NUMPAD9, GLFW_KEY_KP_9 },
+    { VK_MULTIPLY, GLFW_KEY_KP_MULTIPLY },
+    { VK_ADD, GLFW_KEY_KP_ADD },
+    { VK_SUBTRACT, GLFW_KEY_KP_SUBTRACT },
+    { VK_DECIMAL, GLFW_KEY_KP_DECIMAL },
+    { VK_DIVIDE, GLFW_KEY_KP_DIVIDE },
+    { VK_F1, GLFW_KEY_F1 }, { VK_F2, GLFW_KEY_F2 },
+    { VK_F3, GLFW_KEY_F3 }, { VK_F4, GLFW_KEY_F4 },
+    { VK_F5, GLFW_KEY_F5 }, { VK_F6, GLFW_KEY_F6 },
+    { VK_F7, GLFW_KEY_F7 }, { VK_F8, GLFW_KEY_F8 },
+    { VK_F9, GLFW_KEY_F9 }, { VK_F10, GLFW_KEY_F10 },
+    { VK_F11, GLFW_KEY_F11 }, { VK_F12, GLFW_KEY_F12 },
+    { VK_F13, GLFW_KEY_F13 }, { VK_F14, GLFW_KEY_F14 },
+    { VK_F15, GLFW_KEY_F15 }, { VK_F16, GLFW_KEY_F16 },
+    { VK_F17, GLFW_KEY_F17 }, { VK_F18, GLFW_KEY_F18 },
+    { VK_F19, GLFW_KEY_F19 }, { VK_F20, GLFW_KEY_F20 },
+    { VK_F21, GLFW_KEY_F21 }, { VK_F22, GLFW_KEY_F22 },
+    { VK_F23, GLFW_KEY_F23 }, { VK_F24, GLFW_KEY_F24 },
+
+    /* punctuation - US layout VK_OEM_* codes */
+    { VK_OEM_1, GLFW_KEY_SEMICOLON },        /* ;: */
+    { VK_OEM_PLUS, GLFW_KEY_EQUAL },         /* =+ */
+    { VK_OEM_COMMA, GLFW_KEY_COMMA },        /* ,< */
+    { VK_OEM_MINUS, GLFW_KEY_MINUS },        /* -_ */
+    { VK_OEM_PERIOD, GLFW_KEY_PERIOD },      /* .> */
+    { VK_OEM_2, GLFW_KEY_SLASH },            /* /? */
+    { VK_OEM_3, GLFW_KEY_GRAVE_ACCENT },     /* `~ */
+    { VK_OEM_4, GLFW_KEY_LEFT_BRACKET },     /* [{ */
+    { VK_OEM_5, GLFW_KEY_BACKSLASH },        /* \| */
+    { VK_OEM_6, GLFW_KEY_RIGHT_BRACKET },    /* ]} */
+    { VK_OEM_7, GLFW_KEY_APOSTROPHE },       /* '" */
+};
+static const int vk_glfw_table_cnt =
+    sizeof(vk_glfw_table) / sizeof(vk_glfw_table[0]);
+
+static bool is_alnum_vk(int vk)
+{
+    return (vk >= 'A' && vk <= 'Z') || (vk >= '0' && vk <= '9');
+}
+
+static os_key_t vk_to_glfw_key(int vk)
+{
+    if (is_alnum_vk(vk))
+        return vk;
+    for (int i = 0 ; i < vk_glfw_table_cnt ; ++i)
+        if (vk_glfw_table[i].vk == vk)
+            return vk_glfw_table[i].glfw_key;
+    return 0;
+}
+
+static int glfw_key_to_vk(os_key_t key)
+{
+    if ((key >= GLFW_KEY_A && key <= GLFW_KEY_Z)
+        || (key >= GLFW_KEY_0 && key <= GLFW_KEY_9))
+        return key;
+    for (int i = 0 ; i < vk_glfw_table_cnt ; ++i)
+        if (vk_glfw_table[i].glfw_key == key)
+            return vk_glfw_table[i].vk;
+    return 0;
+}
+
+int os_key_to_char(os_key_t key)
+{
+    int vk = glfw_key_to_vk(key);
+    if (vk == 0)
+        return 0;
+
+    return (int)(MapVirtualKey(vk, MAPVK_VK_TO_CHAR) & 0x7FFFFFFF);
+}
+
+os_key_t os_char_to_key(int ch, int *shift_out)
+{
+    *shift_out = 0;
+
+    UINT s = VkKeyScan((char)ch);
+    if (s == 0)
+        return 0;
+
+    *shift_out = (s & 0x100 ? OS_KEY_SHIFT : 0)
+               | (s & 0x200 ? OS_KEY_CTRL : 0)
+               | (s & 0x400 ? OS_KEY_ALT : 0);
+
+    return vk_to_glfw_key(s & 0xFF);
+}
+
+int os_load_accel_table(int accel_id, os_accel_entry_t *entries,
+                        int max_entries)
+{
+    HACCEL h = LoadAccelerators(CTadsApp::get_app()->get_instance(),
+                                MAKEINTRESOURCE(accel_id));
+    if (h == 0)
+        return 0;
+
+    int n = CopyAcceleratorTable(h, 0, 0);
+    if (n <= 0)
+        return 0;
+
+    ACCEL *raw = (ACCEL *)th_malloc(n * sizeof(ACCEL));
+    n = CopyAcceleratorTable(h, raw, n);
+
+    int out = 0;
+    for (int i = 0 ; i < n && out < max_entries ; ++i)
+    {
+        os_key_t key;
+        int shift;
+
+        if (raw[i].fVirt & FVIRTKEY)
+        {
+            /* virtual-key entry: fVirt's shift bits are explicit */
+            key = vk_to_glfw_key(raw[i].key);
+            shift = ((raw[i].fVirt & FSHIFT) ? OS_KEY_SHIFT : 0)
+                  | ((raw[i].fVirt & FCONTROL) ? OS_KEY_CTRL : 0)
+                  | ((raw[i].fVirt & FALT) ? OS_KEY_ALT : 0);
+        }
+        else
+        {
+            /*
+             *   Character-mode entry (win32/htmlcmn.rc's Alt+./Alt+,/Alt+>/
+             *   Alt+< rows): 'key' is an ASCII character matched via
+             *   WM_SYSCHAR rather than a VK_xxx, so its shift state (if any)
+             *   is implied by the character itself - '>' already means
+             *   Shift+'.' - the same layout query CTadsKeyboard uses for
+             *   punctuation (tadskb.cpp).  Only Alt shows up as an explicit
+             *   fVirt bit here (Ctrl+char and plain char accelerators would
+             *   just be ordinary typing, not an accelerator).
+             */
+            int char_shift = 0;
+            key = os_char_to_key((int)raw[i].key, &char_shift);
+            shift = char_shift | ((raw[i].fVirt & FALT) ? OS_KEY_ALT : 0);
+        }
+
+        if (key == 0)
+            continue;
+
+        entries[out].key = key;
+        entries[out].shift = shift;
+        entries[out].cmd = raw[i].cmd;
+        ++out;
+    }
+
+    th_free(raw);
+    return out;
 }

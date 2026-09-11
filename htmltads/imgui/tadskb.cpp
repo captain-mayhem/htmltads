@@ -15,16 +15,12 @@ Modified
   10/27/06 MJRoberts  - Creation
 */
 
-#include <Windows.h>
-
-/* this is missing from the Windows Platform SDK in MSVC .Net 2003 */
-#ifndef MAPVK_VK_TO_CHAR
-#define MAPVK_VK_TO_CHAR   2
-#endif
+#include <GLFW/glfw3.h>
 
 #include "tadshtml.h"
 #include "htmlhash.h"
 #include "tadskb.h"
+#include "guios.h"
 
 /* ------------------------------------------------------------------------ */
 /*
@@ -63,79 +59,81 @@ CTadsKeyboard::CTadsKeyboard()
         const char *name;
     };
 
-    /* the standard virtual keys */
+    /*
+     *   The standard keys, by canonical (GLFW_KEY_*) code.  VK_SELECT,
+     *   VK_PRINT, VK_EXECUTE and VK_HELP were dropped from the original
+     *   VK_xxx table here - GLFW has no equivalent constants for them and,
+     *   being rarely-implemented OEM keys even on Windows, no caller
+     *   exercised them.
+     */
     static const keyname_t keyname[] =
     {
-        { VK_BACK, "Backspace" },
-        { VK_TAB, "Tab" },
-        { VK_CLEAR, "Clear" },
-        { VK_RETURN, "Enter" },
-        { VK_PAUSE, "Pause" },
-        { VK_ESCAPE, "Esc" },
-        { VK_SPACE, "Space" },
-        { VK_PRIOR, "PageUp" },
-        { VK_NEXT, "PageDown" },
-        { VK_END, "End" },
-        { VK_HOME, "Home" },
-        { VK_LEFT, "Left" },
-        { VK_UP, "Up" },
-        { VK_RIGHT, "Right" },
-        { VK_DOWN, "Down" },
-        { VK_SELECT, "Select" },
-        { VK_PRINT, "Print" },
-        { VK_EXECUTE, "Execute" },
-        { VK_SNAPSHOT, "PrintScreen" },
-        { VK_INSERT, "Insert" },
-        { VK_DELETE, "Delete" },
-        { VK_HELP, "Help" },
-        { VK_NUMPAD0, "Num0" },
-        { VK_NUMPAD1, "Num1" },
-        { VK_NUMPAD2, "Num2" },
-        { VK_NUMPAD3, "Num3" },
-        { VK_NUMPAD4, "Num4" },
-        { VK_NUMPAD5, "Num5" },
-        { VK_NUMPAD6, "Num6" },
-        { VK_NUMPAD7, "Num7" },
-        { VK_NUMPAD8, "Num8" },
-        { VK_NUMPAD9, "Num9" },
-        { VK_MULTIPLY, "Num*" },
-        { VK_ADD, "Num+" },
-        { VK_SUBTRACT, "Num-" },
-        { VK_DECIMAL, "Num." },
-        { VK_DIVIDE, "Num/" },
-        { VK_F1, "F1" },
-        { VK_F2, "F2" },
-        { VK_F3, "F3" },
-        { VK_F4, "F4" },
-        { VK_F5, "F5" },
-        { VK_F6, "F6" },
-        { VK_F7, "F7" },
-        { VK_F8, "F8" },
-        { VK_F9, "F9" },
-        { VK_F10, "F10" },
-        { VK_F11, "F11" },
-        { VK_F12, "F12" },
-        { VK_F13, "F13" },
-        { VK_F14, "F14" },
-        { VK_F15, "F15" },
-        { VK_F16, "F16" },
-        { VK_F17, "F17" },
-        { VK_F18, "F18" },
-        { VK_F19, "F19" },
-        { VK_F20, "F20" },
-        { VK_F21, "F21" },
-        { VK_F22, "F22" },
-        { VK_F23, "F23" },
-        { VK_F24, "F24" },
+        { GLFW_KEY_BACKSPACE, "Backspace" },
+        { GLFW_KEY_TAB, "Tab" },
+        { GLFW_KEY_ENTER, "Enter" },
+        { GLFW_KEY_PAUSE, "Pause" },
+        { GLFW_KEY_ESCAPE, "Esc" },
+        { GLFW_KEY_SPACE, "Space" },
+        { GLFW_KEY_PAGE_UP, "PageUp" },
+        { GLFW_KEY_PAGE_DOWN, "PageDown" },
+        { GLFW_KEY_END, "End" },
+        { GLFW_KEY_HOME, "Home" },
+        { GLFW_KEY_LEFT, "Left" },
+        { GLFW_KEY_UP, "Up" },
+        { GLFW_KEY_RIGHT, "Right" },
+        { GLFW_KEY_DOWN, "Down" },
+        { GLFW_KEY_PRINT_SCREEN, "PrintScreen" },
+        { GLFW_KEY_INSERT, "Insert" },
+        { GLFW_KEY_DELETE, "Delete" },
+        { GLFW_KEY_KP_0, "Num0" },
+        { GLFW_KEY_KP_1, "Num1" },
+        { GLFW_KEY_KP_2, "Num2" },
+        { GLFW_KEY_KP_3, "Num3" },
+        { GLFW_KEY_KP_4, "Num4" },
+        { GLFW_KEY_KP_5, "Num5" },
+        { GLFW_KEY_KP_6, "Num6" },
+        { GLFW_KEY_KP_7, "Num7" },
+        { GLFW_KEY_KP_8, "Num8" },
+        { GLFW_KEY_KP_9, "Num9" },
+        { GLFW_KEY_KP_MULTIPLY, "Num*" },
+        { GLFW_KEY_KP_ADD, "Num+" },
+        { GLFW_KEY_KP_SUBTRACT, "Num-" },
+        { GLFW_KEY_KP_DECIMAL, "Num." },
+        { GLFW_KEY_KP_DIVIDE, "Num/" },
+        { GLFW_KEY_F1, "F1" },
+        { GLFW_KEY_F2, "F2" },
+        { GLFW_KEY_F3, "F3" },
+        { GLFW_KEY_F4, "F4" },
+        { GLFW_KEY_F5, "F5" },
+        { GLFW_KEY_F6, "F6" },
+        { GLFW_KEY_F7, "F7" },
+        { GLFW_KEY_F8, "F8" },
+        { GLFW_KEY_F9, "F9" },
+        { GLFW_KEY_F10, "F10" },
+        { GLFW_KEY_F11, "F11" },
+        { GLFW_KEY_F12, "F12" },
+        { GLFW_KEY_F13, "F13" },
+        { GLFW_KEY_F14, "F14" },
+        { GLFW_KEY_F15, "F15" },
+        { GLFW_KEY_F16, "F16" },
+        { GLFW_KEY_F17, "F17" },
+        { GLFW_KEY_F18, "F18" },
+        { GLFW_KEY_F19, "F19" },
+        { GLFW_KEY_F20, "F20" },
+        { GLFW_KEY_F21, "F21" },
+        { GLFW_KEY_F22, "F22" },
+        { GLFW_KEY_F23, "F23" },
+        { GLFW_KEY_F24, "F24" },
 
         { 0, 0 }
     };
     const keyname_t *k;
 
     /*
-     *   Windows doesn't assign definitive VK_xxx mappings to punctuation
-     *   keys - these key assignments vary by keyboard.  So, we need to ask
-     *   Windows for the current mappings to these keys.  
+     *   The keyboard layout doesn't assign definitive key codes to
+     *   punctuation keys - these key assignments vary by keyboard.  So, we
+     *   need to ask the OS for the current mappings to these keys, via
+     *   os_char_to_key() (guios.h).
      */
     static const char xch[] = "`~-_=+[{]}|;:'\"\\,<.>/?:!@#$%^&*()";
     const char *p;
@@ -150,32 +148,25 @@ CTadsKeyboard::CTadsKeyboard()
     for (k = keyname ; k->name != 0 ; ++k)
         hash_vkey->add(new CHtmlHashEntryUInt(k->vkey, (void *)k->name));
 
-    /* add the keys with varying VK_xxx mappings */
+    /* add the keys with varying canonical-key mappings */
     memset(shiftmap, 0, sizeof(shiftmap));
     for (p = xch ; *p != 0 ; ++p)
     {
-        /* get the VK_xxx code for the key that generates this character */
-        UINT s = VkKeyScan(*p);
+        /* get the canonical key that generates this character */
+        int shift = 0;
+        int vkey = os_char_to_key(*p, &shift);
 
-        /* if there's no vkey, skip it */
-        if (s == 0)
+        /* if there's no key for it, skip it */
+        if (vkey == 0)
             continue;
 
         /* the key name is just the ascii character value */
         char nm[2] = { *p, '\0' };
 
-        /* parse the shift keys */
-        int shift = (s & 0x100 ? CTKB_SHIFT : 0)
-                    | (s & 0x200 ? CTKB_CTRL : 0)
-                    | (s & 0x400 ? CTKB_ALT : 0);
-
-        /* get just the virtual key code */
-        int vkey = s & 0xFF;
-
-        /* 
+        /*
          *   Add it to the name-to-vkey table.  We only need these on the
-         *   input side, because on the output side we ask Windows to do the
-         *   mapping from VK_xxx to character code.  
+         *   input side, because on the output side we ask the OS to do the
+         *   mapping from key to character code.
          */
         hash_keyname->add(new KeynameEntry(nm, vkey, shift));
 
@@ -392,10 +383,10 @@ int CTadsKeyboard::get_key_name(textchar_t *buf, size_t buflen,
     CHtmlHashEntryUInt *entry;
     const textchar_t *name = 0;
     textchar_t nbuf[5];
-    UINT ch;
+    unsigned int ch;
 
     /* get the mapping to an ordinary character, if any */
-    ch = MapVirtualKey(vkey, MAPVK_VK_TO_CHAR) & 0x7FFFFFFF;
+    ch = (unsigned int)os_key_to_char(vkey);
 
     /* look up the key in our table */
     entry = (CHtmlHashEntryUInt *)hash_vkey->find(

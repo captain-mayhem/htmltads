@@ -412,6 +412,21 @@ public:
     void setMouseCapture(CTadsWin* win);
 	CTadsWin* getMouseCapture() const { return m_mouse_capture_win; }
 
+    /*
+     *   Portable substitute for Win32 logical input focus (GetFocus()/
+     *   SetFocus()), which no longer means anything in guit3: every
+     *   CTadsWin::handle_ is a synthetic, never-registered token
+     *   (migration.md 3.4a), so SetFocus(handle_) has always silently done
+     *   nothing and GetFocus() never matches it.  CTadsWin::take_focus()
+     *   calls setLogicalFocus(this) instead of the dead SetFocus() call;
+     *   CHtmlSys_mainwin::get_focus_subwin() (Edit > Copy/Cut/Delete/
+     *   SelectAll's dispatch target) reads it back here instead of calling
+     *   GetFocus().  Same pattern as m_mouse_capture_win above, just for a
+     *   value that persists past mouse-up instead of one that doesn't.
+     */
+    void setLogicalFocus(CTadsWin* win) { m_logical_focus_win = win; }
+    CTadsWin* getLogicalFocus() const { return m_logical_focus_win; }
+
 private:
     CTadsApp();
     CTadsApp(int argc, char** argv);
@@ -516,6 +531,9 @@ private:
     static DWORD tls_index_;
 
 	CTadsWin* m_mouse_capture_win;
+
+    /* portable logical-focus tracker - see setLogicalFocus()/getLogicalFocus() */
+    CTadsWin* m_logical_focus_win;
 };
 
 
@@ -609,11 +627,20 @@ public:
     virtual void do_key(const textchar_t *keyname, unsigned short cmd) = 0;
 };
 
-/* 
+/*
+ *   Number of rows in a KeyMapTable - one per canonical key code (os_key_t,
+ *   guios.h; formerly a Windows VK_xxx code, migration.md 5.4/L), so this
+ *   must cover GLFW_KEY_LAST (348 as of GLFW 3.4).  Kept as a plain literal,
+ *   matching tadskb.h's shiftmap[512], rather than pulling GLFW into this
+ *   header just for the one constant.
+ */
+#define KEYMAP_ROW_COUNT  512
+
+/*
  *   A key mapping row gives the mapping for each shift-key combination for a
- *   single virtual key (VK_xxx).  There are three shift keys (Shift, Ctrl,
+ *   single canonical key code.  There are three shift keys (Shift, Ctrl,
  *   Alt), so there are eight possible shift combinations.
- *   
+ *
  *   Each mapping can contain one of the following:
  *   
  *   0 -> the key is not assigned
@@ -649,11 +676,11 @@ struct KeyMapRow
                    const textchar_t *prefix, int vkey);
 };
 
-/* a key mapping table is a set of key rows, one per virtual key (VK_xxx) */
+/* a key mapping table is a set of key rows, one per canonical key code */
 struct KeyMapTable
 {
-    /* there are 256 virtual keys; give each one a row */
-    KeyMapRow row[256];
+    /* give each canonical key code its own row */
+    KeyMapRow row[KEYMAP_ROW_COUNT];
 
     /* get a command for a key */
     unsigned short get_cmd(int vkey, int shiftkeys)
@@ -674,8 +701,22 @@ struct KeyMapTable
                    const textchar_t *prefix);
 };
 
-/* 
- *   The accelerator class 
+/*
+ *   The accelerator class
+ *
+ *   Unreferenced in guit3 - its only instantiation anywhere in the tree is
+ *   win32/w32tdb.cpp (the Workbench debugger), which isn't built here (see
+ *   migration.md 5.4/L's "Correction found during M1").  map()/enum_keys()
+ *   populate and read the table by canonical key code (os_key_t, guios.h)
+ *   via CTadsApp::kb_ (CTadsKeyboard, tadskb.h), same as everywhere else in
+ *   guit3 as of 5.4/L. translate()/msg_to_command() below, in contrast,
+ *   still index the table with the real Win32 VK_xxx straight out of a
+ *   WM_KEYDOWN's wParam - untouched, since they're reachable only from a
+ *   real Win32 message loop guit3 doesn't have.  The two disagree for any
+ *   named/punctuation key (VK_xxx and the canonical code coincide only for
+ *   letters and digits), which is harmless today because nothing calls
+ *   either path, but would need reconciling - translate one side or the
+ *   other - before a future debugger port could use this class for real.
  */
 class CTadsAccelerator
 {

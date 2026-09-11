@@ -162,6 +162,9 @@ CTadsApp::CTadsApp(int argc, char** argv)
     /* no window currently has mouse capture */
     m_mouse_capture_win = 0;
 
+    /* no window currently has logical focus */
+    m_logical_focus_win = 0;
+
     /* allocate some space for modeless dialogs */
     modeless_dlg_cnt_ = 0;
     modeless_dlg_alloc_ = 10;
@@ -1253,7 +1256,7 @@ void CTadsAccelerator::delete_subtab(unsigned short subtab)
      *   delete each command in the table - this will ensure that we delete
      *   any next-level subtables we reference 
      */
-    for (i = 0 ; i < 256 ; ++i)
+    for (i = 0 ; i < KEYMAP_ROW_COUNT ; ++i)
         for (j = 0 ; j < 7 ; ++j)
             del_key(subtab, i, j);
     

@@ -112,9 +112,10 @@ The native `LoadMenu`/`SetMenu`/`create_toolbar()` code is left in place as harm
   Themes labels that come from `LoadString()` (`IDS_MANAGE_PROFILES`, `IDS_SET_DEF_PROFILE`,
   `IDS_CUSTOMIZE_THEME`) go through a `strip_mnemonic()` lambda. Watch for this in any future ImGui text
   sourced from a `.rc` string table.
-- **Keyboard shortcuts are display-only.** `MenuItem()`'s shortcut parameter is cosmetic; the native
-  `CTadsAccelerator` dispatch is equally dead. Real shortcuts need a new dispatcher in `event_loop()`
-  calling `do_command()` from `ImGui::IsKeyPressed()` — separate task (§5.4).
+- **Keyboard shortcuts are display-only** — `MenuItem()`'s shortcut parameter is cosmetic — **was true until
+  §5.4/L.** `CHtmlSys_mainwin::do_accel_keys()` now dispatches them for real each frame, reading the
+  `IDR_ACCEL_WIN`/`IDR_ACCEL_EMACS` resources in portable form rather than through `CTadsAccelerator`
+  (which turned out to be dead in guit3 regardless - only the out-of-scope debugger ever instantiated it).
 - **`OpenPopup()` and `BeginPopup()` must be at matching ID-stack depths** — ImGui hashes string IDs against
   the current window/child ID. `do_rightbtn_up()` fires from `event_loop()`'s routing block at root level,
   so `render_context_menu()` must also run at root level: it's called from `do_render()` *after*
@@ -206,6 +207,41 @@ up front when the point isn't inside, so dispatch continues to the sibling that 
 `do_rightbtn_down()` forwards to `do_leftbtn_down()`. `do_mousemove()`/`do_leftbtn_up()` are deliberately
 untouched — `event_loop()` sends those straight to the capture holder, since a selection drag that leaves
 the subwindow must keep receiving them.
+
+### 3.2b `get_focus_subwin()` — Edit > Copy/Cut/Delete/SelectAll were permanently disabled
+
+**Symptom**: found while click-testing §5.4/L's new `Ctrl+C` accelerator — drag-selecting text and pressing
+`Ctrl+C` did nothing, and (once checked) `Edit > Copy` from the menu was greyed out too, no matter how much
+text was selected.
+
+**Cause**: `CHtmlSys_mainwin::check_command()` forwards `ID_EDIT_CUT`/`COPY`/`DELETE`/`SELECTALL` to
+`get_focus_subwin()` - whichever of `main_panel_`/`hist_panel_`/a banner currently has "the input focus" -
+and calls *that* window's `check_command()`/`do_command()`, since `can_copy()` etc. test the selection on a
+specific window, not the app as a whole. `get_focus_subwin()` found this by comparing `GetFocus()` against
+each candidate's `get_handle()`. Both halves of that comparison are dead: every `CTadsWin::handle_` is a
+synthetic, never-registered token (§3.4a), so `GetFocus()` never equals one, and `take_focus()` - the
+routine that's supposed to claim focus in the first place, called from `do_leftbtn_down()` among others -
+had a default implementation of `if (GetFocus() != handle_) SetFocus(handle_)`, itself one of §3.4a's
+documented dead no-ops. So `get_focus_subwin()` always returned null, `check_command()` fell through to
+`TADSCMD_UNKNOWN`, and every one of these four commands read as permanently disabled - true of the menu
+item exactly as much as of the (then-new) accelerator, since both dispatch through the identical
+`do_command()`/`check_command()` pair. This had apparently never been click-tested end-to-end before.
+
+**Fix**: a portable substitute, same shape as the existing `CTadsApp::m_mouse_capture_win`/
+`setMouseCapture()`/`getMouseCapture()` (added earlier in the port for the analogous broken-mouse-capture
+problem): `CTadsApp::m_logical_focus_win`/`setLogicalFocus()`/`getLogicalFocus()` ([tadsapp.h](tadsapp.h)).
+`CTadsWin::take_focus()`'s default body now calls `CTadsApp::get_app()->setLogicalFocus(this)` instead of
+the dead `SetFocus()` call; `get_focus_subwin()` ([htmlgui.cpp](htmlgui.cpp)) compares
+`CTadsApp::get_app()->getLogicalFocus()` against `main_panel_`/`hist_panel_`/each banner by pointer instead
+of `GetFocus()`/`IsChild()` against `handle_`. No `IsChild()`-equivalent descendant check was needed:
+`take_focus()` is only ever called directly on one of those three kinds of object, never on some deeper
+child. Unlike mouse capture (cleared back to null on button-up), logical focus deliberately stays put once
+claimed - `Ctrl+C` has to still work after the mouse button that finished the selection is released.
+
+**Verified**: clean build + link, `0 warnings`; interactive `ditch3.t3` test - set the clipboard to a
+sentinel string, drag-selected a line of title-screen text (`SetCursorPos`+`mouse_event`, real mouse-drag,
+not synthetic keyboard), confirmed the selection highlighted on screen, sent `Ctrl+C` via `SendInput()`,
+and read the clipboard back: it now held exactly the selected text, replacing the sentinel.
 
 ### 3.3 Dialogs — done, all seven
 
@@ -305,6 +341,15 @@ button and confirm the parent survives, or trace `g.BeginPopupStack`/`g.OpenPopu
   command line. Fixed by wrapping the `do_char()` loop and the Enter-key one in `if (!io.WantTextInput)`.
   This is a **general** gap, not Find-dialog-specific — re-check it's still in place before trusting
   keyboard input in any new dialog, and consider whether `io.WantCaptureMouse` deserves the same treatment.
+- **`io.InputQueueCharacters` (GLFW's char callback) never delivers control characters** - only printable
+  text, unlike raw Win32 `WM_CHAR`, which did send a real `0x08`/`0x0D`/etc. for Backspace/Enter/etc. That's
+  why Enter needed its own `IsKeyPressed(ImGuiKey_Enter) -> do_char('\r', 0)` case above the char loop -
+  and why Backspace silently didn't work at the command prompt until it got the same treatment
+  (`IsKeyPressed(ImGuiKey_Backspace) -> do_char('\b', 0)`): `do_char()`'s `case 8:` backspace handling
+  was already there and correct, just never reached. **Any other control key `do_char()` switches on
+  (Tab, Escape, arrow-key history recall, ...) needs the same manual `IsKeyPressed()` case** if it isn't
+  already routed some other way (arrow keys/Escape/Tab may be — re-verify per key before assuming one
+  "just works" here.)
 - **A fresh ImGui popup does not grab keyboard focus** the way a native dialog does. Without an explicit
   `SetKeyboardFocusHere()` on the frame it opens (guarded by a `just_opened` flag), focus stays on the
   game's command line — and then `io.WantTextInput` never goes true and the fix above never engages.
@@ -1360,7 +1405,9 @@ the Windows clipboard, `Edit > Paste` at the game's `>` prompt inserts it intact
 `os_clipboard_has_text` per frame → Paste enabled, then `glfwGetClipboardString` → `os_utf8_to_local` →
 `insert_text_from_hglobal` → the K text-render hooks); game text (em-dash, `“budget economy class”`) and
 `Copyright ©2004` render correctly throughout. `do_copy()` (needs a drag-selection) was not click-tested —
-it is the symmetric `os_local_to_utf8` + `glfwSetClipboardString` path.
+it is the symmetric `os_local_to_utf8` + `glfwSetClipboardString` path. **Update: click-tested (and fixed)
+during §5.4/L's Ctrl+C verification — see "3.2b `get_focus_subwin()`" below. `do_copy()`'s own K-hook path
+was fine; the bug was one layer up, in the dispatch that decides which subwindow to call it on.**
 
 **L. `CTadsApp`, keyboard, and accelerators.**
 
@@ -1390,6 +1437,15 @@ it is the symmetric `os_local_to_utf8` + `glfwSetClipboardString` path.
 - **Do real keyboard accelerators at the same time** (§3.1: menu shortcuts are still display-only and
   `CTadsAccelerator` is dead). Both need one canonical key enum, so doing them together avoids defining it
   twice.
+
+**A2 seam done, and real accelerators shipped with it — see the fuller "L. Keyboard and real
+accelerators" entry under §5.5's "A2 in progress" for the full account, including a correction to this
+bullet's "backs the live Keyboard preferences page" claim (it doesn't - `CTadsAccelerator` turned out to
+be instantiated only by the out-of-scope debugger, never by guit3 itself).** In short: `os_key_t`
+(`GLFW_KEY_*`, guios.h) is the canonical key enum; `tadskb.cpp`'s table and `MapVirtualKey`/`VkKeyScan`
+calls now run through it and two new `os_*` hooks; and real shortcuts now fire via
+`CHtmlSys_mainwin::do_accel_keys()` reading the existing `IDR_ACCEL_WIN`/`IDR_ACCEL_EMACS` resources in
+portable form (`os_load_accel_table()`), not through `CTadsAccelerator`.
 
 **M. `guimain.cpp` startup/shutdown.** `CoInitialize`/`CoUninitialize` (only needed for the Web UI and
 `tadsole.cpp`'s drag-and-drop — goes with O; **correction, M1: it does not actually go with O**, see there),
@@ -1694,13 +1750,182 @@ the current call site, one landable commit per subsystem, Windows build kept byt
   interactive `ditch3.t3` test — `café-rt “x”` on the clipboard pastes intact at the `>` prompt via
   `Edit > Paste`; game text + `Copyright ©2004` render correctly. See §5.4/K.
 
-**A2 still to do**: items
-L (`CTadsApp`/keyboard), M (`guimain.cpp` startup/shutdown).
+- **L. Keyboard and real accelerators** — *done (A2 seam; canonical enum needs no separate M3 backend,
+  see below).* `os_key_t` (a plain `GLFW_KEY_*` value) in [guios.h](guios.h) is the "one canonical key
+  enum" this bullet called for; `os_key_to_char()`/`os_char_to_key()` (Win32 backend: `MapVirtualKey`/
+  `VkKeyScan`, moved out of `tadskb.cpp` unchanged) are the only two pieces that still need an OS query,
+  since GLFW doesn't expose the live keyboard layout. `CTadsKeyboard` (`tadskb.cpp`/`.h`) now stores and
+  looks up keys by this canonical code throughout — its `VK_xxx` table became a `GLFW_KEY_*` table
+  (`VK_SELECT`/`VK_PRINT`/`VK_EXECUTE`/`VK_HELP` dropped, no GLFW equivalent), and `shiftmap[256]` grew to
+  `[512]` to cover `GLFW_KEY_LAST` (348). Letters and digits needed no conversion at all: `VK_A..Z`/
+  `VK_0..9`, `GLFW_KEY_A..Z`/`GLFW_KEY_0..9`, and ASCII are all numerically identical, so
+  `tadskb.cpp`'s existing `isalpha`/`isdigit` fallback in `parse_key_name()` carried over unchanged.
+
+  **Correction, found while scoping this bullet: its own premise about "the live Keyboard preferences
+  page" was wrong.** `CTadsAccelerator`/`KeyMapTable` (`tadsapp.h`/`.cpp`) is **not** instantiated anywhere
+  in guit3 — the only `new CTadsAccelerator()` in the whole tree is `win32/w32tdb.cpp` (the Workbench
+  debugger), which isn't compiled into `guit3` at all. `htmlpref.cpp`'s already-ported `opt_render_keys_tab()`
+  ("Keyboard" preferences tab) is three unrelated boolean toggles (`emacs_ctrl_v`/`emacs_alt_v`/
+  `arrow_scroll`) that never touch this class. So there was no live customizable key mapping to preserve;
+  `CTadsAccelerator` stays exactly as inert in guit3 as §3.1 already said it was. It was still widened to
+  match (`KeyMapTable::row[256]` → `row[KEYMAP_ROW_COUNT]`, `KEYMAP_ROW_COUNT` = 512, `delete_subtab()`'s
+  hardcoded `256` loop bound updated to match) since `map()`/`enum_keys()` now write/read canonical key
+  codes via `CTadsApp::kb_` like everything else — a `KeyMapTable` sized for 0-255 would have been an
+  out-of-bounds write the first time a real caller mapped a key above `GLFW_KEY_BACKSPACE`(259). Left
+  genuinely untouched: `translate()`/`msg_to_command()`, which still index the table with the raw VK code
+  out of a `WM_KEYDOWN`'s `wParam` — unreachable without a real Win32 message loop, so this is a documented
+  landmine (see the comment on the class in `tadsapp.h`) rather than a live bug, but it means the class
+  can't be handed to a future debugger port as-is; `translate()`'s side would need converting too.
+
+  **Real keyboard accelerators**, the bullet's other half, turned out not to need `CTadsAccelerator` at
+  all: `win32/htmlcmn.rc`'s `IDR_ACCEL_WIN`/`IDR_ACCEL_EMACS` `ACCELERATORS` resources already map real
+  keys straight to `do_command()`'s command IDs (`Ctrl+O` → `ID_FILE_LOADGAME`, `Alt+.` → `ID_GO_NEXT`,
+  ...) and were already being loaded into `HACCEL`s and switched between by preference
+  (`CHtmlSysWin_win32_Input::set_current_accel()`) — just never dispatched, since nothing pumps
+  `TranslateAccelerator()` without a Win32 message loop. New `os_load_accel_table()` (guios.h/
+  guios_w32.cpp) reads the same two resources via `CopyAcceleratorTable()` into a portable
+  `os_accel_entry_t[]` (handling both its `VIRTKEY` rows and the four character-mode ALT+`.`/`,`/`>`/`<`
+  rows, the latter via `os_char_to_key()`). `CHtmlSysWin_win32_Input` now loads and switches a
+  parallel portable table alongside the existing `HACCEL`s (additive — the `HACCEL` fields, `CTadsApp::
+  set_accel(HACCEL, …)`, and `accel_translate()`/`process_message()` are untouched, since the latter is
+  "not verified dead" per this bullet's own earlier note and there was no reason to risk it).
+  `CHtmlSys_mainwin::do_accel_keys()` (`htmlgui.cpp`), called once per frame from `event_loop()` right
+  after the existing character-forwarding block, does the actual dispatch: per-key "was it down last
+  frame" edge detection against `glfwGetKey()` (ImGui's `IsKeyPressed()` needs an `ImGuiKey`, and there's
+  no public GLFW-key-to-`ImGuiKey` conversion to drive it off that instead), gated on `!io.WantTextInput`
+  (same gate the char-forwarding block uses) and `!ImGui::IsPopupOpen(0, ImGuiPopupFlags_AnyPopup)` (no
+  non-text-widget dialog, e.g. Options, was blocking `io.WantTextInput` on its own), then
+  `check_command()`/`do_command()` — the exact pair `render_menu_bar()`'s `item()` lambda uses — so a
+  shortcut and its menu item always agree on whether the command is enabled.
+
+  **Verified**: clean build + link, `0 warnings` on all four touched TUs (`guios_w32.cpp`, `htmlgui.cpp`,
+  `tadsapp.cpp`, `tadskb.cpp`); interactive `ditch3.t3` smoke test — `Ctrl+O` at the title screen raised the
+  real "Starting a new game will quit..." confirmation dialog (`ID_FILE_LOADGAME`, via the deferred pattern
+  in §3.3), `Escape` dismissed it (No/cancel) cleanly, no repeat/stuck-key symptom. Sent via `SendInput()`
+  (real scan-code-bearing synthetic input), not raw `PostMessage()`'d `WM_KEYDOWN` — see §6's note on why
+  the latter is unsafe to use for testing this app.
+
+  **Follow-up, same session: the command line's own editing keys had the identical "GLFW callback never
+  fires for this" gap, on two different sub-paths.** Reported as "backspace doesn't work when entering
+  text" - and Backspace was one instance of a wider pattern.
+
+  - **Control characters (Backspace, and Emacs-style `Ctrl+`letter shortcuts) never reach
+    `io.InputQueueCharacters`.** GLFW's char callback only ever delivers printable text - not Backspace
+    (`do_char()`'s `case 8:` was correct, just unreachable, exactly like Enter before it) and never at all
+    while Ctrl is held (by design - GLFW treats Ctrl+key as a shortcut, not text). `do_char()` already had
+    correct handlers for the Emacs bindings (`^B`/`^D`/`^E`/`^K`/`^N`/`^P`/`^U`/`^V`/`^Y` - back/forward a
+    char, delete, history, etc.), all equally unreachable. Fixed with manual per-key `IsKeyPressed()` checks
+    in `event_loop()`, mirroring the existing Enter case. `^A`/`^C`/`^F`/`^X`/`^Z` were deliberately **not**
+    restored this way - they're claimed by SelectAll/Copy/Find/Cut/Undo in the `IDR_ACCEL_WIN`/
+    `IDR_ACCEL_EMACS` accelerator tables (same conflict the *original* Win32 app had: `TranslateAccelerator()`
+    always ate the keystroke before it could become a `WM_CHAR`, so these `do_char()` cases were already
+    dead code there too - restoring them here would be *new*, not restored, behavior, and `do_cut()` isn't
+    safe to invoke twice on one keypress). `Ctrl+V`/`Ctrl+Y` are each claimed by only one of the two
+    accelerator tables (Paste is bound to "V" in the Windows-style table, "Y" in the Emacs-style one), so
+    each harmlessly double-invokes `do_paste()` through both paths in the *other* table's style - accepted
+    since paste has no already-consumed state to conflict with, unlike cut.
+  - **Command-line navigation (arrows, Home/End, PageUp/PageDown, Delete, Escape-to-clear-line) goes through
+    `do_keydown()`, not `do_char()` at all - and nothing anywhere in guit3 was calling `do_keydown()`.**
+    Worse than the control-character gap: this isn't a GLFW limitation, just a missing call. Unlike
+    `do_char()`, whose `CTadsWin` default already forwards to `m_children` (the portable substitute for
+    Win32 keyboard-focus routing, migration.md 3.4a), `do_keydown()`'s default was a bare `{ return FALSE;
+    }` - fixed in `tadswin.h` to forward the same way. `event_loop()` now calls `do_keydown(VK_UP/DOWN/
+    LEFT/RIGHT/HOME/END/PRIOR/NEXT/DELETE/ESCAPE, 0)` on `IsKeyPressed()` edges, mirroring the Ctrl-letter
+    block above. Ctrl+Left/Right (word-left/right) and Ctrl+Home/End (top/bottom) needed no extra table
+    entries - `do_keydown()` itself branches on live Ctrl state (`get_ctl_key()`, a real `GetKeyState()`
+    query - unlike `GetFocus()`, this one was never broken) for the same `VK_LEFT`/`RIGHT`/`HOME`/`END`
+    codes. F1-F10 (`CMD_F1..F10`) were deliberately left unwired: `VK_F1`/`VK_F3` collide with the
+    `ID_HELP_COMMAND`/`ID_EDIT_FINDNEXT` accelerator bindings the same way `^F`/`^C`/etc. do above.
+  - Both blocks also gained the `!ImGui::IsPopupOpen(0, ImGuiPopupFlags_AnyPopup)` guard `do_accel_keys()`
+    already needed (a non-text-widget dialog doesn't set `io.WantTextInput` on its own), extended to the
+    whole character-forwarding block including the pre-existing Enter case, closing that same leak for
+    every key in one place rather than duplicating the guard per block.
+
+  **Verified**: clean build + link, `0 warnings`. Interactive `ditch3.t3` tests via `SendInput()`: typed
+  `xyz`, Backspace × 2 → `x` (confirms Backspace); typed `ac`, `Ctrl+B`, typed `b` → `abc`, i.e. the cursor
+  genuinely moved back one character before the insert (confirms an Emacs `Ctrl+`letter binding end to end).
+  Arrow-key/history-recall testing hit the `SendInput()`-doesn't-reach-`VK_UP` caveat recorded in §6 below;
+  the user confirmed Up-arrow history recall works correctly with a real keypress once the synthetic-input
+  gap was identified via temporary log-file instrumentation, so the `do_keydown()` wiring is confirmed
+  working even though the automated part of this particular check came back inconclusive rather than
+  positive.
+
+  **Second follow-up, same session: `Alt+F` (etc.) not opening the File menu.** A third instance of "this
+  ImGui build never gained a Win32 keyboard-navigation feature" - not a GLFW gap or a missing call this
+  time, but a feature `render_menu_bar()` genuinely never had: §3.1 already noted "this ImGui build does
+  not parse `&` mnemonics," but that was recorded as a *label-rendering* footnote, not flagged as a missing
+  *behavior* until a user comparison against `htmlt3` surfaced it. **Fix**: `CHtmlSys_mainwin::
+  pending_menu_mnemonic_` (`htmlgui.h`) records the letter from an `Alt+`letter press in `event_loop()`
+  (checked against `F`/`E`/`V`/`T`/`G`/`H` - `win32/htmlcmn.rc`'s real `&File`/`&Edit`/`&View`/`&Themes`/
+  `&Go`/`&Help` mnemonics, which all happen to be each label's first letter); `render_menu_bar()` consumes
+  it right after `BeginMainMenuBar()`, calling `ImGui::OpenPopup(label)` for the matching menu immediately
+  before that menu's own `BeginMenu(label)` call. That ID-stack position is required, not incidental:
+  `ImGui::OpenPopup(str_id)` computes `g.CurrentWindow->GetID(str_id)`, and `BeginMenuEx()` (in
+  `imgui_widgets.cpp`) computes its own popup ID the same way, then simply checks `IsPopupOpen(id)` before
+  deciding whether to render as open - regardless of whether a click, hover, nav, or (now) an external
+  `OpenPopup()` call put it on the open-popup stack. Calling `OpenPopup()` from any other context (a
+  different window/ID-stack depth) would compute a different, non-matching ID and silently do nothing.
+  **Gotcha caught by testing, not by reading the code**: the mnemonic check was originally folded into the
+  same `game_wants_keys`-gated block as the Ctrl-letter/nav-key checks above - which meant it stopped
+  firing the moment a menu was actually open, since an open `BeginMenu()` dropdown is itself a popup and
+  `game_wants_keys` deliberately excludes "any popup open" (to keep game commands from reaching past a
+  *modal* dialog). That silently broke switching from one open top-level menu to another (`Alt+F` then
+  `Alt+E` left File open instead of switching to Edit) while the *first* mnemonic press still looked
+  correct in isolation - moved to its own `!io.WantTextInput`-only gate (dropping the popup-open
+  exclusion, which doesn't apply here) to fix it. **Verified**: clean build + link, `0 warnings`;
+  interactive `ditch3.t3` test via `SendInput()` - `Alt+F` opened the File dropdown exactly like a click,
+  and a follow-up `Alt+E` correctly switched to Edit rather than leaving File open or stacking both.
+
+  **Third follow-up, same session: `Ctrl+V` paste duplicated the pasted text.** A real regression from
+  the Ctrl-letter work above, not a GLFW/ImGui limitation: the manual Ctrl-letter block dispatched
+  `do_char()`'s cases 22/25 (`^V`/`^Y`, both meaning Paste in one preference style or the other)
+  *unconditionally*, without checking whether the *current* style's accelerator table already claimed
+  that exact key - Ctrl+V is bound to `ID_EDIT_PASTE` in the Windows-style `IDR_ACCEL_WIN` table, so
+  `do_accel_keys()` and the manual block both fired `do_paste()` for the same keypress. Unlike Copy/Cut/
+  SelectAll's harmless-enough double-fire, a second `do_paste()` genuinely re-inserts the clipboard text,
+  visibly duplicating it. **Fix**: each of `^V`/`^Y` now fires only in the preference style where it's
+  *not* already accelerator-bound - `^V` only in Emacs style (where it means page-down, not paste, and
+  isn't in `IDR_ACCEL_EMACS` at all), `^Y` only in Windows style (where `IDR_ACCEL_WIN` doesn't bind Y).
+
+  **Chasing `^Y`'s fix uncovered a second, unrelated bug, then an even-more-unrelated environment quirk
+  that had been faking a third one.** `^Y`, dispatched the same way as the other Ctrl-letter shortcuts
+  (`ImGui::IsKeyPressed()` → `do_command(0, ID_EDIT_PASTE, 0)` from the char-forwarding block in
+  `event_loop()`), reliably left the correct text in `cmdbuf_` (confirmed with temporary
+  `fprintf`-to-a-log-file instrumentation in `do_paste()`/`CHtmlInputBuf`) but never visibly repainted it
+  - while the *identical* `do_command()` call, dispatched from `do_accel_keys()` using its
+  `glfwGetKey()`/`accel_key_down_`-based edge detection instead of `ImGui::IsKeyPressed()`, worked
+  correctly every time. Root cause not pinned down (a plausible guess: a GLFW/ImGui key-state
+  discrepancy between the poll-based and callback-based paths, specifically for a key without its own
+  entry in the loaded accelerator table), but empirically conclusive after several rebuild-and-test
+  cycles, so `^Y` is now dispatched from `do_accel_keys()`'s edge-detection instead of the
+  `IsKeyPressed()`-driven Ctrl-letter block - see the comment at its call site for any future non-table
+  key that needs the same treatment.
+
+  Midway through isolating that, a **second, cleanly separate false lead** wasted real time: synthetic
+  `Ctrl+Y` (`SendInput` with `wVk = VK_Y`) stopped reproducing the paste at all partway through, on what
+  looked like a config-neutral retest. Cause: this machine's active keyboard layout is German (QWERTZ),
+  confirmed via `GetKeyboardLayout()` returning language ID `0x0407`; QWERTZ swaps the `Y` and `Z`
+  positions relative to US QWERTY. `SendInput`'s `wVk` is layout-remapped (it sends whichever physical
+  key is *labeled* `Y` under the active layout), while GLFW reports key constants by *physical position*
+  matching the US layout's labeling - so on this machine, `VK_Y` and `GLFW_KEY_Y` refer to two different
+  physical keys. Sending `VK_Z` instead (the physically-correct key for `GLFW_KEY_Y` here) reproduced the
+  paste reliably. **Any future synthetic `Ctrl+`letter/`Alt+`letter test on a non-US-QWERTY system needs
+  this cross-check - a `SendInput` VK constant and a GLFW/ImGui key constant of the "same" letter are not
+  guaranteed to be the same physical key.** See also §6's `SendInput` notes below.
+
+  **Verified**: clean build + link, `0 warnings`; interactive `ditch3.t3` tests via `SendInput()` (using
+  the physically-correct key per the layout note above) - `Ctrl+V` now pastes exactly once in the default
+  Windows style; `Ctrl+Y` now pastes exactly once too, in isolation and without affecting `Ctrl+V`.
+
+**A2 still to do**: item M (`guimain.cpp` startup/shutdown).
 (H — images — is done; it turned out to need no `os_*` hook, just deletion of the two Win32 calls, §5.4/H.
 I — audio file I/O — is done: WAV/Ogg/MP3 decoders on the `osfile` API, `getbits.cpp` forked into `imgui/`,
 §5.4/I. J — file-dialog browsing — is done: both dialogs routed through the existing portable `osifc`
 filesystem API (`os_open_dir()` et al.), `PathMatchSpecA` replaced by an in-file glob matcher, `Shlwapi.lib`
-dropped, §5.4/J. H, I and J each collapsed A2 and M3 — no `os_*` hook, no separate portable backend.)
+dropped, §5.4/J. H, I and J each collapsed A2 and M3 — no `os_*` hook, no separate portable backend. L's
+canonical key enum is likewise already portable — `GLFW_KEY_*` values don't vary per platform — so, like
+H/I/J, there's no separate M3 backend left for it either; only `os_key_to_char()`/`os_char_to_key()` need
+one, matching G/K's shape.)
 
 **M3 — fill in portable implementations, cheapest-and-most-certain first.** GLFW-provided services (D) →
 file dialogs (J) → system colors (E) and shell (F) → settings store (C) → resources (B) →
@@ -1710,13 +1935,14 @@ exists.
 
 **D + E + F + J done** — [guios_portable.cpp](guios_portable.cpp) (D/E/F), see the "M3/D-F — portable
 backend landed" note in §5.4 above; J routed the two file dialogs straight through the existing portable
-`osifc` filesystem API so it needed no `guios` backend at all (§5.4/J). Remaining M3 items (C, B, G, K, L)
-are untouched; G's and K's A2 seams are built (so G's M3 work is the fontconfig/CoreText backends, K's is
+`osifc` filesystem API so it needed no `guios` backend at all (§5.4/J). Remaining M3 items (C, B, G, K) are
+untouched; G's and K's A2 seams are built (so G's M3 work is the fontconfig/CoreText backends, K's is
 just the charmap-backed local↔Unicode conversion in `guios_portable.cpp` — the clipboard was already
-unified onto GLFW in `guios_common.cpp` when K landed), H and I are fully done (neither needed an `os_*`
-hook or a portable backend — H removed the Win32 image calls outright, I moved the decoders onto the
-already-portable `osfile` API; §5.4/H, §5.4/I), and L still needs its A2 seam built first (§5.4, "A2 still
-to do").
+unified onto GLFW in `guios_common.cpp` when K landed), H, I and L are fully done (H removed the Win32
+image calls outright; I moved the decoders onto the already-portable `osfile` API, §5.4/H, §5.4/I; L's
+canonical key enum is already portable, and its two OS-layout queries got a Win32 backend with nothing
+left to add for a non-Windows one to plug into — same shape as G/K's remaining A2-only queries, just
+finished on both counts at once, §5.4/L).
 
 **M4 — flip the three gates (§5.1) and get a Linux build.** Expect a long tail in `htmlgui.cpp`/`tadswin.cpp`
 that no census can predict; that's the point of doing M1–M3 first, so what the compiler finds is a
@@ -1768,12 +1994,38 @@ Run it with a test game from `tads-runner/tests/`, with the working directory se
   "malicious script content". **Launch a fresh process per verification pass.** If focus really matters, use
   `(New-Object -ComObject WScript.Shell).AppActivate($pid)` (what `SendKeys` uses internally), and/or compare
   `GetForegroundWindow()` against the known `hwnd` before capturing so a mismatch aborts.
-- **Prefer synthetic mouse clicks over synthetic keyboard input.** `SetCursorPos` + `mouse_event` at a
-  coordinate read off an actual screenshot worked every time. Keyboard was a repeated source of trouble: a
+- **Prefer synthetic mouse clicks over synthetic keyboard input — and if keyboard input is unavoidable, use
+  `SendInput()`, not `PostMessage(WM_KEYDOWN/WM_KEYUP)`.** `SetCursorPos` + `mouse_event` at a coordinate read
+  off an actual screenshot worked every time. Raw `PostMessage()` was a repeated source of trouble: a
   `WM_KEYDOWN`/`WM_KEYUP` pair with a placeholder `lParam` (missing the real scan-code/repeat-count bits) was
   read as a *stuck key* and submitted dozens of blank commands over several minutes before it was caught —
   genuinely disruptive if the user is watching. `WM_CHAR`-only input is needed for `do_char()`'s Enter
   handling at the command prompt but didn't reliably reach the title screen's wait-for-keystroke state.
+  **Update (§5.4/L verification): `user32!SendInput()` with a proper `KEYBDINPUT` (real `wVk`, a clean
+  single down/up pair, no placeholder `lParam` since `SendInput` goes through the real input stack) worked
+  reliably and safely** — used to verify `do_accel_keys()`'s real `Ctrl+O`/`Escape` dispatch and a
+  `Ctrl+B` Emacs-editing shortcut with no stuck-key symptom. Prefer it over raw `PostMessage()` whenever
+  synthetic keyboard input is unavoidable. **Caveat found testing arrow keys specifically**: a `SendInput()`
+  tap of `VK_UP` (`0x26`) with no extra flags silently never reached GLFW at all — confirmed by temporary
+  `fprintf`-to-a-log-file instrumentation showing the log was never even created, i.e. `IsKeyPressed()`
+  never fired. The user then pressed the physical Up arrow key and confirmed the feature worked correctly,
+  proving the gap was in the synthetic send, not the fix. Non-modifier navigation keys (arrows, Home, End,
+  PageUp/Down) likely need `KEYEVENTF_SCANCODE` and/or `KEYEVENTF_EXTENDEDKEY` in the `KEYBDINPUT` to be
+  recognized reliably (unlike the plain letter/Ctrl combos that worked fine as bare `wVk` taps) - untried,
+  since asking the user to press the real key was faster once the log confirmed nothing was arriving.
+  **When an app-level keyboard test comes back negative, check whether the synthetic input actually arrived
+  before concluding the feature is broken** - a real keypress (or the log/instrumentation technique above)
+  is a cheap way to tell apart "the fix doesn't work" from "the test didn't reach the app."
+  **Second caveat, found testing `Ctrl+Y`: this machine's keyboard layout is German QWERTZ (confirmed via
+  `GetKeyboardLayout()` → language ID `0x0407`), which swaps `Y` and `Z` versus US QWERTY.** `SendInput`'s
+  `wVk` is layout-remapped (`VK_Y` sends whatever key is currently *labeled* Y), while GLFW/ImGui key
+  constants are physical-position-based, matching US-layout labeling regardless of the active layout - so
+  `VK_Y` and `GLFW_KEY_Y`/`ImGuiKey_Y` are two *different physical keys* on this machine. A synthetic
+  `Ctrl+Y` test that mysteriously stops reproducing a bug partway through a session (looking like the bug
+  "went away") may just be missing the swap. **Before testing any `Ctrl+`/`Alt+`letter combo synthetically
+  on a non-US-QWERTY system, check the active layout and, if it remaps the letter in question, send the
+  `VK_*` code for the key that's physically in the target `GLFW_KEY_*`/`ImGuiKey_*` position instead of the
+  letter's own `VK_*` code.**
 - **`Graphics.CopyFromScreen()` can silently capture the Windows lock screen** — it returned the same stock
   photo regardless of which window or region was requested, which looked exactly like "screenshots don't work
   in this sandbox" until the session turned out to have been locked. If a recipe that worked before suddenly

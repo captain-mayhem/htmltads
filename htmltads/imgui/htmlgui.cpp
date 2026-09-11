@@ -8036,6 +8036,16 @@ CHtmlSysWin_win32_Input::CHtmlSysWin_win32_Input(
     accel_win_ = LoadAccelerators(CTadsApp::get_app()->get_instance(),
                                   MAKEINTRESOURCE(IDR_ACCEL_WIN));
 
+    /*
+     *   Load the same two tables in portable form, for
+     *   CHtmlSys_mainwin::do_accel_keys() to dispatch without a Win32
+     *   message loop (migration.md 5.4/L).
+     */
+    accel_emacs_entry_cnt_ = os_load_accel_table(
+        IDR_ACCEL_EMACS, accel_emacs_entries_, MAX_ACCEL_ENTRIES);
+    accel_win_entry_cnt_ = os_load_accel_table(
+        IDR_ACCEL_WIN, accel_win_entries_, MAX_ACCEL_ENTRIES);
+
     /* set the correct accelerator for the current preferences */
     set_current_accel();
 
@@ -8299,12 +8309,16 @@ void CHtmlSysWin_win32_Input::set_current_accel()
     {
         /* emacs-style Ctrl+V */
         current_accel_ = accel_emacs_;
+        current_accel_entries_ = accel_emacs_entries_;
+        current_accel_entry_cnt_ = accel_emacs_entry_cnt_;
         paste_key = 'Y';
     }
     else
     {
         /* Windows-style Ctrl+V */
         current_accel_ = accel_win_;
+        current_accel_entries_ = accel_win_entries_;
+        current_accel_entry_cnt_ = accel_win_entry_cnt_;
         paste_key = 'V';
     }
 
@@ -9409,7 +9423,7 @@ int CHtmlSysWin_win32_Input::process_input_edit_event(
                  *   if we're not reading command input, or using arrow keys
                  *   exclusively for scrolling, or on an inactive page, treat
                  *   it as a scrolling key; otherwise, treat it as a command
-                 *   history selector 
+                 *   history selector
                  */
                 if (!started_reading_cmd_
                     || prefs_->get_arrow_keys_always_scroll()
@@ -10353,6 +10367,12 @@ CHtmlSys_mainwin::CHtmlSys_mainwin(CHtmlFormatterInput *formatter,
 
     /* remember whether we're running under the debugger */
     in_debugger_ = in_debugger;
+
+    /* no accelerator keys are down yet (do_accel_keys()'s edge detection) */
+    memset(accel_key_down_, 0, sizeof(accel_key_down_));
+
+    /* no Alt+letter menu mnemonic is pending yet */
+    pending_menu_mnemonic_ = 0;
 
     /* the game is not yet paused in the debugger */
     game_paused_ = FALSE;
@@ -11647,7 +11667,30 @@ void CHtmlSys_mainwin::render_menu_bar()
         return;
     }
 
-    if (menu("File"))
+    /*
+     *   Consume a pending Alt+letter menu mnemonic (set in event_loop(),
+     *   htmlgui.cpp) by opening the matching top-level menu's popup here,
+     *   in the exact ID-stack context (inside ##MainMenuBar, right before
+     *   the matching BeginMenu()) that ImGui::OpenPopup(label) needs to
+     *   compute the same popup ID BeginMenu(label) will look up - this is
+     *   the standard "open a popup from code instead of a click" idiom
+     *   (see BeginMenuEx() in imgui_widgets.cpp: it just checks
+     *   IsPopupOpen(id) before deciding whether to render, regardless of
+     *   how the popup got onto the open stack). Consumed once, so a menu
+     *   already open when a different mnemonic arrives gets replaced, not
+     *   stacked - ImGui::OpenPopupEx() already does that itself for a
+     *   different id at the same popup level.
+     */
+    char mnem = pending_menu_mnemonic_;
+    pending_menu_mnemonic_ = 0;
+    auto menu_mnem = [&](const char *label, char mnemonic)
+    {
+        if (mnem != 0 && mnem == mnemonic)
+            ImGui::OpenPopup(label);
+        return menu(label);
+    };
+
+    if (menu_mnem("File", 'F'))
     {
         item(ID_FILE_LOADGAME, "Open New Game...", "Ctrl+O");
         ImGui::Separator();
@@ -11703,7 +11746,7 @@ void CHtmlSys_mainwin::render_menu_bar()
         ImGui::EndMenu();
     }
 
-    if (menu("Edit"))
+    if (menu_mnem("Edit", 'E'))
     {
         item(ID_EDIT_UNDO, "Undo Typing", "Ctrl+Z");
         ImGui::Separator();
@@ -11722,7 +11765,7 @@ void CHtmlSys_mainwin::render_menu_bar()
         ImGui::EndMenu();
     }
 
-    if (menu("View"))
+    if (menu_mnem("View", 'V'))
     {
         item(ID_VIEW_TOOLBAR, "Show Toolbar");
 
@@ -11758,13 +11801,13 @@ void CHtmlSys_mainwin::render_menu_bar()
         ImGui::EndMenu();
     }
 
-    if (menu("Themes"))
+    if (menu_mnem("Themes", 'T'))
     {
         render_themes_menu_items();
         ImGui::EndMenu();
     }
 
-    if (menu("Go"))
+    if (menu_mnem("Go", 'G'))
     {
         item(ID_GO_PREVIOUS, "Previous Page", "Alt+<");
         item(ID_GO_NEXT, "Next Page", "Alt+>");
@@ -11776,7 +11819,7 @@ void CHtmlSys_mainwin::render_menu_bar()
         ImGui::EndMenu();
     }
 
-    if (menu("Help"))
+    if (menu_mnem("Help", 'H'))
     {
         item(ID_HELP_CONTENTS, "HTML TADS Help");
         item(ID_HELP_WWWTADSORG, "TADS Web Site");
@@ -14853,24 +14896,28 @@ CHtmlSysWin_win32 *CHtmlSys_mainwin::get_focus_subwin()
 {
     int i;
     CHtmlSysWin_win32 **banner;
-    HWND cur_focus;
 
-    /* get the current focus window */
-    cur_focus = GetFocus();
+    /*
+     *   Get the subwindow that last claimed logical focus via take_focus().
+     *   GetFocus()/handle_ comparisons are dead here - handle_ is a
+     *   synthetic, never-registered token (migration.md 3.4a), so
+     *   SetFocus(handle_) never did anything and GetFocus() never matched
+     *   it; take_focus() now tracks this portably instead (tadsapp.h's
+     *   setLogicalFocus()/getLogicalFocus()).  No IsChild()-style descendant
+     *   check is needed: take_focus() is only ever called directly on
+     *   main_panel_/hist_panel_/a banner itself, never on some deeper child.
+     */
+    CTadsWin *cur_focus = CTadsApp::get_app()->getLogicalFocus();
 
     /* if the main panel has input focus, return it */
-    if (main_panel_ != 0
-        && (main_panel_->get_handle() == cur_focus
-            || IsChild(main_panel_->get_handle(), cur_focus)))
+    if (main_panel_ != 0 && main_panel_ == cur_focus)
     {
         /* focus is in the main panel - return it */
         return main_panel_;
     }
 
     /* if the history panel has focus, return it */
-    if (hist_panel_ != 0
-        && (hist_panel_->get_handle() == cur_focus
-            || IsChild(hist_panel_->get_handle(), cur_focus)))
+    if (hist_panel_ != 0 && hist_panel_ == cur_focus)
     {
         /* this is the one */
         return hist_panel_;
@@ -14880,8 +14927,7 @@ CHtmlSysWin_win32 *CHtmlSys_mainwin::get_focus_subwin()
     for (i = 0, banner = banners_ ; i < banner_cnt_ ; ++i, ++banner)
     {
         /* check to see if the focus is in this banner */
-        if ((*banner)->get_handle() == cur_focus
-            || IsChild((*banner)->get_handle(), cur_focus))
+        if (*banner == cur_focus)
         {
             /* this banner window has focus - return it */
             return *banner;
@@ -15427,6 +15473,115 @@ void CHtmlSys_mainwin::release_all_moremode()
     more_wins_.iterate(&cb);
 }
 
+/*
+ *   Check the main input panel's current accelerator table
+ *   (main_panel_->get_accel_entries(), htmlgui.h) against this frame's key
+ *   state, and dispatch the first newly-pressed, currently-enabled match
+ *   through do_command()/check_command() - the same pair render_menu_bar()'s
+ *   item() lambda uses, so a shortcut and its menu item always agree on
+ *   whether the command is available.  See migration.md 5.4/L.
+ */
+void CHtmlSys_mainwin::do_accel_keys()
+{
+    if (main_panel_ == 0)
+        return;
+
+    ImGuiIO &io = ImGui::GetIO();
+
+    /*
+     *   Don't let a shortcut fire while an ImGui widget (a dialog's text
+     *   field, etc.) wants the keystroke instead - the same gate the
+     *   char-forwarding block below uses.
+     */
+    if (io.WantTextInput)
+        return;
+
+    /*
+     *   Don't let a shortcut reach the game underneath while any dialog
+     *   popup is open (Options, Find, a file dialog, ...) - this is
+     *   guit3's equivalent of the original modal_dlg_pre()'s intent of
+     *   disabling the windows behind a modal dialog.  Non-text controls
+     *   (radio buttons, combo boxes) don't set io.WantTextInput, so that
+     *   check alone isn't enough - e.g. Ctrl+O would otherwise reopen a
+     *   game out from under an open Options dialog.
+     */
+    if (ImGui::IsPopupOpen((const char *)0, ImGuiPopupFlags_AnyPopup))
+        return;
+
+    /*
+     *   Update this frame's "just pressed" edge state for every key GLFW
+     *   knows about.  glfwGetKey() only reports current up/down state, so a
+     *   keypress is "down this frame, wasn't down last frame" - tracked in
+     *   accel_key_down_ rather than through ImGui, since there's no public
+     *   GLFW-key-to-ImGuiKey conversion to drive this off IsKeyPressed().
+     */
+    bool pressed_this_frame[GLFW_KEY_LAST + 1];
+    for (int key = GLFW_KEY_SPACE ; key <= GLFW_KEY_LAST ; ++key)
+    {
+        bool down = (glfwGetKey(m_window, key) == GLFW_PRESS);
+        pressed_this_frame[key] = down && !accel_key_down_[key];
+        accel_key_down_[key] = down;
+    }
+
+    int shift = (io.KeyCtrl ? OS_KEY_CTRL : 0)
+              | (io.KeyShift ? OS_KEY_SHIFT : 0)
+              | (io.KeyAlt ? OS_KEY_ALT : 0);
+
+    /*
+     *   Ctrl+Y ("yank"/paste) in Windows style: not in IDR_ACCEL_WIN (only
+     *   Ctrl+V is), so it isn't covered by the table loop below and needs
+     *   its own check, same as the char-forwarding block's Ctrl-letter
+     *   shortcuts (htmlgui.cpp's event_loop()) handle the rest of
+     *   do_char()'s otherwise-unreachable control codes. Deliberately
+     *   checked here via pressed_this_frame (glfwGetKey()-based) rather
+     *   than from that block's usual ImGui::IsKeyPressed()-based checks:
+     *   on a German QWERTZ system (where Y and Z swap positions vs. US
+     *   QWERTY), dispatching this exact same do_command() call from the
+     *   IsKeyPressed()-driven block reliably failed to paste, while
+     *   dispatching it from here - identical call, identical key state,
+     *   only the edge-detection mechanism different - reliably worked.
+     *   Root cause not pinned down (a GLFW/ImGui key-mapping discrepancy
+     *   for swapped-layout keys between the poll-based glfwGetKey() and
+     *   the callback-based key state IsKeyPressed() reads seems likely,
+     *   but unconfirmed); keep any future non-table paste trigger here
+     *   rather than re-adding it to the IsKeyPressed()-driven block.
+     */
+    if (!prefs_->get_emacs_ctrl_v() && shift == OS_KEY_CTRL
+        && pressed_this_frame[GLFW_KEY_Y])
+    {
+        check_cmd_info ci(ID_EDIT_PASTE);
+        TadsCmdStat_t stat = check_command(&ci);
+        if (stat != TADSCMD_DISABLED && stat != TADSCMD_DISABLED_CHECKED
+            && stat != TADSCMD_DISABLED_INDETERMINATE && stat != TADSCMD_UNKNOWN)
+            do_command(0, ID_EDIT_PASTE, 0);
+    }
+
+    const os_accel_entry_t *entries;
+    int count;
+    main_panel_->get_accel_entries(&entries, &count);
+
+    for (int i = 0 ; i < count ; ++i)
+    {
+        const os_accel_entry_t &e = entries[i];
+        if (e.key < GLFW_KEY_SPACE || e.key > GLFW_KEY_LAST
+            || !pressed_this_frame[e.key] || e.shift != shift)
+            continue;
+
+        /* only fire commands the menu system currently considers enabled */
+        check_cmd_info ci((int)e.cmd);
+        TadsCmdStat_t stat = check_command(&ci);
+        if (stat == TADSCMD_DISABLED || stat == TADSCMD_DISABLED_CHECKED
+            || stat == TADSCMD_DISABLED_INDETERMINATE
+            || stat == TADSCMD_UNKNOWN)
+            continue;
+
+        do_command(0, (int)e.cmd, 0);
+
+        /* one accelerator per keypress */
+        break;
+    }
+}
+
 // Our state
 ImVec4 clear_color = ImVec4(0.45f, 0.55f, 0.60f, 1.00f);
 
@@ -15464,26 +15619,6 @@ int CHtmlSys_mainwin::event_loop(int* flag) {
         tads_audio_run_done_callbacks();
 
         ImGuiIO& io = ImGui::GetIO();
-
-        for (int key = ImGuiKey_NamedKey_BEGIN; key < ImGuiKey_NamedKey_END; ++key)
-            if (ImGui::IsKeyPressed((ImGuiKey)key)) {
-            //    do_char(key, 0);
-            }
-
-        /*if (io.AddInputCharactersUTF8) {
-            if (!(io.KeyCtrl && !io.KeyAlt) && is_editable) {
-                for (int n = 0; n < IM_ARRAYSIZE(io.InputCharacters) && io.InputCharacters[n]; n++) {
-                    if (unsigned int c = (unsigned int)io.InputCharacters[n]) {
-                        if (bufLen < buf_size) {
-                            buf[bufLen++] = (char)c;
-                        }
-                    }
-                }
-            }
-
-            // Consume characters
-            memset(g.IO.InputCharacters, 0, sizeof(g.IO.InputCharacters));
-        }*/
 
         if (glfwGetWindowAttrib(m_window, GLFW_ICONIFIED) != 0)
         {
@@ -15527,8 +15662,14 @@ int CHtmlSys_mainwin::event_loop(int* flag) {
          *   command line, since nothing else in this loop checks
          *   io.WantTextInput before consuming io.InputQueueCharacters (see
          *   the io.WantCaptureKeyboard/WantCaptureMouse comment above).
+         *   Also skip while any dialog popup is open (Options, Find, a file
+         *   dialog, ...): a non-text-widget dialog (a plain Yes/No confirm)
+         *   never sets io.WantTextInput on its own, the same gap
+         *   do_accel_keys() below has to guard against.
          */
-        if (!io.WantTextInput)
+        bool game_wants_keys = !io.WantTextInput
+            && !ImGui::IsPopupOpen((const char *)0, ImGuiPopupFlags_AnyPopup);
+        if (game_wants_keys)
         {
             for (int i = 0; i < io.InputQueueCharacters.size(); ++i) {
                 ImWchar ch = io.InputQueueCharacters[i];
@@ -15537,7 +15678,129 @@ int CHtmlSys_mainwin::event_loop(int* flag) {
             if (ImGui::IsKeyPressed(ImGuiKey_Enter)) {
                 do_char('\r', 0);
             }
+            if (ImGui::IsKeyPressed(ImGuiKey_Backspace)) {
+                do_char('\b', 0);
+            }
+
+            /*
+             *   Emacs-style Ctrl+letter command-line editing shortcuts.
+             *   GLFW's char callback never fires at all while Ctrl is held
+             *   (by design - Ctrl+key is conventionally a shortcut, not
+             *   text), so - like Enter/Backspace above - these need a
+             *   manual per-key check; do_char()'s control-code cases (2,
+             *   4, 5, 11, 14, 16, 21, 25) were already there and correct,
+             *   just unreachable.  Only keys with no live accelerator-table
+             *   binding are listed here (see migration.md 5.4/L): Ctrl+A/
+             *   C/F/X/Z are claimed by SelectAll/Copy/Find/Cut/Undo in both
+             *   IDR_ACCEL_WIN and IDR_ACCEL_EMACS and are deliberately NOT
+             *   duplicated here (do_cut() in particular isn't safe to
+             *   invoke twice on the same keypress).
+             */
+            if (io.KeyCtrl)
+            {
+                static const struct { ImGuiKey key; char code; } emacs_ctrl_keys[] =
+                {
+                    { ImGuiKey_B, 2 },   /* back a character */
+                    { ImGuiKey_D, 4 },   /* delete character to right */
+                    { ImGuiKey_E, 5 },   /* end of line */
+                    { ImGuiKey_K, 11 },  /* delete to end of line */
+                    { ImGuiKey_N, 14 },  /* next line in history */
+                    { ImGuiKey_P, 16 },  /* previous line in history */
+                    { ImGuiKey_U, 21 },  /* delete entire line */
+                };
+                for (auto &k : emacs_ctrl_keys)
+                    if (ImGui::IsKeyPressed(k.key))
+                        do_char(k.code, 0);
+
+                /*
+                 *   Ctrl+V means Paste in Windows style (already reachable
+                 *   through do_accel_keys() below, via IDR_ACCEL_WIN) and
+                 *   page-down in Emacs style (not accelerator-bound at
+                 *   all) - so only the Emacs-style, non-paste meaning needs
+                 *   firing here.  Ctrl+Y (Emacs-style "yank"/paste, not
+                 *   accelerator-bound in Windows style) is handled in
+                 *   do_accel_keys() instead of here - see the comment there.
+                 */
+                bool emacs_style = prefs_->get_emacs_ctrl_v() != 0;
+                if (emacs_style && ImGui::IsKeyPressed(ImGuiKey_V))
+                    do_char(22, 0);
+            }
+
+            /*
+             *   Command-line navigation/history keys.  These aren't text
+             *   input at all, so GLFW's char callback was never going to
+             *   deliver them regardless of Ctrl state; they go through
+             *   do_keydown() instead, which - unlike do_char() - nothing
+             *   anywhere in guit3 was calling (CTadsWin::do_keydown()'s
+             *   default doesn't forward to children the way do_char()'s
+             *   always has; fixed in tadswin.h to match). Ctrl+Left/Right
+             *   (word-left/right) and Ctrl+Home/End (top/bottom) don't
+             *   need separate table entries - do_keydown() itself branches
+             *   on the live Ctrl state via get_ctl_key() for the same
+             *   VK_LEFT/RIGHT/HOME/END codes.
+             */
+            static const struct { ImGuiKey key; int vkey; } nav_keys[] =
+            {
+                { ImGuiKey_UpArrow,    VK_UP },
+                { ImGuiKey_DownArrow,  VK_DOWN },
+                { ImGuiKey_LeftArrow,  VK_LEFT },
+                { ImGuiKey_RightArrow, VK_RIGHT },
+                { ImGuiKey_Home,       VK_HOME },
+                { ImGuiKey_End,        VK_END },
+                { ImGuiKey_PageUp,     VK_PRIOR },
+                { ImGuiKey_PageDown,   VK_NEXT },
+                { ImGuiKey_Delete,     VK_DELETE },
+                { ImGuiKey_Escape,     VK_ESCAPE },
+            };
+            for (auto &k : nav_keys)
+                if (ImGui::IsKeyPressed(k.key))
+                    do_keydown(k.vkey, 0);
         }
+
+        /*
+         *   Top-level menu mnemonics (Alt+F for File, Alt+E for Edit, ...) -
+         *   real in htmlt3 via the native menu's "&" markers and WM_SYSCHAR,
+         *   but this ImGui build never gained mnemonic support at all
+         *   (render_menu_bar()'s labels are written without "&", per the
+         *   §3.1 gotcha). Recorded here and consumed by render_menu_bar()
+         *   on the next call, which is the only place with the right
+         *   ID-stack context to call ImGui::OpenPopup() for one of these
+         *   menus (see the comment there). The six letters match
+         *   win32/htmlcmn.rc's real "&File"/"&Edit"/"&View"/"&Themes"/"&Go"/
+         *   "&Help" mnemonics - all happen to be each label's first letter,
+         *   with no clashes to disambiguate.
+         *
+         *   Deliberately outside the game_wants_keys gate above: switching
+         *   from one already-open top-level menu to another (Alt+F then
+         *   Alt+E) needs this to keep firing while the File dropdown itself
+         *   counts as an open popup - game_wants_keys's
+         *   !ImGui::IsPopupOpen(...) check exists to keep game commands and
+         *   accelerators from reaching past a *modal dialog*, which would
+         *   otherwise block this too. Still gated on !io.WantTextInput so
+         *   it doesn't fire while typing.
+         */
+        if (!io.WantTextInput && io.KeyAlt && !io.KeyCtrl)
+        {
+            static const struct { ImGuiKey key; char letter; } menu_mnemonics[] =
+            {
+                { ImGuiKey_F, 'F' },
+                { ImGuiKey_E, 'E' },
+                { ImGuiKey_V, 'V' },
+                { ImGuiKey_T, 'T' },
+                { ImGuiKey_G, 'G' },
+                { ImGuiKey_H, 'H' },
+            };
+            for (auto &k : menu_mnemonics)
+                if (ImGui::IsKeyPressed(k.key))
+                    pending_menu_mnemonic_ = k.letter;
+        }
+
+        /*
+         *   Real keyboard accelerators (menu shortcuts) - checked here,
+         *   after NewFrame() so io.WantTextInput is valid, alongside the
+         *   character-forwarding block above that uses the same gate.
+         */
+        do_accel_keys();
 
         /*
          *   Decide which top-level window a fresh (uncaptured) click/hover

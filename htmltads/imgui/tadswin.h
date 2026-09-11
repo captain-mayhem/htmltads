@@ -1303,8 +1303,20 @@ protected:
         }
         return FALSE; 
     }
-    virtual int do_keydown(int /*virtual_key*/, long /*keydata*/)
-        { return FALSE; }
+    virtual int do_keydown(int virtual_key, long keydata)
+    {
+        /*
+         *   Forward to children the same way do_char()'s default just
+         *   above does - the portable substitute for real Win32 keyboard
+         *   focus routing a WM_KEYDOWN straight to the focused HWND (see
+         *   migration.md 5.4/L).
+         */
+        for (auto childwin : m_children) {
+            if (childwin->do_keydown(virtual_key, keydata))
+                return TRUE;
+        }
+        return FALSE;
+    }
     virtual int do_keyup(int /*virtual_key*/, long /*keydata*/)
         { return FALSE; }
     virtual int do_syskeydown(int /*virtual_key*/, long /*keydata*/)

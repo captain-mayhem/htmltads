@@ -3,12 +3,13 @@
  *
  *   A neutral, windows.h-free home for the small OS-integration calls the
  *   guit3 GUI layer still needs but that GLFW/ImGui/FreeType don't provide:
- *   shell integration, system colors, the clipboard, mouse cursors and the
- *   millisecond tick clock.  Each hook is declared here once and implemented
- *   per platform in a companion file selected by CMake (today only the Win32
- *   backend, guios_w32.cpp, exists); this mirrors the os_font_family_is_present()
+ *   shell integration, system colors, the clipboard, mouse cursors, the
+ *   millisecond tick clock, character-set conversion and keyboard-layout
+ *   queries.  Each hook is declared here once and implemented per platform
+ *   in a companion file selected by CMake (today only the Win32 backend,
+ *   guios_w32.cpp, exists); this mirrors the os_font_family_is_present()
  *   precedent in tadsfont.h / guifont.cpp.  See migration.md section 5.4
- *   (items D, E, F) and the "M2 / A2" note in section 5.5.
+ *   (items D, E, F, K, L) and the "M2 / A2" note in section 5.5.
  *
  *   Introducing these hooks does not change behavior on Windows: every
  *   backend below is the current call-site code lifted verbatim.
@@ -18,6 +19,7 @@
 #define GUIOS_H
 
 #include <stddef.h>
+#include <GLFW/glfw3.h>
 
 
 /* ------------------------------------------------------------------------ */
@@ -236,6 +238,75 @@ os_utf16_t *os_local_to_utf16(unsigned int codepage,
  */
 char *os_utf8_to_local(unsigned int codepage,
                        const char *utf8, size_t *out_len);
+
+
+/* ------------------------------------------------------------------------ */
+/*
+ *   L. Keyboard - canonical key codes, layout queries, and accelerator
+ *   tables
+ *
+ *   guit3's one canonical key code is a plain GLFW_KEY_* value (already
+ *   portable - identical across GLFW's Win32/X11/Cocoa backends, so unlike
+ *   items B-K there's no separate "portable backend" to build later: the
+ *   enum itself needs no per-platform variant.  Two things still do need an
+ *   OS query, because they depend on the live keyboard layout, which GLFW
+ *   doesn't expose: what character an unshifted key produces
+ *   (os_key_to_char, replacing MapVirtualKey), and what key produces a given
+ *   character (os_char_to_key, replacing VkKeyScan).  CTadsKeyboard
+ *   (tadskb.cpp) is the one caller of both - it used to call the Win32 APIs
+ *   directly; this seam is that call moved behind a name, byte-identical on
+ *   Windows, per the os_font_family_is_present() precedent.
+ *
+ *   The third piece, os_load_accel_table(), answers a different question:
+ *   given one of the ACCELERATORS resources (IDR_ACCEL_WIN/IDR_ACCEL_EMACS,
+ *   win32/htmlcmn.rc) that map keys straight to do_command() command IDs,
+ *   return its bindings as canonical-key entries.  This is what lets
+ *   CHtmlSys_mainwin::do_accel_keys() (htmlgui.cpp) dispatch real keyboard
+ *   shortcuts every frame without a Win32 message loop to run
+ *   TranslateAccelerator() through - see migration.md 5.4/L.
+ */
+
+/* shift-key bits - same encoding and values as tadskb.h's CTKB_SHIFT/CTRL/ALT */
+#define OS_KEY_SHIFT   0x0001
+#define OS_KEY_CTRL    0x0002
+#define OS_KEY_ALT     0x0004
+
+/* a canonical key code - one of the portable GLFW_KEY_* values */
+typedef int os_key_t;
+
+/*
+ *   Return the unshifted, unmodified character 'key' produces on the
+ *   current keyboard layout (e.g. GLFW_KEY_A -> 'A'), or 0 if it doesn't
+ *   produce a printable ASCII character.  Windows:
+ *   MapVirtualKey(vk, MAPVK_VK_TO_CHAR).
+ */
+int os_key_to_char(os_key_t key);
+
+/*
+ *   Return the key that generates ASCII character 'ch' on the current
+ *   keyboard layout, or 0 if no key does.  On success, also stores any
+ *   shift bits (OS_KEY_SHIFT/CTRL/ALT) required to generate it in
+ *   *shift_out.  Windows: VkKeyScan(ch).
+ */
+os_key_t os_char_to_key(int ch, int *shift_out);
+
+/* one binding in a portable accelerator table: key + shift bits -> command id */
+struct os_accel_entry_t
+{
+    os_key_t key;
+    int shift;
+    unsigned int cmd;
+};
+
+/*
+ *   Load the bindings of ACCELERATORS resource 'accel_id' (an IDR_ACCEL_*
+ *   id) into 'entries', writing at most 'max_entries', and return the
+ *   number of entries written (0 on failure or an empty table).  Windows:
+ *   LoadAccelerators() + CopyAcceleratorTable(), converting each VK_xxx key
+ *   to its canonical os_key_t.
+ */
+int os_load_accel_table(int accel_id, os_accel_entry_t *entries,
+                        int max_entries);
 
 
 #endif /* GUIOS_H */
