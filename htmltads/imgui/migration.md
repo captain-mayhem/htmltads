@@ -1550,7 +1550,7 @@ no logic and, on Windows, `tadsplat.h` expands to exactly `<windows.h>`, so a cl
 units is strong evidence the change is inert on Windows; a full build + smoke test on an unrestricted
 machine is still the last confirmation.
 
-**A2 in progress.** The `os_*` call hooks per subsystem, each following the [tadsfont.h](tadsfont.h) /
+**A2 done for all of B–M** (see the "A2 done for all of B–M" note further down, after item M). The `os_*` call hooks per subsystem, each following the [tadsfont.h](tadsfont.h) /
 [guifont.cpp](guifont.cpp) precedent: a neutral hook declaration + a Windows backend lifted verbatim from
 the current call site, one landable commit per subsystem, Windows build kept byte-identical. New pair
 [guios.h](guios.h) (neutral, `windows.h`-free) / [guios_w32.cpp](guios_w32.cpp) (Win32 backend), added to
@@ -1917,15 +1917,50 @@ the current call site, one landable commit per subsystem, Windows build kept byt
   the physically-correct key per the layout note above) - `Ctrl+V` now pastes exactly once in the default
   Windows style; `Ctrl+Y` now pastes exactly once too, in isolation and without affecting `Ctrl+V`.
 
-**A2 still to do**: item M (`guimain.cpp` startup/shutdown).
-(H — images — is done; it turned out to need no `os_*` hook, just deletion of the two Win32 calls, §5.4/H.
-I — audio file I/O — is done: WAV/Ogg/MP3 decoders on the `osfile` API, `getbits.cpp` forked into `imgui/`,
-§5.4/I. J — file-dialog browsing — is done: both dialogs routed through the existing portable `osifc`
-filesystem API (`os_open_dir()` et al.), `PathMatchSpecA` replaced by an in-file glob matcher, `Shlwapi.lib`
-dropped, §5.4/J. H, I and J each collapsed A2 and M3 — no `os_*` hook, no separate portable backend. L's
-canonical key enum is likewise already portable — `GLFW_KEY_*` values don't vary per platform — so, like
-H/I/J, there's no separate M3 backend left for it either; only `os_key_to_char()`/`os_char_to_key()` need
-one, matching G/K's shape.)
+- **M. `guimain.cpp` startup/shutdown** — *done (A2 seam for the one real OS-service piece; two items
+  turned out to be dead-code deletions, two are left alone as out-of-scope Windows plumbing).*
+  [guios.h](guios.h)/[guios_w32.cpp](guios_w32.cpp) gained `os_init_debug_console()`/
+  `os_close_debug_console()`, the `AllocConsole()` call and the drain-then-wait-for-a-keystroke shutdown
+  loop moved verbatim out of `guimain.cpp`'s `init_debug_console()`/`close_debug_console()` (guarded by
+  `TADSHTML_DEBUG` inside the backend exactly as before, so the interface `main()` calls is unconditional).
+  `os_dbg_sys_msg()` itself was left where it was - it's already the established "one implementation per
+  port" symbol every other port's own main file defines (see `win32/w32main.cpp`, `win32/w32webui.cpp`),
+  not a call guit3's own code invokes, so there's nothing to route through a `guios` hook.
+  - **`LoadLibrary("RICHED32.DLL")` — audited and deleted.** A repo-wide search turned up no
+    `RichEdit`/`RICHEDIT`/`EM_*` rich-edit-control usage anywhere in `guit3`; the `HINSTANCE rich_ed_hdl`
+    variable and its matching `FreeLibrary()` at shutdown went with it.
+  - **The `CreateFile`/`WriteFile` crash-dump writer (`exc_handler()`, `tadscrsh.txt`) → `fopen`/`fwrite`/
+    `fclose`.** This function is Windows SEH (`EXCEPTION_POINTERS`, raw `ctx->Ebp`/`Eip` stack walking) and
+    stays Windows-only regardless; the ask was just to stop mixing raw Win32 file I/O into it. `fclose()`
+    flushes before returning, so the dump file still survives `EXCEPTION_CONTINUE_SEARCH` tearing the
+    process down right after.
+  - **`InitCommonControlsEx` — audited, *not* removed.** Migration.md's original text expected this to go
+    with the dead dialog files, but `tadsdlg2.cpp` (still compiled into `guit3`, per `CMakeLists.txt`) still
+    creates real `WC_TABCONTROL`/`WC_TREEVIEW` child windows in a `WM_INITDIALOG` handler; confirming every
+    path into that handler is truly unreachable is a bigger audit than this item, so the call stays with a
+    comment recording why, to be dropped alongside `tadsdlg2.cpp` in a future cleanup pass.
+  - **`GetModuleHandle`/`oss_G_hinstance` — left alone**, per this bullet's own original scope: it's a plain
+    `HINSTANCE` assignment `oswin.c` requires by convention, with no non-Windows concept to abstract behind
+    a hook; it becomes a Windows-only line under `#ifdef _WIN32` whenever M4 needs one, not before.
+  - **`CoInitialize`/`CoUninitialize` — already resolved (M1, §5.4/O)**, no further action: they stay
+    unconditional because `tadswin.cpp`'s real OLE drag-and-drop needs COM regardless of the Web UI flag.
+
+  **Verified**: clean build + link of `guit3`, `0 warnings` on the two touched TUs (`guimain.cpp`,
+  `guios_w32.cpp`); fresh launch on `ditch3.t3` — title screen renders with menu bar/toolbar/status bar and
+  the game's cover image intact, process stays up (screenshotted), and a clean `Stop-Process` shutdown with
+  no crash-dump file written, confirming the debug-console/crash-writer changes didn't disturb normal
+  (non-debug, non-crashing) startup and shutdown.
+
+**A2 done for all of B–M.** (H — images — needed no `os_*` hook, just deletion of the two Win32 calls,
+§5.4/H. I — audio file I/O — is done: WAV/Ogg/MP3 decoders on the `osfile` API, `getbits.cpp` forked into
+`imgui/`, §5.4/I. J — file-dialog browsing — is done: both dialogs routed through the existing portable
+`osifc` filesystem API (`os_open_dir()` et al.), `PathMatchSpecA` replaced by an in-file glob matcher,
+`Shlwapi.lib` dropped, §5.4/J. H, I and J each collapsed A2 and M3 — no `os_*` hook, no separate portable
+backend. L's canonical key enum is likewise already portable — `GLFW_KEY_*` values don't vary per platform
+— so, like H/I/J, there's no separate M3 backend left for it either; only `os_key_to_char()`/
+`os_char_to_key()` need one, matching G/K's shape. M's own seam (`os_init_debug_console()`/
+`os_close_debug_console()`) is the same shape again — trivial on a non-Windows backend, likely empty
+functions, but that file doesn't exist until M4.)
 
 **M3 — fill in portable implementations, cheapest-and-most-certain first.** GLFW-provided services (D) →
 file dialogs (J) → system colors (E) and shell (F) → settings store (C) → resources (B) →
@@ -1942,7 +1977,9 @@ unified onto GLFW in `guios_common.cpp` when K landed), H, I and L are fully don
 image calls outright; I moved the decoders onto the already-portable `osfile` API, §5.4/H, §5.4/I; L's
 canonical key enum is already portable, and its two OS-layout queries got a Win32 backend with nothing
 left to add for a non-Windows one to plug into — same shape as G/K's remaining A2-only queries, just
-finished on both counts at once, §5.4/L).
+finished on both counts at once, §5.4/L). M's A2 seam is likewise built but its M3 half untouched -
+`os_init_debug_console()`/`os_close_debug_console()` need a non-Windows backend (almost certainly a pair of
+empty functions, since a console window isn't needed when stdout already goes somewhere visible), §5.4/M.
 
 **M4 — flip the three gates (§5.1) and get a Linux build.** Expect a long tail in `htmlgui.cpp`/`tadswin.cpp`
 that no census can predict; that's the point of doing M1–M3 first, so what the compiler finds is a

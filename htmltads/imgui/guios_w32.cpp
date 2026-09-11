@@ -440,3 +440,58 @@ int os_load_accel_table(int accel_id, os_accel_entry_t *entries,
     th_free(raw);
     return out;
 }
+
+
+/* ------------------------------------------------------------------------ */
+/*
+ *   M. Debug console
+ *
+ *   Moved verbatim out of guimain.cpp's init_debug_console()/
+ *   close_debug_console(); see migration.md 5.4/M.
+ */
+
+#ifdef TADSHTML_DEBUG
+
+void os_init_debug_console(void)
+{
+    AllocConsole();
+}
+
+void os_close_debug_console(void)
+{
+    INPUT_RECORD inrec;
+    DWORD cnt;
+
+    /*
+     *   Before exiting, wait for a keystroke, so that the user can see
+     *   the contents of the console buffer
+     */
+    oshtml_dbg_printf("\nPress any key to exit...");
+
+    /* clear out any keyboard events in the console buffer already */
+    for (;;)
+    {
+        if (!PeekConsoleInput(GetStdHandle(STD_INPUT_HANDLE),
+                              &inrec, 1, &cnt)
+            || cnt == 0)
+            break;
+        ReadConsoleInput(GetStdHandle(STD_INPUT_HANDLE), &inrec, 1, &cnt);
+    }
+
+    /* wait for a key from the console input buffer */
+    for (;;)
+    {
+        if (!ReadConsoleInput(GetStdHandle(STD_INPUT_HANDLE),
+                              &inrec, 1, &cnt))
+            break;
+        if (inrec.EventType == KEY_EVENT)
+            break;
+    }
+}
+
+#else /* TADSHTML_DEBUG */
+
+void os_init_debug_console(void) { }
+void os_close_debug_console(void) { }
+
+#endif /* TADSHTML_DEBUG */

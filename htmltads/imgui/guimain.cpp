@@ -278,24 +278,22 @@ LONG WINAPI exc_handler(EXCEPTION_POINTERS *info)
     CONTEXT *ctx = info->ContextRecord;
     DWORD *ebp;
     int i;
-    HANDLE hfile;
+    FILE *fp;
     char buf[128];
-    DWORD actual;
 
-    /* 
+    /*
      *   Open an error dump file.  We'll hope the system is stable enough
-     *   that we can do this. 
+     *   that we can do this.
      */
-    hfile = CreateFile("tadscrsh.txt", GENERIC_WRITE, 0, 0, CREATE_ALWAYS,
-                       FILE_ATTRIBUTE_NORMAL, 0);
-    if (hfile == 0)
+    fp = fopen("tadscrsh.txt", "wb");
+    if (fp == 0)
         return EXCEPTION_CONTINUE_SEARCH;
 
     /* put in our own address for calculating the relative base address */
     strcpy(buf, "exc_handler = ");
     hex_to_str(buf + 14, (DWORD)(DWORD_PTR)exc_handler);
     strcpy(buf + 22, "\r\n");
-    WriteFile(hfile, buf, 24, &actual, 0);
+    fwrite(buf, 1, 24, fp);
 
     /* show where we are now */
     strcpy(buf, "CS:EIP = ");
@@ -307,7 +305,7 @@ LONG WINAPI exc_handler(EXCEPTION_POINTERS *info)
     hex_to_str(buf + 18, ctx->Rip);
 #endif
     strcpy(buf + 26, "\r\n");
-    WriteFile(hfile, buf, 28, &actual, 0);
+    fwrite(buf, 1, 28, fp);
 
     /* trace back the stack */
 #if _M_IX86
@@ -319,11 +317,11 @@ LONG WINAPI exc_handler(EXCEPTION_POINTERS *info)
     {
         DWORD retaddr;
 
-        /* 
+        /*
          *   if the enclosing stack frame doesn't look valid, don't
          *   proceed -- each enclosing stack frame should have a higher
          *   stack address than inner ones, because the stack grows
-         *   downwards 
+         *   downwards
          */
         if ((DWORD *)(DWORD_PTR)*ebp <= ebp)
             break;
@@ -332,14 +330,16 @@ LONG WINAPI exc_handler(EXCEPTION_POINTERS *info)
         retaddr = *(ebp + 1);
         hex_to_str(buf, retaddr);
         strcpy(buf + 8, "\r\n");
-        WriteFile(hfile, buf, 10, &actual, 0);
+        fwrite(buf, 1, 10, fp);
 
         /* move on to the enclosing frame */
         ebp = (DWORD *)(DWORD_PTR)*ebp;
     }
 
-    /* close the file */
-    CloseHandle(hfile);
+    /* close the file - fclose() flushes, so the dump survives even though
+       the process is about to be torn down by the default exception
+       handling below */
+    fclose(fp);
 
     /* use the default exception handling, which will end the process */
     return EXCEPTION_CONTINUE_SEARCH;
@@ -736,45 +736,8 @@ finish:
 
 #ifdef TADSHTML_DEBUG
 
-void init_debug_console()
-{
-    AllocConsole();
-}
-
-void close_debug_console()
-{
-    INPUT_RECORD inrec;
-    DWORD cnt;
-
-    /*
-     *   Before exiting, wait for a keystroke, so that the user can see
-     *   the contents of the console buffer 
-     */
-    oshtml_dbg_printf("\nPress any key to exit...");
-
-    /* clear out any keyboard events in the console buffer already */
-    for (;;)
-    {
-        if (!PeekConsoleInput(GetStdHandle(STD_INPUT_HANDLE),
-                              &inrec, 1, &cnt)
-            || cnt == 0)
-            break;
-        ReadConsoleInput(GetStdHandle(STD_INPUT_HANDLE), &inrec, 1, &cnt);
-    }
-
-    /* wait for a key from the console input buffer */
-    for (;;)
-    {
-        if (!ReadConsoleInput(GetStdHandle(STD_INPUT_HANDLE),
-                              &inrec, 1, &cnt))
-            break;
-        if (inrec.EventType == KEY_EVENT)
-            break;
-    }
-}
-
 /*
- *   Display a debug message to the system console 
+ *   Display a debug message to the system console
  */
 void os_dbg_sys_msg(const textchar_t *msg)
 {
@@ -785,15 +748,14 @@ void os_dbg_sys_msg(const textchar_t *msg)
                  get_strlen(msg), &cnt, 0);
 }
 
-#else /* TADSHTML_DEBUG */
+#endif /* TADSHTML_DEBUG */
 
 /*
- *   Debugging not enabled - provide dummy versions of the debug functions 
+ *   init_debug_console()/close_debug_console() (AllocConsole() and the
+ *   wait-for-a-keystroke shutdown loop) now live behind
+ *   os_init_debug_console()/os_close_debug_console() in guios.h - see
+ *   guios_w32.cpp and migration.md 5.4/M.
  */
-void init_debug_console() { }
-void close_debug_console() { }
-
-#endif /* TADSHTML_DEBUG */
 
 
 /* ------------------------------------------------------------------------ */
@@ -862,7 +824,6 @@ done:
  *   Main entrypoint 
  */
 int main(int argc, char** argv){
-    HINSTANCE rich_ed_hdl;
     INITCOMMONCONTROLSEX ice;
 
     /* initialize COM */
@@ -871,19 +832,22 @@ int main(int argc, char** argv){
     /* notify the oss_win layer that we're done with static initializers */
     oss_win_static_init_done();
 
-    /* make sure common controls are loaded */
+    /*
+     *   Make sure common controls are loaded.  guit3's own UI is all ImGui
+     *   now, but tadsdlg2.cpp's (dead-but-still-compiled) property-page code
+     *   still creates real WC_TABCONTROL/WC_TREEVIEW child windows, so this
+     *   stays until those files are confirmed unreachable and dropped - see
+     *   migration.md 5.4/M.
+     */
     ice.dwSize = sizeof(ice);
     ice.dwICC = ICC_WIN95_CLASSES | ICC_COOL_CLASSES | ICC_STANDARD_CLASSES;
     InitCommonControlsEx(&ice);
-
-    /* load the Rich Edit control in case we need it */
-    rich_ed_hdl = LoadLibrary("RICHED32.DLL");
 
     /* set the application instance in the TADS os layer */
     oss_G_hinstance = GetModuleHandle(NULL);
 
     /* initialize the debug console */
-    init_debug_console();
+    os_init_debug_console();
 
     /* initialize the global resource table */
     CHtmlResType::add_basic_types();
@@ -926,10 +890,7 @@ int main(int argc, char** argv){
     HTML_IF_DEBUG(th_list_subsys_memory_blocks());
 
     /* close the debug console, making sure the user acknowledges it */
-    close_debug_console();
-
-    /* unload the Rich Edit control library */
-    FreeLibrary(rich_ed_hdl);
+    os_close_debug_console();
 
     /* terminate COM */
     CoUninitialize();

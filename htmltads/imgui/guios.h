@@ -309,4 +309,23 @@ int os_load_accel_table(int accel_id, os_accel_entry_t *entries,
                         int max_entries);
 
 
+/* ------------------------------------------------------------------------ */
+/*
+ *   M. Debug console
+ *
+ *   A raw system console window used to print low-level diagnostics
+ *   (memory-block dumps via os_dbg_sys_msg(), tadshtml2.cpp) before/after a
+ *   run when built with TADSHTML_DEBUG defined.  guimain.cpp's main() calls
+ *   these unconditionally; the backend decides whether TADSHTML_DEBUG is on
+ *   and does the real work or nothing.  Windows: AllocConsole(), and a
+ *   drain-then-wait-for-a-keystroke loop on the console input buffer so the
+ *   user can read the console before it disappears with the process.  A
+ *   non-Windows backend doesn't need a console at all - stdout already goes
+ *   somewhere the user can see it - so both can be no-ops there.
+ */
+
+void os_init_debug_console(void);
+void os_close_debug_console(void);
+
+
 #endif /* GUIOS_H */
