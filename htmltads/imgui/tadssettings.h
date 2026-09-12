@@ -15,11 +15,13 @@
  *   of Settings\Profiles" and a flat key/value file would not give that for
  *   free.
  *
- *   One backend is selected per platform by CMake.  Today only the Win32
- *   backend (tadssettings_w32.cpp) exists; its code is CTadsRegistry lifted
- *   verbatim, so the Windows build is byte-identical.  A non-Windows backend
- *   (INI or JSON under $XDG_CONFIG_HOME / ~/Library/Preferences) is
- *   migration.md's M3 work - see section 5.4 item C.  This mirrors the
+ *   One backend is selected per platform by CMake.  The Win32 backend
+ *   (tadssettings_w32.cpp) is CTadsRegistry lifted verbatim, so the Windows
+ *   build is byte-identical; the non-Windows backend
+ *   (tadssettings_portable.cpp) is an INI-style file under
+ *   $XDG_CONFIG_HOME / ~/Library/Preferences - migration.md's M3 work,
+ *   landed but unverified until there's a real non-Windows build to run it
+ *   on (M4).  See section 5.4 item C.  This mirrors the
  *   os_font_family_is_present() / guios.h precedent.
  */
 

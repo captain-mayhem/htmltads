@@ -29,10 +29,14 @@ Modified
  *   can't be done through FreeType/ImGui - system font enumeration is
  *   inherently OS-specific (GDI on Windows, fontconfig on Linux, CoreText
  *   on macOS) - so it's factored out behind this narrow interface instead
- *   of being inlined into CTadsFont.  One implementation is expected per
- *   OS/GUI backend; today only the Win32 one exists (w32font.cpp, backed
- *   by EnumFontFamiliesEx). CTadsFont::font_is_present() is the stable,
- *   OS-agnostic entry point callers should use - it just forwards here.
+ *   of being inlined into CTadsFont.  One implementation per OS/GUI backend,
+ *   selected by CMake: guifont_w32.cpp (Win32, EnumFontFamiliesEx),
+ *   fcfont.cpp (Linux, fontconfig's FcFontList), ctfont.cpp (macOS,
+ *   CTFontManagerCopyAvailableFontFamilyNames) - see migration.md 5.4/G; the
+ *   non-Windows backends are landed but unverified until there's a real
+ *   non-Windows build to run them on (M4).  CTadsFont::font_is_present() is
+ *   the stable, OS-agnostic entry point callers should use - it just
+ *   forwards here.
  */
 int os_font_family_is_present(const char *fontname, size_t len);
 
@@ -45,8 +49,8 @@ int os_font_family_is_present(const char *fontname, size_t len);
  *   GetFontData() on Windows, fontconfig's FcFontMatch on Linux, CoreText's
  *   font URL on macOS) - so, like os_font_family_is_present(), it is
  *   factored out behind this narrow interface.  One implementation per
- *   OS/GUI backend; today only the Win32 one exists (guifont.cpp).  It is
- *   called once from CTadsFont's constructor.
+ *   OS/GUI backend, same three files as os_font_family_is_present() above.
+ *   It is called once from CTadsFont's constructor.
  *
  *   On success, returns a newly allocated buffer holding the complete font
  *   file and stores its length in *data_size.  The buffer is allocated with

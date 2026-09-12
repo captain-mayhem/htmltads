@@ -1686,7 +1686,8 @@ the current call site, one landable commit per subsystem, Windows build kept byt
   elapsed clock advancing (exercises the shared `os_get_tick_ms()`). The portable-only paths can't run until
   the M4 Linux build.
 
-- **B. Resources** — *done (hooks + Win32 backend; portable string table / embedded byte arrays are M3).*
+- **B. Resources** — *done, including the M3 portable backend (string table + embedded byte arrays,
+  [guires_data.h](guires_data.h)/[guires_data.cpp](guires_data.cpp) — see §5.5's M3 write-up).*
   Three hooks in [guios.h](guios.h) / [guios_w32.cpp](guios_w32.cpp), backends lifted verbatim:
   - `os_load_string(id, buf, buflen)` — same `LoadString()` contract. Routed at every **live** call site:
     `CHtmlSysWin_win32::load_res_str()` and ~15 more in `htmlgui.cpp` (About-box HTML, Find "no more",
@@ -1709,7 +1710,8 @@ the current call site, one landable commit per subsystem, Windows build kept byt
   on the startup path and per-frame), no crash. The License dialog (`os_load_license_text()`) was not
   click-tested this pass but its backend is a byte-for-byte extraction.
 
-- **C. Settings storage** — *done (interface + Win32 backend; the file-backed backend is M3).* New pair
+- **C. Settings storage** — *done, including the M3 file-backed backend
+  ([tadssettings_portable.cpp](tadssettings_portable.cpp) — see §5.5's M3 write-up).* New pair
   [tadssettings.h](tadssettings.h) (neutral, `windows.h`-free) / [tadssettings_w32.cpp](tadssettings_w32.cpp)
   (registry backend), added to `CMakeLists.txt`; the local fork of `tadsreg.cpp` / `tadsreg.h` is **deleted**
   (the `../win32` copy that the native builds use is untouched). `CTadsSettings` has the same
@@ -1744,8 +1746,9 @@ the current call site, one landable commit per subsystem, Windows build kept byt
   toolbar and status bar intact. The Themes menu's live `enum_subkeys()` path was not click-tested this pass
   (foreground-focus contention with the IDE), but it is the same `RegEnumKeyEx` loop moved unchanged.
 
-- **G. Fonts** — *done (name→bytes hook + Win32 backend; the fontconfig/CoreText backends and `fcfont.cpp` /
-  `ctfont.cpp` are M3).* Two changes, in [tadsfont.h](tadsfont.h) / [tadsfont.cpp](tadsfont.cpp) /
+- **G. Fonts** — *done, including the M3 [fcfont.cpp](fcfont.cpp)/[ctfont.cpp](ctfont.cpp) backends and the
+  `guifont.cpp`/`guifont_w32.cpp` split that made room for them (see §5.5's M3 write-up).* Two changes, in
+  [tadsfont.h](tadsfont.h) / [tadsfont.cpp](tadsfont.cpp) /
   [guifont.cpp](guifont.cpp) / [htmlgui.cpp](htmlgui.cpp):
   - `os_font_data_for_name(name, weight, italic, charset, &size)` — the `CreateFontIndirect()` +
     `GetFontData()` block that turned a logical font into TrueType/OpenType file bytes for FreeType, moved
@@ -1786,7 +1789,8 @@ the current call site, one landable commit per subsystem, Windows build kept byt
   game. `Edit > Options > Starting > Browse...` opens the folder picker (directories only) nested in the
   Options modal, path resolved the same way. No crash in either.
 
-- **K. Character encoding** — *done (Win32 backend; charmap-backed portable half is M3).*
+- **K. Character encoding** — *done, including the M3 charmap-backed portable half in
+  [guios_portable.cpp](guios_portable.cpp) (see §5.5's M3 write-up).*
   `os_local_to_utf8()` / `os_local_to_utf16()` / `os_utf8_to_local()` in [guios.h](guios.h) /
   [guios_w32.cpp](guios_w32.cpp), the `MultiByteToWideChar`/`WideCharToMultiByte` pairs lifted verbatim out
   of `htmlgui.cpp`'s `measure_text()`, `draw_text()` (`draw_text_clip()`) and `get_max_chars_in_width()`,
@@ -2019,18 +2023,59 @@ fonts (G) → images (H) → audio file I/O (I) → charset (K) → keyboard/acc
 Each is landable on Windows alone; the pure-portable backends (D/E/F) only *run* once M4's Linux build
 exists.
 
-**D + E + F + J done** — [guios_portable.cpp](guios_portable.cpp) (D/E/F), see the "M3/D-F — portable
-backend landed" note in §5.4 above; J routed the two file dialogs straight through the existing portable
-`osifc` filesystem API so it needed no `guios` backend at all (§5.4/J). Remaining M3 items (C, B, G, K) are
-untouched; G's and K's A2 seams are built (so G's M3 work is the fontconfig/CoreText backends, K's is
-just the charmap-backed local↔Unicode conversion in `guios_portable.cpp` — the clipboard was already
-unified onto GLFW in `guios_common.cpp` when K landed), H, I and L are fully done (H removed the Win32
-image calls outright; I moved the decoders onto the already-portable `osfile` API, §5.4/H, §5.4/I; L's
-canonical key enum is already portable, and its two OS-layout queries got a Win32 backend with nothing
-left to add for a non-Windows one to plug into — same shape as G/K's remaining A2-only queries, just
-finished on both counts at once, §5.4/L). M's A2 seam is likewise built but its M3 half untouched -
-`os_init_debug_console()`/`os_close_debug_console()` need a non-Windows backend (almost certainly a pair of
-empty functions, since a console window isn't needed when stdout already goes somewhere visible), §5.4/M.
+**M3 is now complete** — every item in that list (D, J, E, F, C, B, G, H, I, K, L) has a non-Windows
+backend. (Item M, the debug console, was never part of this list - see its own note below - and stays open
+for M4.) **M4 is the next milestone**: flip the three build gates (§5.1) and get an actual Linux build, at
+which point all of this can be compiled and exercised for real for the first time.
+
+**D + E + F + J + C + B + G + K done.** D/E/F: [guios_portable.cpp](guios_portable.cpp), see the
+"M3/D-F — portable backend landed" note in §5.4 above. J routed the two file dialogs straight through the
+existing portable `osifc` filesystem API so it needed no `guios` backend at all (§5.4/J). H, I and L were
+already fully done (H removed the Win32 image calls outright; I moved the decoders onto the
+already-portable `osfile` API, §5.4/H, §5.4/I; L's canonical key enum is already portable, and its two
+OS-layout queries got a Win32 backend with nothing left to add for a non-Windows one to plug into, §5.4/L).
+
+The remaining four landed in this pass:
+
+- **C** — [tadssettings_portable.cpp](tadssettings_portable.cpp): an in-memory key-node tree (subkey
+  enumeration included, per §5.4/C's note that a flat file doesn't give that for free) loaded from and
+  rewritten to a small INI-style file at `$XDG_CONFIG_HOME/HTML TADS 3/settings.ini` (macOS:
+  `~/Library/Preferences/HTML TADS 3/`), `HTML TADS 3` matching `w32_appdata_dir` (guitrt3.cpp). Binary
+  values (the one live case: the custom-color swatch array) are hex-encoded; string values are
+  backslash-escaped for embedded newlines.
+- **B** — [guires_data.h](guires_data.h)/[guires_data.cpp](guires_data.cpp) embed `win32/runtbar.bmp` and
+  `notes3/license.txt` verbatim as byte arrays (mechanically generated with `xxd -i`, not hand-maintained);
+  `guios_portable.cpp` adds a generated `os_load_string()` table (one entry per `IDS_*` id actually routed
+  through the hook, text copied from `win32/htmlcmn.rc`'s STRINGTABLE) and a small self-contained
+  1/4/8bpp-indexed BMP decoder for `os_load_toolbar_rgba()` (no GDI to lean on, so the color-key → alpha
+  conversion runs against the decoded pixels instead of a GetDIBits() result).
+- **G** — font hooks split out of `guifont.cpp` (which turned out to need nothing Windows-specific in
+  `CHtmlSysFont_win32`'s own methods — FreeType/ImGui calls only — so it's now compiled on every platform)
+  into three per-platform files picked by CMake: `guifont_w32.cpp` (Win32, unchanged code), `fcfont.cpp`
+  (Linux, fontconfig's `FcFontList`/`FcFontMatch`), `ctfont.cpp` (macOS, CoreText's
+  `CTFontManagerCopyAvailableFontFamilyNames`/`CTFontCreateCopyWithSymbolicTraits`).
+- **K** — `guios_portable.cpp` routes `os_local_to_utf8()`/`os_local_to_utf16()`/`os_utf8_to_local()`
+  through the TADS charmap layer (`charmap.h`) rather than a second parallel code-page table: a Windows
+  code-page number maps straight to a `"cp<N>"` charmap table name, which is exactly the naming convention
+  `tads3/charmap/*.tcm` already uses, loaded through a bare `CResLoader` (so it searches the current
+  directory — same as `CResLoader`'s other bare-constructor callers, e.g. `msgcomp.cpp` — good enough until
+  a real M4 Linux build shows otherwise) and cached forever; a table that fails to load falls back to
+  built-in ASCII rather than losing all GUI text.
+
+**Verification note:** C and B compile as pure host-side C++ with no Linux/macOS-only headers, so both were
+syntax-checked end-to-end against this repo's real headers under WSL (Ubuntu 24.04, g++ 13, the same
+`UNIX`/`OS_ANSI`/`LINUX_386` defines `tads_settings` sets for a real Unix build) with zero errors or
+warnings; K's `guios_portable.cpp` changes were checked the same way. G's Linux backend (`fcfont.cpp`) was
+additionally checked against a real `libfontconfig-dev` install in the same WSL environment. `ctfont.cpp`
+(macOS) could not be checked at all — no macOS toolchain is available here — and is unverified beyond
+inspection against the CoreText API; revisit it once M4 has a Mac build. None of this can actually *run*
+until M4 lifts the Windows-only CMake gate (`if (NOT WIN32) return()`), and the Windows build was
+re-verified after every change in this pass (clean build + link + a `ditch3.t3` smoke-test launch, no
+crash-dump file).
+
+M's A2 seam is built but its M3 half untouched - `os_init_debug_console()`/`os_close_debug_console()` need
+a non-Windows backend (almost certainly a pair of empty functions, since a console window isn't needed
+when stdout already goes somewhere visible), §5.4/M.
 
 **M4 — flip the three gates (§5.1) and get a Linux build.** Expect a long tail in `htmlgui.cpp`/`tadswin.cpp`
 that no census can predict; that's the point of doing M1–M3 first, so what the compiler finds is a

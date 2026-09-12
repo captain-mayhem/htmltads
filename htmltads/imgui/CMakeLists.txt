@@ -54,6 +54,12 @@ add_executable(guit3
 
 	htmlgui.cpp
 	guimain.cpp
+
+	# CTadsFont/CHtmlSysFont_win32 (portable - FreeType/ImGui only) + the
+	# os_font_family_is_present()/os_font_data_for_name() platform hooks
+	# tadsfont.h declares, one backend per platform selected below (Win32:
+	# guifont_w32.cpp; Linux: fcfont.cpp/fontconfig; macOS: ctfont.cpp/
+	# CoreText).  See migration.md 5.4/G.
 	guifont.cpp
 	guifont.h
 
@@ -68,10 +74,10 @@ add_executable(guit3
 	# Persistent settings store (app options, per-theme "profile" trees,
 	# per-game theme associations) - neutral interface + one backend per
 	# platform, replacing CTadsRegistry / the inline Reg* calls.  The Win32
-	# backend is that registry code lifted verbatim; a file-backed backend
-	# is migration.md's M3 work.  See migration.md 5.4/C and 5.5 (M2/A2).
+	# backend is that registry code lifted verbatim; the non-Windows backend
+	# is an INI-style file under $XDG_CONFIG_HOME / ~/Library/Preferences.
+	# See migration.md 5.4/C and 5.5 (M2/A2).
 	tadssettings.h
-	tadssettings_w32.cpp
 	guisnd.cpp
 	guiimg.cpp
 	hos_gui.cpp
@@ -137,7 +143,37 @@ endif()
 if (WIN32)
 	target_sources(guit3 PRIVATE guios_w32.cpp)
 else()
-	target_sources(guit3 PRIVATE guios_portable.cpp)
+	target_sources(guit3 PRIVATE
+		guios_portable.cpp
+		# item B's embedded runtbar.bmp / license.txt byte arrays, generated
+		# with `xxd -i` - see migration.md 5.4/B.
+		guires_data.h
+		guires_data.cpp
+	)
+endif()
+
+# tadssettings.h per-platform backend: the registry code lifted verbatim, or
+# the portable INI-file implementation.  See migration.md 5.4/C.
+if (WIN32)
+	target_sources(guit3 PRIVATE tadssettings_w32.cpp)
+else()
+	target_sources(guit3 PRIVATE tadssettings_portable.cpp)
+endif()
+
+# tadsfont.h's os_font_family_is_present()/os_font_data_for_name() backend:
+# GDI, fontconfig, or CoreText.  See migration.md 5.4/G.
+if (WIN32)
+	target_sources(guit3 PRIVATE guifont_w32.cpp)
+elseif (APPLE)
+	target_sources(guit3 PRIVATE ctfont.cpp)
+	target_link_libraries(guit3 PRIVATE
+		"-framework CoreText"
+		"-framework CoreFoundation"
+	)
+else()
+	find_package(Fontconfig REQUIRED)
+	target_sources(guit3 PRIVATE fcfont.cpp)
+	target_link_libraries(guit3 PRIVATE Fontconfig::Fontconfig)
 endif()
 
 target_compile_definitions(guit3 PRIVATE

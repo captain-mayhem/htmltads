@@ -132,10 +132,11 @@ unsigned long os_get_sys_color(os_sys_color_t which);
  *   The three kinds of resource the live ImGui code still pulls out of the
  *   Windows executable: UI strings, the toolbar icon strip, and the license
  *   text.  Each hook's Win32 backend is the current call-site code lifted
- *   verbatim (LoadString / LoadImage+GetDIBits / FindResource).  A
- *   non-Windows backend supplies the same data from a generated string table
- *   and embedded byte arrays - that portable half is migration.md's M3 work;
- *   this seam is just the M2/A2 step of naming the calls.  See
+ *   verbatim (LoadString / LoadImage+GetDIBits / FindResource).  The
+ *   non-Windows backend (guios_portable.cpp) supplies the same data from a
+ *   generated string table and the embedded runtbar.bmp/license.txt byte
+ *   arrays (guires_data.h) - migration.md's M3 work, landed but unverified
+ *   until there's a real non-Windows build to run it on (M4).  See
  *   migration.md 5.4/B.
  *
  *   Dead native-menu and superseded native-dialog code still calls
@@ -185,11 +186,13 @@ char *os_load_license_text(size_t *len);
  *   call sites in htmlgui.cpp (measure_text(), draw_text(),
  *   get_max_chars_in_width()); os_utf8_to_local() is the same pair run
  *   backwards, for the paste path (do_paste() -> insert_text_from_hglobal(),
- *   which is shared with the OLE drag sink and stays local-codepage).  A
- *   non-Windows backend routes all of this through the TADS charmap layer the
- *   VM already loads (charmap/cmaplib.t3r) rather than a second parallel
- *   encoding assumption - that portable half is migration.md's M3 work; see
- *   migration.md 5.4/K.
+ *   which is shared with the OLE drag sink and stays local-codepage).  The
+ *   non-Windows backend (guios_portable.cpp) routes all of this through the
+ *   TADS charmap layer the VM already loads (charmap.h, charmap/cmaplib.t3r)
+ *   rather than a second parallel encoding assumption, mapping the numeric
+ *   code page straight to a "cp<N>" charmap table name - migration.md's M3
+ *   work, landed but unverified until there's a real non-Windows build to
+ *   run it on (M4).  See migration.md 5.4/K.
  */
 
 /*
