@@ -20,8 +20,12 @@ Modified
   01/20/00 MJRoberts  - Creation
 */
 
+#ifdef _WIN32
 #include <WinSock2.h>
 #include <Windows.h>
+#else
+#include "tadsplat.h"
+#endif
 
 #include "t3main.h"
 #include "guimain.h"
@@ -45,15 +49,19 @@ Modified
  */
 void w32_webui_yield_foreground()
 {
+#ifdef _WIN32
     osnet_webui_yield_foreground();
+#endif
 }
 
-/* 
- *   bring the web UI window to the foreground 
+/*
+ *   bring the web UI window to the foreground
  */
 void w32_webui_to_foreground()
 {
+#ifdef _WIN32
     osnet_webui_to_foreground();
+#endif
 }
 
 

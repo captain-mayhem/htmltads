@@ -20,7 +20,9 @@
 
 /* Define "boolean" as unsigned char, not enum, per Windows custom */
 #ifndef __RPCNDR_H__		/* don't conflict if rpcndr.h already read */
-#ifdef __EMSCRIPTEN__
+#if defined(__EMSCRIPTEN__) || !defined(_WIN32)
+/* match libmng_types.h's non-Windows "typedef int boolean" (libmng_types.h
+   includes this header after its own typedef, under the same !_WIN32 test) */
 typedef int boolean;
 #else
 typedef unsigned char boolean;

@@ -18,6 +18,12 @@ Modified
 
 #include "tadsplat.h"
 
+/* Only ever used to feed embedded resource streams to DirectMusic (COM)
+   interfaces from tadsmidi.cpp, which is itself Windows-only until a
+   portable software synth replaces the Win32 MIDI sequencer (migration.md
+   section 3.7) - so this header has no non-Windows content. */
+#ifdef _WIN32
+
 /*
  *   Stdio file stream reader.  This is a read-only IStream for reading data
  *   from a stream embedded in a larger file, such as a TADS resource file.  
@@ -280,5 +286,7 @@ protected:
     long start_ofs_;
     long len_;
 };
+
+#endif /* _WIN32 */
 
 #endif /* TADSISTR_H */

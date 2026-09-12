@@ -16,11 +16,13 @@ Modified
   04/26/02 MJRoberts  - creation
 */
 
-#include <Windows.h>
+#include "tadsplat.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <math.h>
+#ifdef _WIN32
 #include <io.h>
+#endif
 
 /* TADS OS layer - portable file I/O (osfrbc / osfseek / osfpos) */
 #include <os.h>

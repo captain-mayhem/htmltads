@@ -20,7 +20,7 @@ Modified
   01/31/98 MJRoberts  - Creation
 */
 
-#include <Windows.h>
+#include "tadsplat.h"
 
 #ifndef TADSHTML_H
 #include "tadshtml.h"

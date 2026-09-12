@@ -6,7 +6,7 @@
  *   ever be showing at a time (it's a modal).
  */
 
-#include <windows.h>
+#include "tadsplat.h"
 #include <vector>
 #include <string>
 #include <cstring>

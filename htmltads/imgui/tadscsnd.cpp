@@ -22,7 +22,7 @@ Modified
 #include <stdio.h>
 #include <string.h>
 
-#include <Windows.h>
+#include "tadsplat.h"
 
 /* TADS OS layer - portable file I/O (osfoprb / osfseek / osfcls) */
 #include <os.h>

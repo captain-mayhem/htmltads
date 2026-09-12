@@ -20,7 +20,7 @@ Modified
   10/26/97 MJRoberts  - Creation
 */
 
-#include <windows.h>
+#include "tadsplat.h"
 #include <imgui/imgui.h>
 
 #ifndef TADSSTAT_H

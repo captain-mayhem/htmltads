@@ -17,6 +17,13 @@ Modified
 #define TADSWEBCTL_H
 
 #include "tadsplat.h"
+
+/* The embedded Web UI (IE ActiveX browser control) is Windows-only and
+   gated behind TADS_WEBUI_ENABLED for compilation (imgui/CMakeLists.txt);
+   this header, though, is included unconditionally by guiwebui.h regardless
+   of that flag, so it needs its own _WIN32 guard to have no content off
+   Windows - see migration.md section 4/5.4/O. */
+#ifdef _WIN32
 #include <exdisp.h>
 #include <oleauto.h>
 #include <exdispid.h>
@@ -1200,5 +1207,7 @@ protected:
 };
 
 
+
+#endif /* _WIN32 */
 
 #endif /* TADSWEBCTL_H */

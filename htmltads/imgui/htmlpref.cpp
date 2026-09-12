@@ -20,8 +20,12 @@ Modified
   10/26/97 MJRoberts  - Creation
 */
 
+#ifdef _WIN32
 #include <windows.h>
 #include <commctrl.h>
+#else
+#include "tadsplat.h"
+#endif
 #include <stdio.h>
 
 #ifndef TADSHTML_H
@@ -1404,6 +1408,7 @@ void CHtmlPreferences::opt_render_gamechest_tab()
  *   Font-family selector callbacks - identical filtering rules to
  *   CHtmlDialogFonts::font_select_serif/sans/script/typewriter above.
  */
+#ifdef _WIN32
 int CHtmlPreferences::cust_font_select_serif(ENUMLOGFONTEX *elf,
                                              NEWTEXTMETRIC *tm)
 {
@@ -1432,6 +1437,24 @@ int CHtmlPreferences::cust_font_select_typewriter(ENUMLOGFONTEX *elf,
     return (tm->tmCharSet != SYMBOL_CHARSET
             && (elf->elfLogFont.lfPitchAndFamily & 0xf0) == FF_MODERN);
 }
+#else
+/* GDI EnumFontFamiliesEx()-based family classification - Windows-only for
+   now. The portable os_font_family_is_present()/os_font_data_for_name()
+   hooks (tadsfont.h, fcfont.cpp) only test/fetch one name at a time; there's
+   no fontconfig-backed "enumerate every family, classified serif/sans/
+   script/typewriter" equivalent yet, so cust_refresh_font_lists() below
+   just leaves these lists empty off Windows rather than block M4's Linux
+   build on writing one. See htmltads/imgui/migration.md 5.4/G. */
+int CHtmlPreferences::cust_font_select_serif(ENUMLOGFONTEX *, NEWTEXTMETRIC *)
+    { return FALSE; }
+int CHtmlPreferences::cust_font_select_sans(ENUMLOGFONTEX *, NEWTEXTMETRIC *)
+    { return FALSE; }
+int CHtmlPreferences::cust_font_select_script(ENUMLOGFONTEX *, NEWTEXTMETRIC *)
+    { return FALSE; }
+int CHtmlPreferences::cust_font_select_typewriter(ENUMLOGFONTEX *,
+                                                  NEWTEXTMETRIC *)
+    { return FALSE; }
+#endif
 
 /*
  *   Context for cust_font_enum_cb() - unlike CTadsDialog::init_font_popup(),
@@ -1448,6 +1471,7 @@ struct cust_font_enum_info_t
     int (*selector_func)(ENUMLOGFONTEX *, NEWTEXTMETRIC *);
 };
 
+#ifdef _WIN32
 static int CALLBACK cust_font_enum_cb(ENUMLOGFONTEX *elf, NEWTEXTMETRIC *tm,
                                       DWORD, LPARAM lpar)
 {
@@ -1492,6 +1516,7 @@ static int CALLBACK cust_font_enum_cb(ENUMLOGFONTEX *elf, NEWTEXTMETRIC *tm,
 
     return TRUE;
 }
+#endif
 
 /*
  *   Re-gather the cust_fonts_*_ name lists for the given character set.
@@ -1517,6 +1542,7 @@ void CHtmlPreferences::cust_refresh_font_lists(unsigned int charset_id)
           &cust_font_select_typewriter },
     };
 
+#ifdef _WIN32
     HDC dc = GetDC(0);
     for (size_t i = 0 ; i < sizeof(jobs)/sizeof(jobs[0]) ; ++i)
     {
@@ -1540,6 +1566,12 @@ void CHtmlPreferences::cust_refresh_font_lists(unsigned int charset_id)
         *jobs[i].count = info.count;
     }
     ReleaseDC(0, dc);
+#else
+    /* no fontconfig-backed family enumerator yet - see the comment above
+       cust_font_select_serif() */
+    for (size_t i = 0 ; i < sizeof(jobs)/sizeof(jobs[0]) ; ++i)
+        *jobs[i].count = 0;
+#endif
 }
 
 /*

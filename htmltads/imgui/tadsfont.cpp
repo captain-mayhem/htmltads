@@ -20,7 +20,7 @@ Modified
   09/20/97 MJRoberts  - Creation
 */
 
-#include <Windows.h>
+#include "tadsplat.h"
 #include <stdlib.h>
 #include <stdio.h>
 #include <memory.h>

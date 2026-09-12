@@ -22,7 +22,7 @@ Modified
 
 #include <stdlib.h>
 #include <malloc.h>
-#include <windows.h>
+#include "tadsplat.h"
 
 #ifndef TADSDLG_H
 #include "tadsdlg.h"

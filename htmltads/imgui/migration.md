@@ -2083,6 +2083,176 @@ manageable remainder rather than thousands of errors. Add a Linux **compile-only
 is the cheapest possible regression net for a GUI app with no automated test coverage. Per the standing
 decision, CI workflows for htmltads-specific artifacts belong in **this** repo, not `tads-runner`.
 
+**M4 is done: guit3 builds, links, and runs its main loop on Ubuntu 24.04 (WSL)** without crashing, tested
+against `ditch3.t3`. The Linux CI job described above is not yet added — still open, see the end of this
+section.
+
+**The three gates:**
+- `tads-runner/CMakeLists.txt` §5.1 gate 1: `WITH_HTMLTADS` is now unconditional whenever `../htmltads`
+  exists (was `if (WIN32 OR EMSCRIPTEN)`).
+- `htmltads/CMakeLists.txt` gate 2: `libogg`/`libvorbis` (guit3's Ogg Vorbis decoder, `tadsvorb.cpp`) now
+  build on every platform; `textindex`/`scintilla`/`t3doc`/`wbaddons` (Workbench-only, unrelated to guit3)
+  stay Windows-only.
+- `htmltads/htmltads/imgui/CMakeLists.txt` gate 3: the `if (NOT WIN32) return()` is gone. `../win32/htmlt3.rc`
+  and the Win32-only link libs (`Comctl32.lib`, `Winmm.lib`, `Ws2_32.lib`, `Wininet.lib`, `Mpr.lib`,
+  `Version.lib`) are now added only `if (WIN32)`; `tadsole.cpp`/`tadsdlg2.cpp` (both fully Windows-only, see
+  below) likewise. `OpenGL::GL` (via `find_package(OpenGL)`) is linked on the `else()` side where
+  `Opengl32.lib` was Windows-only.
+
+**Two real, pre-existing bugs found and fixed along the way (not guit3-specific - they'd bite any Linux
+build of this tree, and are worth remembering if this ever gets re-derived from a cleaner tree):**
+
+- **`tads3/CMakeLists.txt`'s `find_package(CURL)` guard was `if (NOT ${CURL_FOUND})`** - the `${}` expands
+  an *undefined* `CURL_FOUND` to nothing, producing `if (NOT )`, which CMake evaluates as `if(NOT <the
+  string "NOT">)`-adjacent nonsense that came out **true-as-in-"skip the block"** here, i.e. `find_package`
+  never ran and `VM_WITH_NETWORK` silently defaulted off even with libcurl installed. Fixed by dropping the
+  `${}` (`if (NOT CURL_FOUND)`, the idiomatic form) - confirmed `-- Found CURL` and `VM_WITH_NETWORK=ON` on
+  the very next configure. If networking-dependent code (`osnet_disconnect_webui()`, `os_net_cleanup()`,
+  `guitrt3.cpp`) is ever missing at Unix link time again, check this first before assuming libcurl isn't
+  installed.
+- **`tadsplat.h`'s `HRESULT` (and `LONG`) were `typedef long ...`.** Windows' `LONG`/`HRESULT` are always 32
+  bits (LLP64), but Linux's `long` is 64 bits (LP64) - so every `E_FAIL`-style negative-as-32-bit HRESULT
+  constant silently became a large *positive* 64-bit value, and `SUCCEEDED()` read every one of the stub
+  COM calls below as having succeeded. This produced a real crash: `CTadsApp::get_my_docs_path()`
+  (tadsapp.cpp) calling a vtable method (`imal->Free()`) through a null `IMalloc*` because the
+  `SHGetSpecialFolderLocation()` stub's `E_FAIL` read as success. Fixed by making both `typedef int32_t`
+  instead. **`DWORD`/`ULONG` are still plain `unsigned long` (also 64-bit on Linux)** - left alone since
+  nothing does a signed comparison on them the way `SUCCEEDED()`/`FAILED()` do on `HRESULT`, but worth
+  revisiting if something behaves oddly with a "should be 32-bit" unsigned Windows type.
+
+**A third real bug, in shared (non-Windows-specific) code**: `CResLoader::open_res_file()` (tads3/resload.cpp)
+built a full path from `root_dir_` and a default-library name **without checking whether `root_dir_` was
+null** in the `deflib`-fallback branch (the primary lookup a few lines above it does check). A bare
+`CResLoader()` (used by `guios_portable.cpp`'s charmap loader, §5.4/K) has a null `root_dir_` by design, so
+the very first `os_local_to_utf8()` call crashed inside `os_build_full_path()`'s `strlen(path)` on a null
+pointer. Fixed by skipping `os_build_full_path()` and using the bare filename when `root_dir_ == 0`, matching
+the primary lookup's existing null-check.
+
+**The "long tail" itself**, roughly in the order it was found (all in `htmltads/htmltads/imgui/` unless
+noted):
+
+- **Every `.cpp`/`.h` that did `#include <windows.h>` (or `<Ole2.h>`, `<WinSock2.h>`, `<CommCtrl.h>`, ...)
+  unconditionally** now does so only `#ifdef _WIN32`, falling back to `"tadsplat.h"` - roughly 30 files.
+  `tadsplat.h`'s non-Windows branch (§5.4/A1) grew enormously in this pass: real `IUnknown`/`IDropSource`/
+  `IDropTarget`/`IDropTargetHelper`/`IDataObject` base classes (mirroring real `oleidl.h` layout closely
+  enough that `CTadsWin`'s existing multiple-inheritance-without-virtual-`IUnknown` pattern still works
+  unchanged), `FORMATETC`/`STGMEDIUM` (just enough for `CHtmlSysWin_win32_Input`'s real, always-compiled
+  `IDropTarget::DragEnter()`/`Drop()` - the OLE drag-and-drop *source* side, `tadsole.cpp`/`tadsole.h`, stays
+  fully Windows-only, gated in both the `.h` and the CMakeLists), a `GMEM_FIXED`-only working
+  `GlobalAlloc`/`GlobalLock`/`GlobalUnlock`/`GlobalFree` (do_copy()'s clipboard path is live off Windows
+  too), and a long tail of inert no-op stand-ins (menus, GDI, dialogs, hooks, registry, version-resource
+  lookup, ...) for code that's provably dead off Windows because guit3 never creates a real `HWND`
+  (migration.md 3.4/3.4a) - `RegisterDragDrop()`/`CoCreateInstance()` etc. returning failure is exactly what
+  makes `CTadsWin::drop_target_register()` correctly skip registering a real drop target off Windows.
+- **`tadsdlg2.cpp`** (100% dead native property-sheet code, confirmed no live call sites) and **`tadsole.cpp`**
+  (COM drag-source, Windows-only by design) are now `if (WIN32)`-only in the CMakeLists rather than ported.
+- **`tads2/msdos/oswin.h`'s Windows-only `oss_set_open_file_dir()`/`oss_win_free_all()`/
+  `oss_win_static_init_done()`/`oss_set_askfile_hook()`** have no non-Windows implementation at all (the
+  Unix build of `Tads::tr32h` compiles `unix/osunixt.c`, not `oswin.c` - migration.md 5.1). Stubbed as
+  no-ops directly in `tadsapp.cpp`/`guimain.cpp` (small, call-site-local, not worth a shared header). Real
+  gap: **`os_askfile()` has no working hook wiring on Unix** - `unix/osunixt.c`'s own `os_askfile()` is
+  compiled out under `USE_STDIO` (which this build defines), so `askf_tx.c`'s plain stdio prompt, not
+  `CTadsFileDialog`, currently backs File > Open/Save/Restore off Windows. Revisit once someone actually
+  exercises that path.
+- **`html_os.h`'s switchboard** (which routes to `hos_gui.h` only when `IMGUI` is defined) needed `t3htm`
+  and `tr32h` themselves to define `IMGUI` on the plain-Unix branch (not Emscripten) plus an include path to
+  `imgui/`, since guit3 is their only non-Windows, non-Emscripten consumer - see `tads2/CMakeLists.txt` and
+  `tads3/CMakeLists.txt`.
+- **`tads2/unix/osunixt.c` defines its own `os_term()`/`os_advise_load_charmap()`**, conflicting with
+  `hos_gui.cpp`'s guit3-specific versions (`os_term()` needs to do ImGui/GLFW shutdown, not just `exit()`).
+  Both are now `#ifndef IMGUI` in `osunixt.c`, matching the `t3htm`/`tr32h` `IMGUI` define above. **Do not**
+  try to fix this by disabling `USE_DOSEXT` tricks or moving files around - `osunixt.c`'s own `ossgetcolor()`/
+  `oss_get_sysinfo()` (curses text-mode color scheme globals `sdesc_color`/`text_bold_color`/`os_f_plain`,
+  meant to be defined by a real console front end) still need to link, so it's kept in the build and given
+  harmless dummy definitions of those three globals in `hos_gui.cpp` instead.
+- **`tads2/osnoui.c`'s `os_get_rel_path()`** (guit3's recent-games menu) was nested inside a big
+  `#ifdef USE_DOSEXT` block along with several functions (`os_defext`/`os_remext`/`os_addext`/
+  `os_get_root_name`/`os_build_full_path`/`os_combine_paths`/`os_is_file_absolute`) that `unix/osunixt.c`
+  *already implements natively* - Unix intentionally never defines `USE_DOSEXT` (`unix/osunixt.h` has it
+  commented out) specifically to avoid that clash. `os_get_rel_path()` is the one function in that block with
+  no Unix implementation anywhere and no platform-specific logic outside its own internal
+  `#if defined(MSDOS)` branch, so it (plus the tiny `pathchareq`/`ispathchar`/`oss_parse_volume` helpers it
+  needs) was pulled out of the `USE_DOSEXT` gate to compile unconditionally, leaving the rest of that block
+  exactly as gated as before. **Do not re-enable `USE_DOSEXT` for Unix** - it was deliberately left off and
+  doing so reintroduces the `osunixt.c` conflict this avoided.
+- **`tads3/unix/osunix.c`** (`os_get_exe_filename()`/`os_get_special_path()`) and **`tads2/osrestad.c`**
+  (`os_get_str_rsc()`, the generic "compiled-in English strings" default every other non-Windows port
+  already uses) needed adding to `t3htm`'s and `tr32h`'s respective plain-Unix source lists - previously only
+  Emscripten (for the former) and Windows' `oswin.c` (for the latter) provided these.
+- **`os_key_to_char()`/`os_char_to_key()`/`os_load_accel_table()`/`os_init_debug_console()`/
+  `os_close_debug_console()`** (guios.h items L/M) got real non-Windows implementations in
+  `guios_portable.cpp`: the keyboard functions lean on GLFW's named key constants being ASCII-aligned for
+  the printable range (a table only for shifted punctuation/digits); the accelerator table is a
+  hand-transcribed copy of `IDR_ACCEL_WIN`/`IDR_ACCEL_EMACS` from `win32/htmlcmn.rc` (keep both in sync if
+  the `.rc` bindings ever change); the debug-console hooks are empty, per the M3 note's own prediction.
+- **`guitr.cpp` got a new `os_input_dialog()`** (backs the TADS `inputDialog()` intrinsic, no non-Windows
+  implementation existed) built on the same `tadswin_message_box()` used by `w32_msgbox()` just above it.
+  Known gap: only OK / OK-Cancel / Yes-No are supported (matching `tadswin_message_box()`'s own limit);
+  Yes-No-Cancel falls back to Yes-No, and custom-labeled buttons aren't supported at all. `inputDialog()` is
+  rarely used; revisit if a real game needs the missing cases.
+- **`CHtmlPreferences::cust_refresh_font_lists()`/`cust_font_select_*()`/`cust_font_enum_cb()`** (htmlpref.cpp,
+  the Customize Theme dialog's font-family lists) are raw GDI `EnumFontFamiliesEx()` and stayed
+  `#ifdef _WIN32`; there's no fontconfig-backed "enumerate every family, classified serif/sans/script/
+  typewriter" equivalent yet (`fcfont.cpp`'s hooks only test/fetch one name at a time). The lists are simply
+  empty off Windows for now - a real functional gap, not just a compile stub, but out of scope for getting
+  Linux building.
+- **`guiwebui.h`/`tadswebctl.h`** (the embedded Web UI window, phase two / §4) are now `#ifdef _WIN32`-gated
+  in their entirety - they were being included unconditionally (regardless of `TADS_WEBUI_ENABLED`, which
+  only gates the `.cpp` implementations) and pulled in `<exdisp.h>` and friends.
+- **`guit3.cpp`'s `w32_webui_yield_foreground()`/`w32_webui_to_foreground()`** call the networking-layer
+  `osnet_webui_*` functions (`win32/osnetwin.h`/`win32/osnet-connect.cpp`, Windows-only, no Unix
+  equivalent) unconditionally; now `#ifdef _WIN32`-guarded, no-ops off Windows.
+- **`tads2/unix/osunixt.h` used to `#define remove(filename) unlink(filename)`.** This macro-poisons the
+  identifier `remove` for the rest of the translation unit, breaking `<cstdio>`'s `using ::remove;` in any
+  C++ file that includes this header before `<string>`/`<cstdio>` (which several guit3 files do
+  transitively via `tadswin.h`). glibc's own `remove()` (`<stdio.h>`, ISO C) already does exactly what the
+  macro did for regular files, so the macro was simply redundant on Linux - removed outright rather than
+  worked around.
+- **`htmltads/jpeg/jconfig.h`'s `typedef unsigned char boolean;`** collided with `libmng_types.h`'s own
+  `typedef int boolean;` (both get included in the same libmng translation units) - jconfig.h already had an
+  `__EMSCRIPTEN__`-specific `typedef int boolean;` carve-out for exactly this reason; broadened it to
+  `defined(__EMSCRIPTEN__) || !defined(_WIN32)` so Linux gets the same fix.
+- **`htmltads/htmltads/win32/mpegamp/mpegamp.h`** (shared, unmodified-until-now Win32 MPEG decoder header)
+  had an unconditional `#include <Windows.h>` for one `HANDLE` member and one MSVC-only
+  `#define inline __inline`. Both are now `#ifdef _WIN32`/`#ifdef _MSC_VER`-gated; off Windows `HANDLE` is
+  `void*`, matching `imgui/getbits.cpp`'s existing comment that it already treats `CMpegAmp::in_file` as an
+  opaque `osfildef*`-holding token.
+- **`htmlgui.h`'s `enum htmlw32_directx_err_t`** is *used* (via an elaborated-type-specifier return type) in
+  `htmlpref.h` before it's *defined* later in the same file - works on MSVC (which tolerates tentative enum
+  forward references) but not on standards-conforming GCC/Clang. Fixed with an explicit-underlying-type
+  forward declaration (`enum htmlw32_directx_err_t : int;`) added to `htmlpref.h`, matching the later
+  definition's now-added `: int`.
+
+**The Linux compile-only CI job is done**: `htmltads/.github/workflows/build.yml`'s existing `ubuntu-latest`
+matrix entry (it already ran `cmake --preset default` + `cmake --build build/default` for Linux, just
+against a build where `WITH_HTMLTADS` used to be off) now installs the packages guit3's Linux build needs
+(GLFW's X11/Wayland backends, fontconfig, libcurl for `VM_WITH_NETWORK`) before configuring, so it now
+actually builds `htmltads`/guit3 rather than skipping it. No separate job was needed since one already
+existed. `release.yml` is unaffected (Windows-only build).
+
+**Still open after M4:**
+- **Visual/manual verification is still outstanding.** guit3 was confirmed to compile, link, and run its
+  main loop under WSL Ubuntu 24.04 without crashing (`ditch3.t3`, several seconds, steady ~98% CPU as
+  expected from an uncapped render loop) - but the actual rendered frame was never visually confirmed there:
+  no X11 window ever appeared (`xwininfo -root -tree` found none), and the process logged
+  `libEGL warning: ... MESA: error: ZINK: failed to choose pdev` at startup even with `WAYLAND_DISPLAY`
+  unset before launch, while `glxinfo` on the same machine reports working direct-rendering GLX. This looks
+  like a WSLg-specific Mesa/EGL software-rendering quirk rather than a guit3 defect (nothing in the port
+  touches EGL, Wayland, or zink), but it was **not** run on a real Ubuntu desktop with a real GPU to confirm
+  that theory - do that before trusting the Linux build's rendering path.
+- `get_my_docs_path()`/`SHGetSpecialFolderLocation()` et al. now correctly report failure off Windows
+  (post-HRESULT-fix), meaning the Options dialog's "Starting directory" default and similar features get no
+  real value there rather than a wrong one - a real fallback (e.g. `$HOME`) would be a nicer follow-up.
+
+**Windows re-verified after this pass**: `cmake --preset default` + `cmake --build build/default --target
+guit3` still succeed and the exe still launches `ditch3.t3` cleanly. This caught one real regression before
+it landed: the new `os_input_dialog()` (`guitr.cpp`, above) was originally unguarded and collided with
+`oswin.c`'s real Windows implementation (`LNK2005`) - fixed by wrapping it in `#ifndef _WIN32` like
+everything else added to a file that's still compiled on both platforms. Lesson for next time: anything
+added to a *shared* file (as opposed to a per-platform file the CMakeLists selects between, like
+`guios_portable.cpp`/`guios_w32.cpp`) needs its own `#ifdef`/`#ifndef _WIN32` guard, even if the function
+"obviously" has no Windows implementation - it might.
+
 **M5 — phase two.** The four unported windows (N, if not done earlier), a portable MIDI synth (TinySoundFont
 + a bundled GM soundfont through `CTadsAudioDevice`, §3.7), the real cross-platform embedded Web UI behind
 the flag from O, and the Emscripten target as its own effort (§4).

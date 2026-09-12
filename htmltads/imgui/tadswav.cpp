@@ -20,12 +20,14 @@ Modified
   01/19/98 MJRoberts  - Creation
 */
 
-#include <Windows.h>
+#include "tadsplat.h"
 
 #include <stdlib.h>
 #include <memory.h>
 #include <string.h>
+#ifdef _WIN32
 #include <process.h>
+#endif
 
 /* include TADS OS layer for I/O functions */
 #include <os.h>

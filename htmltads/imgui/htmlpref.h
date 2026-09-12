@@ -32,6 +32,12 @@ Modified
 #include "tadssettings.h"
 #endif
 
+/* forward declaration, matching htmlgui.h's definition (with the same
+   explicit underlying type, required for a standard-conforming forward
+   reference) - htmlgui.h isn't necessarily included yet at this point,
+   e.g. when this header is included directly before htmlgui.h (guisnd.cpp) */
+enum htmlw32_directx_err_t : int;
+
 
 /*
  *   Preference ID's - these are the ID's of the preference settings in

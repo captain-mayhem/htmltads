@@ -238,7 +238,7 @@ public:
 /*
  *   Enumeration for DirectX error types 
  */
-enum htmlw32_directx_err_t
+enum htmlw32_directx_err_t : int
 {
     HTMLW32_DIRECTX_OK = 0,                              /* DirectX is okay */
     HTMLW32_DIRECTX_MISSING,                    /* DirectX is not installed */

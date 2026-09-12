@@ -25,9 +25,27 @@ Modified
 #include <memory.h>
 #include <ctype.h>
 
+#ifdef _WIN32
 #include <Ole2.h>
 #include <Windows.h>
 #include <shlobj.h>
+#else
+#include "tadsplat.h"
+#include <pthread.h>
+
+/* portable stand-ins for the four Win32 TLS calls this file uses to store a
+   per-thread CTadsAppTls* (tls_index_ is a DWORD "slot index" either way) */
+static DWORD TlsAlloc()
+{
+    pthread_key_t key;
+    pthread_key_create(&key, 0);
+    return (DWORD)key;
+}
+static void TlsFree(DWORD idx) { pthread_key_delete((pthread_key_t)idx); }
+static void *TlsGetValue(DWORD idx) { return pthread_getspecific((pthread_key_t)idx); }
+static void TlsSetValue(DWORD idx, void *val)
+    { pthread_setspecific((pthread_key_t)idx, val); }
+#endif
 
 #ifndef TADSAPP_H
 #include "tadsapp.h"
@@ -113,7 +131,11 @@ CTadsApp::CTadsApp(int argc, char** argv)
     OSVERSIONINFO osver;
 
     /* remember the application instance handle */
+#ifdef _WIN32
     instance_ = GetModuleHandle(NULL);
+#else
+    instance_ = 0;
+#endif
 
     /* no fonts allocated yet */
     fonts_allocated_ = 0;
@@ -133,13 +155,14 @@ CTadsApp::CTadsApp(int argc, char** argv)
     menu_handlers_ = 0;
 
     /* initialize OLE */
+#ifdef _WIN32
     switch(OleInitialize(0))
     {
     case S_OK:
     case S_FALSE:
-        /* 
+        /*
          *   note that OLE was initialized, so we'll need to uninitialize
-         *   it before we shut down 
+         *   it before we shut down
          */
         ole_inited_ = TRUE;
         break;
@@ -149,6 +172,11 @@ CTadsApp::CTadsApp(int argc, char** argv)
         ole_inited_ = FALSE;
         break;
     }
+#else
+    /* no COM/OLE off Windows - tadsole.cpp's drag-and-drop source is
+       Windows-only (migration.md 5.3/5.4/O) */
+    ole_inited_ = FALSE;
+#endif
 
     /* allocate our thread local storage index */
     tls_index_ = TlsAlloc();
@@ -173,7 +201,9 @@ CTadsApp::CTadsApp(int argc, char** argv)
     /* get OS version information */
     memset(&osver, 0, sizeof(osver));
     osver.dwOSVersionInfoSize = sizeof(osver);
+#ifdef _WIN32
     GetVersionEx(&osver);
+#endif
 
     /* note the windows version identifiers */
     win_sys_id_ = osver.dwPlatformId;
@@ -252,8 +282,10 @@ CTadsApp::~CTadsApp()
     th_free(modeless_dlgs_);
 
     /* deinitialize OLE if necessary */
+#ifdef _WIN32
     if (ole_inited_)
         OleUninitialize();
+#endif
 
     /* delete the main thread's TLS object */
     on_thread_exit();
@@ -787,6 +819,16 @@ HFONT CTadsApp::make_bold_font(HFONT font)
 /*
  *   Set the open-file directory to the directory of the given file
  */
+#ifndef _WIN32
+/* oss_set_open_file_dir() (tads2/msdos/oswin.h) has no non-Windows
+   declaration - the unix/osunixt.c build of Tads::tr32h doesn't implement
+   this Windows-only "remember the last directory for the next native
+   GetOpenFileName() call" hook (migration.md 5.1). CTadsFileDialog (the
+   live ImGui file-open dialog) tracks its own state instead, so this is a
+   no-op here. */
+inline void oss_set_open_file_dir(const char *) { }
+#endif
+
 void CTadsApp::set_openfile_dir_or_fname(const char *fname, int is_filename)
 {
     size_t fname_len;

@@ -23,8 +23,12 @@ Modified
 #include <stdio.h>
 #include <ctype.h>
 
+#ifdef _WIN32
 #include <Windows.h>
 #include <CommCtrl.h>
+#else
+#include "tadsplat.h"
+#endif
 
 #ifndef TADSHTML_H
 #include "tadshtml.h"
@@ -96,7 +100,30 @@ Modified
  *   Application instance handle global variable - oswin.c requires that
  *   we (the definer of WinMain) define and initialize this variable. 
  */
+#ifdef _WIN32
 extern "C" { HINSTANCE oss_G_hinstance; }
+#endif
+
+#ifndef _WIN32
+/*
+ *   oss_set_askfile_hook()/oss_win_free_all()/oss_win_static_init_done() are
+ *   declared in tads2/msdos/oswin.h and implemented in tads2/msdos/oswin.c,
+ *   which the non-Windows build of Tads::tr32h doesn't compile (it builds
+ *   unix/osunixt.c instead - migration.md 5.1). The Unix os_askfile()
+ *   (unix/osunixt.c) is itself compiled out under USE_STDIO (which this
+ *   build defines), so a text-prompt fallback (askf_tx.c) handles
+ *   File > Open/Save/Restore off Windows for now rather than
+ *   CTadsFileDialog - wiring the hook into a real non-Windows os_askfile()
+ *   is follow-up work, not needed to get guit3 compiling. These three are
+ *   harmless no-ops in the meantime so guimain.cpp links.
+ */
+typedef int (*os_askfile_hook_t)(const char *prompt, const char *filter,
+                                 const char *initial_dir, char *fname_buf,
+                                 int fname_buf_len, int is_save);
+inline void oss_set_askfile_hook(os_askfile_hook_t) { }
+inline void oss_win_free_all() { }
+inline void oss_win_static_init_done() { }
+#endif
 
 
 /* ------------------------------------------------------------------------ */
@@ -273,6 +300,7 @@ static void hex_to_str(char *buf, DWORD hexval)
  *   is important because it provides us with the adjustment bias so that
  *   we can figure out what all of the other offsets mean.)  
  */
+#ifdef _WIN32
 LONG WINAPI exc_handler(EXCEPTION_POINTERS *info)
 {
     CONTEXT *ctx = info->ContextRecord;
@@ -344,6 +372,7 @@ LONG WINAPI exc_handler(EXCEPTION_POINTERS *info)
     /* use the default exception handling, which will end the process */
     return EXCEPTION_CONTINUE_SEARCH;
 }
+#endif /* _WIN32 */
 
 
 /* ------------------------------------------------------------------------ */
@@ -420,7 +449,7 @@ static void run_game(int argc, char** argv,
     /* set the name of the application for usage messages */
     appctx.usage_app_name = w32_usage_app_name;
 
-#ifndef TADSHTML_DEBUG
+#if defined(_WIN32) && !defined(TADSHTML_DEBUG)
     /* set the top-level exception handler */
     SetUnhandledExceptionFilter((LPTOP_LEVEL_EXCEPTION_FILTER)exc_handler);
 #endif
@@ -851,8 +880,10 @@ int main(int argc, char** argv){
     ice.dwICC = ICC_WIN95_CLASSES | ICC_COOL_CLASSES | ICC_STANDARD_CLASSES;
     InitCommonControlsEx(&ice);
 
+#ifdef _WIN32
     /* set the application instance in the TADS os layer */
     oss_G_hinstance = GetModuleHandle(NULL);
+#endif
 
     /* initialize the debug console */
     os_init_debug_console();

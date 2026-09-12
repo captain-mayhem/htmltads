@@ -21,8 +21,12 @@ Modified
   10/08/99 MJRoberts  - created (from w32tr.cpp)
 */
 
+#ifdef _WIN32
 #include <WinSock2.h>
 #include <Windows.h>
+#else
+#include "tadsplat.h"
+#endif
 
 /* T3 includes */
 #include "t3std.h"

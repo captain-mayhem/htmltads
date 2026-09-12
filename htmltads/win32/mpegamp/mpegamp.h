@@ -17,7 +17,15 @@
 #ifndef MPEGAMP_H
 #define MPEGAMP_H
 
+#ifdef _WIN32
 #include <Windows.h>
+#else
+/* CMpegAmp::in_file only ever needs to be an opaque handle-sized token off
+   Windows (guit3 stores an osfildef* there - see imgui/getbits.cpp /
+   imgui/mpegamp_w32.h). */
+typedef void *HANDLE;
+#define INVALID_HANDLE_VALUE ((HANDLE)(-1))
+#endif
 #include <string.h>
 
 /* ------------------------------------------------------------------------ */
@@ -52,8 +60,11 @@
 /* Define if you have the vprintf function.  */
 #define HAVE_VPRINTF
 
-/* Define as __inline if that's what the C compiler calls it.  */
+/* Define as __inline if that's what the C compiler calls it - MSVC only;
+   GCC/Clang already accept plain "inline" in C++. */
+#ifdef _MSC_VER
 #define inline __inline
+#endif
 
 /* Define if you have the ANSI C header files.  */
 #define STDC_HEADERS

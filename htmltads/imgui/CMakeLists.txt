@@ -1,8 +1,3 @@
-#for now, while porting, we only allow win32
-if (NOT WIN32)
-	return()
-endif()
-
 # Embedded Web UI (IE ActiveX browser control embedding + Game Chest) support.
 # Phase two (see migration.md section 4 and 5.4/O): off by default, so it just
 # compiles out cleanly rather than being ported or deleted.  tadswebctl.cpp/
@@ -89,7 +84,6 @@ add_executable(guit3
 	tadsstat.cpp
 	htmlpref.cpp
 	tadsdlg.cpp
-	tadsdlg2.cpp
 	tadsfiledlg.h
 	tadsfiledlg.cpp
 	tadsfinddlg.h
@@ -109,7 +103,6 @@ add_executable(guit3
 	tadsvorb.cpp
 	tadsmidi.cpp
 	tadswav.cpp
-	tadsole.cpp
 	oem_w32.c
 
 	tadsapp.h
@@ -121,9 +114,25 @@ add_executable(guit3
 	guitrt3.cpp
 	t3main.cpp
 	guit3.cpp
-
-	../win32/htmlt3.rc
 )
+
+if (WIN32)
+	# no resource compiler off-Windows - see migration.md 5.1/5.4/B.
+	target_sources(guit3 PRIVATE ../win32/htmlt3.rc)
+
+	# tadsdlg2.cpp is entirely dead code off-Windows (native property-sheet
+	# WM_NOTIFY handlers - migration.md 5.3): unlike tadsdlg.cpp, which still
+	# has two live entry points, nothing in it is ever called from guit3 once
+	# the ImGui dialogs replaced the property sheets. Keep it Windows-only
+	# rather than porting Win32 API calls that would never run.
+	target_sources(guit3 PRIVATE tadsdlg2.cpp)
+
+	# tadsole.cpp implements CTadsDataObjText, the real COM IDataObject
+	# backing OLE drag-and-drop *source* support - Windows-only until phase
+	# two (migration.md 5.3); get_drag_dataobj() (htmlgui.cpp) just returns
+	# null off Windows instead.
+	target_sources(guit3 PRIVATE tadsole.cpp)
+endif()
 
 if (TADS_WEBUI_ENABLED)
 	target_sources(guit3 PRIVATE
@@ -201,16 +210,20 @@ target_include_directories(guit3 PRIVATE
 
 target_link_libraries(guit3 PRIVATE
 	Vorbis::vorbisfile
-
-	Comctl32.lib
-	# Winmm.lib is still needed for tadsmidi.cpp's midiStream* MIDI sequencer,
-	# which is gated to _WIN32 until a portable software synth replaces it.
-	Winmm.lib
-	Ws2_32.lib
-	Wininet.lib
-	Mpr.lib
-	Version.lib
 )
+
+if (WIN32)
+	target_link_libraries(guit3 PRIVATE
+		Comctl32.lib
+		# Winmm.lib is still needed for tadsmidi.cpp's midiStream* MIDI sequencer,
+		# which is gated to _WIN32 until a portable software synth replaces it.
+		Winmm.lib
+		Ws2_32.lib
+		Wininet.lib
+		Mpr.lib
+		Version.lib
+	)
+endif()
 
 target_link_libraries(guit3 PRIVATE
 	imgui
@@ -219,6 +232,9 @@ target_link_libraries(guit3 PRIVATE
 
 if (WIN32)
 	target_link_libraries(guit3 PRIVATE Opengl32.lib)
+else()
+	find_package(OpenGL REQUIRED)
+	target_link_libraries(guit3 PRIVATE OpenGL::GL)
 endif()
 
 # copy the charmap library next to the built exe, same as t3run's CMakeLists.txt does -

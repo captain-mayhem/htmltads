@@ -16,7 +16,7 @@ Modified
 */
 
 
-#include <Windows.h>
+#include "tadsplat.h"
 
 #include "tadscar.h"
 #include "tadswin.h"

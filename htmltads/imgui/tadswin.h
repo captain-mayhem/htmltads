@@ -17,10 +17,14 @@ Modified
   09/16/97 MJRoberts  - Creation
 */
 
+#ifdef _WIN32
 #include <Ole2.h>
 #include "tadsplat.h"
 #include <commctrl.h>
 #include <Shlobj.h>
+#else
+#include "tadsplat.h"
+#endif
 #include <GLFW/glfw3.h>
 #include <imgui/imgui.h>
 #include <vector>
@@ -1914,8 +1918,10 @@ protected:
 
         /* clamp nPos into [nMin, nMax-nPage+1] (or [nMin,nMax] if there's
            no page size), exactly as the real SetScrollInfo() documents */
+        long pos_max_floor = (long)dst.nMin;
+        long pos_max_pagelimit = (long)(dst.nMax - (long)dst.nPage + 1);
         long pos_max = (dst.nPage > 0)
-            ? max((long)dst.nMin, (long)(dst.nMax - (long)dst.nPage + 1))
+            ? (pos_max_floor > pos_max_pagelimit ? pos_max_floor : pos_max_pagelimit)
             : (long)dst.nMax;
         long pos = info->nPos;
         if (pos < (long)dst.nMin) pos = dst.nMin;

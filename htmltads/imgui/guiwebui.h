@@ -22,6 +22,10 @@ Modified
 #ifndef W32WEBUI_H
 #define W32WEBUI_H
 
+/* Windows-only, like tadswebctl.h which this pulls in - see the note there
+   and migration.md section 4/5.4/O. */
+#ifdef _WIN32
+
 #include "tadshtml.h"
 #include "htmlgui.h"
 #include "tadswebctl.h"
@@ -351,5 +355,7 @@ protected:
     /* statusline popup menu */
     HMENU statusline_menu_;
 };
+
+#endif /* _WIN32 */
 
 #endif /* W32HELP_H */

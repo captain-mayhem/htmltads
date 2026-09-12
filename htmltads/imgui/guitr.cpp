@@ -20,7 +20,7 @@ Modified
   01/31/98 MJRoberts  - Creation
 */
 
-#include <Windows.h>
+#include "tadsplat.h"
 
 #ifndef W32MAIN_H
 #include "guimain.h"
@@ -219,3 +219,48 @@ void w32_msgbox(const char *msg, const char *url)
         tadswin_message_box(win, msg, "TADS", MB_OK | MB_ICONEXCLAMATION);
     }
 }
+
+/*
+ *   os_input_dialog() - backs the TADS inputDialog() intrinsic.  Off
+ *   Windows, msdos/oswin.c's real implementation doesn't exist (Windows
+ *   already defines this symbol there, so this must stay out of that
+ *   build), so this routes through the same tadswin_message_box() used
+ *   above.
+ *
+ *   Known gap: tadswin_message_box() only supports the OK / OK-Cancel /
+ *   Yes-No two-button sets (migration.md doesn't cover a three-button
+ *   dialog yet), and this doesn't support the custom-labeled 'buttons'
+ *   array at all (standard_button_set == 0) - both fall back to a plain OK
+ *   box. inputDialog() is a rarely-used TADS feature; revisit if a real
+ *   game turns out to need the missing cases.
+ */
+#ifndef _WIN32
+int os_input_dialog(int icon_id, const char *prompt, int standard_button_set,
+                    const char **buttons, int button_count,
+                    int default_index, int cancel_index)
+{
+    GLFWwindow *win = CHtmlSys_mainwin::get_main_win() != 0
+        ? CHtmlSys_mainwin::get_main_win()->get_glfw_window() : 0;
+
+    switch (standard_button_set)
+    {
+    case OS_INDLG_OKCANCEL:
+        return tadswin_message_box(win, prompt, "TADS", MB_OKCANCEL) == IDOK
+            ? 1 : 2;
+
+    case OS_INDLG_YESNO:
+        return tadswin_message_box(win, prompt, "TADS", MB_YESNO) == IDYES
+            ? 1 : 2;
+
+    case OS_INDLG_YESNOCANCEL:
+        /* closest two-button approximation - see the gap noted above */
+        return tadswin_message_box(win, prompt, "TADS", MB_YESNO) == IDYES
+            ? 1 : 2;
+
+    case OS_INDLG_OK:
+    default:
+        tadswin_message_box(win, prompt, "TADS", MB_OK);
+        return 1;
+    }
+}
+#endif /* !_WIN32 */

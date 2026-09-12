@@ -20,7 +20,7 @@ Modified
   05/04/02 MJRoberts  - Creation
 */
 
-#include <Windows.h>
+#include "tadsplat.h"
 
 /* 
  *   include libmng.h; note that we must define XMD_H to work around an

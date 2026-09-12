@@ -16,10 +16,12 @@ if (IMGUI_TADS)
 	add_subdirectory(imgui)
 endif()
 
-if (WIN32)
-	add_subdirectory(libogg)
-	add_subdirectory(libvorbis)
+# libogg/libvorbis back guit3's Ogg Vorbis audio decoder (tadsvorb.cpp) on every
+# platform. textindex/scintilla are Workbench-only and stay Windows-only.
+add_subdirectory(libogg)
+add_subdirectory(libvorbis)
 
+if (WIN32)
 	add_subdirectory(textindex)
 	add_subdirectory(scintilla)
 endif()

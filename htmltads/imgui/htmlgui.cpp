@@ -20,8 +20,12 @@ Modified
   09/13/97 MJRoberts  - Creation
 */
 
+#ifdef _WIN32
 #include <windows.h>
 #include <commctrl.h>
+#else
+#include "tadsplat.h"
+#endif
 
 #include <string.h>
 #include <memory.h>
@@ -1518,6 +1522,7 @@ int CHtmlSysWin_win32::insert_text_from_hglobal(const char *buf)
  */
 IDataObject *CHtmlSysWin_win32::get_drag_dataobj()
 {
+#ifdef _WIN32
     HGLOBAL memhdl;
     size_t len;
 
@@ -1526,6 +1531,13 @@ IDataObject *CHtmlSysWin_win32::get_drag_dataobj()
 
     /* create and return the new text data object */
     return new CTadsDataObjText(memhdl, len);
+#else
+    /* OLE drag-and-drop source support is Windows-only for now - see
+       tadsole.h/migration.md 5.3. drop_target_register() never actually
+       registers a real OS drop target off Windows (tadswin.cpp), so
+       nothing ever calls this to initiate a real drag. */
+    return 0;
+#endif
 }
 
 /*

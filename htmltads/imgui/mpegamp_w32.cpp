@@ -28,8 +28,12 @@ Modified
 #include <stdio.h>
 #include <string.h>
 
+#ifdef _WIN32
 #include <Windows.h>
 #include <dsound.h>
+#else
+#include "tadsplat.h"
+#endif
 
 /* TADS OS layer - portable file I/O for CMpegTimeParser */
 #include <os.h>

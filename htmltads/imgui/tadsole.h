@@ -20,8 +20,14 @@ Modified
 #ifndef TADSOLE_H
 #define TADSOLE_H
 
-#include <Ole2.h>
 #include "tadsplat.h"
+
+/* CTadsDataObjText backs OLE drag-and-drop *source* support only
+   (get_drag_dataobj(), htmlgui.cpp) - Windows-only until phase two
+   (migration.md 5.3); it needs the real Ole2.h IDataObject/FORMATETC/
+   IEnumFORMATETC surface, not tadsplat.h's minimal off-Windows stand-in. */
+#ifdef _WIN32
+#include <Ole2.h>
 
 /* ------------------------------------------------------------------------ */
 /*
@@ -188,5 +194,6 @@ private:
     class CGenFmtEtcList *fmtlist_;
 };
 
+#endif /* _WIN32 */
 
 #endif /* TADSOLE_H */

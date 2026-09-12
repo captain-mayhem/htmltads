@@ -11,6 +11,11 @@
 #include <string>
 #include <vector>
 
+#ifndef _WIN32
+#include <strings.h>
+#define _stricmp strcasecmp
+#endif
+
 #include <imgui/imgui.h>
 
 #include "tadsfinddlg.h"

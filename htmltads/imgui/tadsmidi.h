@@ -330,8 +330,17 @@ private:
      */
     void close_stream();
 
-    /* member function reached from callback after parameter translation */
+    /* member function reached from callback after parameter translation -
+       implemented in tadsmidi.cpp, which is Windows-only until a portable
+       MIDI synth exists (migration.md 3.7); tadswin.cpp's message-handler
+       call sites are unconditional (they're reached only through a pointer
+       obtained from guisnd.cpp's create_midi(), which always returns null
+       off Windows, but the symbol still needs to exist for the linker) */
+#ifdef _WIN32
     void do_midi_cb(UINT msg);
+#else
+    void do_midi_cb(UINT) { }
+#endif
 
     /* DirectMusic playback monitor thread main entrypoint */
     static DWORD dm_monitor_main(void *ctx)

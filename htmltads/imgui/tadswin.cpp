@@ -21,9 +21,13 @@ Modified
 */
 
 
+#ifdef _WIN32
 #include <Windows.h>
 #include <mmsystem.h>
 #include <commctrl.h>
+#else
+#include "tadsplat.h"
+#endif
 #include <limits.h>
 #include <stdarg.h>
 #include <stdio.h>
@@ -441,6 +445,7 @@ CTadsWin::~CTadsWin()
  */
 void CTadsWin::register_win_class(CTadsApp *app)
 {
+#ifdef _WIN32
     WNDCLASS wc;
 
     /* register the standard window class */
@@ -456,6 +461,11 @@ void CTadsWin::register_win_class(CTadsApp *app)
     wc.lpfnWndProc   = std_message_handler;
     wc.lpszClassName = win_class_name;
     RegisterClass(&wc);
+#else
+    /* no real Win32 window class off Windows - guit3 never creates an HWND
+       of its own (migration.md 3.4/3.4a); this is a no-op here. */
+    (void)app;
+#endif
 }
 
 /*
@@ -3799,41 +3809,44 @@ LRESULT CALLBACK CTadsWinCreateHook::hookproc(
         return 0;
 
     /* process create window messages only */
-    if (code != HCBT_CREATEWND)
-        goto done;
-
-    /* get the window handle and the 'create' structure */
-    HWND hwnd = (HWND)wpar;
-    LPCREATESTRUCT lpcs = ((LPCBT_CREATEWND)lpar)->lpcs;
-
-    /* ignore the IME window */
-    if ((GetClassLong(hwnd, GCL_STYLE) & CS_IME) != 0)
-        goto done;
-
-    /* check the class name as well */
-    const char *clsname;
-    char clsnamebuf[10];
-    if (DWORD_PTR(lpcs->lpszClass) > 0xffff)
+    if (code == HCBT_CREATEWND)
     {
-        /* the class name is actually given as a string, so use it directly */
-        clsname = lpcs->lpszClass;
-    }
-    else
-    {
-        /* the class name is an atom, so retrieve the corresponding string */
-        clsname = clsnamebuf;
-        clsnamebuf[0] = '\0';
-        GlobalGetAtomName((ATOM)lpcs->lpszClass, clsnamebuf,
-                          sizeof(clsnamebuf));
-    }
-    if (lstrcmpi(clsname, "ime") == 0)
-        goto done;
-                          
-    /* it's the window we want - process the creation message */
-    self->do_create_hook(hwnd, lpcs);
+        /* get the window handle and the 'create' structure */
+        HWND hwnd = (HWND)wpar;
+        LPCREATESTRUCT lpcs = ((LPCBT_CREATEWND)lpar)->lpcs;
 
-    /* that's all we need to do, so unhook before we return */
-    unhook = TRUE;
+        /* ignore the IME window */
+        if ((GetClassLong(hwnd, GCL_STYLE) & CS_IME) == 0)
+        {
+            /* check the class name as well */
+            const char *clsname;
+            char clsnamebuf[10];
+            if (DWORD_PTR(lpcs->lpszClass) > 0xffff)
+            {
+                /* the class name is actually given as a string, so use it
+                   directly */
+                clsname = lpcs->lpszClass;
+            }
+            else
+            {
+                /* the class name is an atom, so retrieve the corresponding
+                   string */
+                clsname = clsnamebuf;
+                clsnamebuf[0] = '\0';
+                GlobalGetAtomName((ATOM)(intptr_t)lpcs->lpszClass, clsnamebuf,
+                                  sizeof(clsnamebuf));
+            }
+
+            if (lstrcmpi(clsname, "ime") != 0)
+            {
+                /* it's the window we want - process the creation message */
+                self->do_create_hook(hwnd, lpcs);
+
+                /* that's all we need to do, so unhook before we return */
+                unhook = TRUE;
+            }
+        }
+    }
 
 done:
     /* call the next hook in line */

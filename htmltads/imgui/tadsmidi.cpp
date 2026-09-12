@@ -24,12 +24,14 @@ Modified
 #include <stdlib.h>
 #include <string.h>
 
-#include <Windows.h>
+#include "tadsplat.h"
 #ifdef HAVE_DXMUSIC
 #include <dmusici.h>
 #endif
 #include <stdio.h>
+#ifdef _WIN32
 #include <io.h>
+#endif
 
 /* include the TADS OS layer for I/O routines */
 #include <os.h>

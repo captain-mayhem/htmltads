@@ -109,6 +109,13 @@ set(trt3_src
     tadshtml3.cpp
 )
 
+# The classic htmlt3/tadsweb executables below only have a Win32 (and, for
+# htmlt3, an Emscripten) OS-glue backend - html_os.h has no non-Windows,
+# non-Emscripten branch for them (guit3, built unconditionally above via
+# add_subdirectory(imgui), is the supported cross-platform GUI target - see
+# migration.md M4). Skip them entirely elsewhere.
+if (WIN32 OR EMSCRIPTEN)
+
 if (WIN32)
 	set(htmlt3_target_name htmlt3_tmp)
 else()
@@ -128,7 +135,7 @@ target_include_directories(${htmlt3_target_name} PRIVATE
 target_link_libraries(${htmlt3_target_name} PRIVATE
 	Tads::t3htm
     Tads::tr32h
-	
+
 	PNG::PNG
 	JPEG::JPEG
 	MNG::MNG
@@ -184,6 +191,8 @@ if (EMSCRIPTEN)
 endif()
 
 tads_source_group(${htmlt3_target_name} ${HTMLTADS_DIR})
+
+endif() # WIN32 OR EMSCRIPTEN
 
 if (IMGUI_TADS)
 	add_subdirectory(imgui)

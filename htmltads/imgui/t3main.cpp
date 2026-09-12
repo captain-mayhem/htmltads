@@ -23,7 +23,7 @@ Modified
   11/24/99 MJRoberts  - Creation
 */
 
-#include <Windows.h>
+#include "tadsplat.h"
 #include <string.h>
 
 /* T3 includes */

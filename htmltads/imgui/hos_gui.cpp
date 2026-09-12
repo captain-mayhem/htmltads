@@ -20,7 +20,7 @@ Modified
   01/24/98 MJRoberts  - Creation
 */
 
-#include <Windows.h>
+#include "tadsplat.h"
 
 #include <os.h>
 #include <osifcext.h>
@@ -248,6 +248,23 @@ void os_term(int exit_code)
     /* post a quit message */
     PostMessage(0, WM_QUIT, exit_code, 0);
 }
+
+
+/* ------------------------------------------------------------------------ */
+/*
+ *   Curses text-mode color-scheme globals.  These belong to the "E ... I()"
+ *   declare-or-define pattern in unix/osunixt.h (defined for real only in
+ *   osgen.c/osgen3.c, which nothing in guit3's build links) - off Windows,
+ *   guit3 still links unix/osunixt.c out of tr32h for its portable file/path
+ *   utilities (os_get_root_name, os_build_full_path, ...), and that pulls in
+ *   ossgetcolor()/oss_get_sysinfo() too, which reference these as a curses
+ *   front end would define them. guit3 has no text-mode screen to color, so
+ *   these are just harmless placeholders to satisfy the linker.
+ */
+int sdesc_color = 0;
+int text_bold_color = 0;
+int os_f_plain = 1;
+
 
 /* ------------------------------------------------------------------------ */
 /*

@@ -483,3 +483,161 @@ char *os_utf8_to_local(unsigned int codepage, const char *utf8, size_t *out_len)
         *out_len = needed;
     return buf;
 }
+
+
+/* ------------------------------------------------------------------------ */
+/*
+ *   L. Keyboard - current-layout char<->key queries.
+ *
+ *   GLFW's named GLFW_KEY_* constants for the printable range are
+ *   deliberately identical to the ASCII/US-layout character codes they
+ *   produce unshifted (GLFW_KEY_A==65=='A', GLFW_KEY_COMMA==44==',', ...),
+ *   which is what makes a table-free os_key_to_char() possible; shifted
+ *   punctuation/digits still need an explicit table since the shifted
+ *   character isn't the key's own GLFW_KEY_* value. There is no portable
+ *   "ask the OS for the live keyboard layout" API (see guios.h's own note),
+ *   so like guios_w32.cpp's VkKeyScan()/MapVirtualKey() calls, this assumes
+ *   a US layout.
+ */
+int os_key_to_char(os_key_t key)
+{
+    if (key >= GLFW_KEY_SPACE && key <= GLFW_KEY_GRAVE_ACCENT)
+        return key;
+    return 0;
+}
+
+os_key_t os_char_to_key(int ch, int *shift_out)
+{
+    *shift_out = 0;
+
+    if (ch >= 'a' && ch <= 'z')
+        return GLFW_KEY_A + (ch - 'a');
+    if (ch >= 'A' && ch <= 'Z')
+    {
+        *shift_out = OS_KEY_SHIFT;
+        return ch;
+    }
+    if (ch >= '0' && ch <= '9')
+        return GLFW_KEY_0 + (ch - '0');
+
+    switch (ch)
+    {
+    case ' ':  return GLFW_KEY_SPACE;
+    case '`':  return GLFW_KEY_GRAVE_ACCENT;
+    case '-':  return GLFW_KEY_MINUS;
+    case '=':  return GLFW_KEY_EQUAL;
+    case '[':  return GLFW_KEY_LEFT_BRACKET;
+    case ']':  return GLFW_KEY_RIGHT_BRACKET;
+    case '\\': return GLFW_KEY_BACKSLASH;
+    case ';':  return GLFW_KEY_SEMICOLON;
+    case '\'': return GLFW_KEY_APOSTROPHE;
+    case ',':  return GLFW_KEY_COMMA;
+    case '.':  return GLFW_KEY_PERIOD;
+    case '/':  return GLFW_KEY_SLASH;
+    }
+
+    /* shifted digit row: Shift+1..Shift+0 -> !@#$%^&*() */
+    static const char shifted_digits[] = "!@#$%^&*()";
+    const char *sd = strchr(shifted_digits, ch);
+    if (ch != 0 && sd != 0)
+    {
+        *shift_out = OS_KEY_SHIFT;
+        return GLFW_KEY_0 + (int)((sd - shifted_digits + 1) % 10);
+    }
+
+    /* other shifted punctuation */
+    static const struct { char ch; int key; } shifted[] =
+    {
+        { '~', GLFW_KEY_GRAVE_ACCENT }, { '_', GLFW_KEY_MINUS },
+        { '+', GLFW_KEY_EQUAL },        { '{', GLFW_KEY_LEFT_BRACKET },
+        { '}', GLFW_KEY_RIGHT_BRACKET },{ '|', GLFW_KEY_BACKSLASH },
+        { ':', GLFW_KEY_SEMICOLON },    { '"', GLFW_KEY_APOSTROPHE },
+        { '<', GLFW_KEY_COMMA },        { '>', GLFW_KEY_PERIOD },
+        { '?', GLFW_KEY_SLASH },
+    };
+    for (size_t i = 0 ; i < sizeof(shifted)/sizeof(shifted[0]) ; ++i)
+    {
+        if (shifted[i].ch == ch)
+        {
+            *shift_out = OS_KEY_SHIFT;
+            return shifted[i].key;
+        }
+    }
+
+    return 0;
+}
+
+/*
+ *   Portable stand-in for the IDR_ACCEL_WIN/IDR_ACCEL_EMACS ACCELERATORS
+ *   resources (win32/htmlcmn.rc) - hand-transcribed, so keep both in sync
+ *   with the .rc if the bindings ever change there.
+ */
+static const os_accel_entry_t accel_win[] =
+{
+    { GLFW_KEY_A, OS_KEY_CTRL, ID_EDIT_SELECTALL },
+    { GLFW_KEY_C, OS_KEY_CTRL, ID_EDIT_COPY },
+    { GLFW_KEY_INSERT, OS_KEY_CTRL, ID_EDIT_COPY },
+    { GLFW_KEY_F, OS_KEY_CTRL, ID_EDIT_FIND },
+    { GLFW_KEY_X, OS_KEY_CTRL, ID_EDIT_CUT },
+    { GLFW_KEY_DELETE, OS_KEY_SHIFT, ID_EDIT_CUT },
+    { GLFW_KEY_V, OS_KEY_CTRL, ID_EDIT_PASTE },
+    { GLFW_KEY_INSERT, OS_KEY_SHIFT, ID_EDIT_PASTE },
+    { GLFW_KEY_Z, OS_KEY_CTRL, ID_EDIT_UNDO },
+    { GLFW_KEY_Q, OS_KEY_CTRL, ID_FILE_QUIT },
+    { GLFW_KEY_S, OS_KEY_CTRL, ID_FILE_SAVEGAME },
+    { GLFW_KEY_R, OS_KEY_CTRL, ID_FILE_RESTOREGAME },
+    { GLFW_KEY_O, OS_KEY_CTRL, ID_FILE_LOADGAME },
+    { GLFW_KEY_PERIOD, OS_KEY_ALT, ID_GO_NEXT },
+    { GLFW_KEY_COMMA, OS_KEY_ALT, ID_GO_PREVIOUS },
+    { GLFW_KEY_F1, 0, ID_HELP_COMMAND },
+    { GLFW_KEY_F3, 0, ID_EDIT_FINDNEXT },
+};
+
+static const os_accel_entry_t accel_emacs[] =
+{
+    { GLFW_KEY_A, OS_KEY_CTRL, ID_EDIT_SELECTALL },
+    { GLFW_KEY_C, OS_KEY_CTRL, ID_EDIT_COPY },
+    { GLFW_KEY_INSERT, OS_KEY_CTRL, ID_EDIT_COPY },
+    { GLFW_KEY_F, OS_KEY_CTRL, ID_EDIT_FIND },
+    { GLFW_KEY_X, OS_KEY_CTRL, ID_EDIT_CUT },
+    { GLFW_KEY_DELETE, OS_KEY_SHIFT, ID_EDIT_CUT },
+    { GLFW_KEY_Y, OS_KEY_CTRL, ID_EDIT_PASTE },
+    { GLFW_KEY_INSERT, OS_KEY_SHIFT, ID_EDIT_PASTE },
+    { GLFW_KEY_Z, OS_KEY_CTRL, ID_EDIT_UNDO },
+    { GLFW_KEY_Q, OS_KEY_CTRL, ID_FILE_QUIT },
+    { GLFW_KEY_S, OS_KEY_CTRL, ID_FILE_SAVEGAME },
+    { GLFW_KEY_R, OS_KEY_CTRL, ID_FILE_RESTOREGAME },
+    { GLFW_KEY_O, OS_KEY_CTRL, ID_FILE_LOADGAME },
+    { GLFW_KEY_PERIOD, OS_KEY_ALT, ID_GO_NEXT },
+    { GLFW_KEY_COMMA, OS_KEY_ALT, ID_GO_PREVIOUS },
+    { GLFW_KEY_F1, 0, ID_HELP_COMMAND },
+    { GLFW_KEY_F3, 0, ID_EDIT_FINDNEXT },
+};
+
+int os_load_accel_table(int accel_id, os_accel_entry_t *entries,
+                        int max_entries)
+{
+    const os_accel_entry_t *src;
+    int src_cnt;
+
+    if (accel_id == IDR_ACCEL_WIN)
+        src = accel_win, src_cnt = sizeof(accel_win)/sizeof(accel_win[0]);
+    else if (accel_id == IDR_ACCEL_EMACS)
+        src = accel_emacs, src_cnt = sizeof(accel_emacs)/sizeof(accel_emacs[0]);
+    else
+        return 0;
+
+    int n = src_cnt < max_entries ? src_cnt : max_entries;
+    memcpy(entries, src, n * sizeof(entries[0]));
+    return n;
+}
+
+
+/* ------------------------------------------------------------------------ */
+/*
+ *   M. Debug console - a console window isn't needed off Windows since
+ *   stdout already goes somewhere visible (the terminal guit3 was launched
+ *   from), so both hooks are no-ops.
+ */
+void os_init_debug_console(void) { }
+void os_close_debug_console(void) { }

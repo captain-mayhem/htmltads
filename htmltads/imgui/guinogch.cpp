@@ -21,7 +21,7 @@ Modified
   09/15/01 MJRoberts  - Creation
 */
 
-#include <Windows.h>
+#include "tadsplat.h"
 
 #include "htmlgui.h"
 
