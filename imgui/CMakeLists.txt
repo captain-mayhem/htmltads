@@ -31,6 +31,9 @@ target_link_libraries(imgui PUBLIC glfw freetype)
 
 if (WIN32)
 	target_link_libraries(imgui PUBLIC Opengl32.lib)
+else()
+	find_package(OpenGL REQUIRED)
+	target_link_libraries(imgui PUBLIC OpenGL::GL)
 endif()
 
 add_executable(imgui_test

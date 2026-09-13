@@ -49,15 +49,15 @@ Modified
  *   Define startup configuration variables for the T3 engine
  */
 int (*w32_tadsmain)(int, char **, struct appctxdef *, char *) = t3main;
-char *w32_beforeopts = "";
+char *w32_beforeopts = (char *)"";
 char *w32_configfile = 0;
 int w32_allow_debugwin = TRUE;
 int w32_always_pause_on_exit = FALSE;
-char *w32_setup_reg_val_name = "Setup Done";
-char *w32_usage_app_name = "htmlt3";
-char *w32_titlebar_name = "HTML T3";
+char *w32_setup_reg_val_name = (char *)"Setup Done";
+char *w32_usage_app_name = (char *)"htmlt3";
+char *w32_titlebar_name = (char *)"HTML T3";
 int w32_in_debugger = FALSE;
-char *w32_opendlg_filter = "T3 Applications\0*.t3\0All Files\0*.*\0\0";
+char *w32_opendlg_filter = (char *)"T3 Applications\0*.t3\0All Files\0*.*\0\0";
 const char *w32_version_string =
     HTMLTADS_VERSION
     " (Build Win" HTMLTADS_WIN32_BUILD

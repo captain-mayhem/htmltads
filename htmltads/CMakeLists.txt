@@ -65,13 +65,13 @@ if (WIN32)
 	)
 
 	set(mpeg_src
-		win32/mpegamp/misc2.cpp
-		win32/mpegamp/layer3.cpp
-		win32/mpegamp/layer2.cpp
-		win32/mpegamp/getdata.cpp
+		mpegamp/misc2.cpp
+		mpegamp/layer3.cpp
+		mpegamp/layer2.cpp
+		mpegamp/getdata.cpp
 		win32/mpegamp/getbits.cpp
-		win32/mpegamp/huffman.cpp
-		win32/mpegamp/transform.cpp
+		mpegamp/huffman.cpp
+		mpegamp/transform.cpp
 		win32/mpegamp/mpegamp_w32.cpp
 	)
 	
@@ -145,6 +145,7 @@ if (WIN32)
 	target_include_directories(${htmlt3_target_name} PRIVATE
 		win32
 		win32/mpegamp
+		mpegamp
 	)
 
 	target_link_libraries(${htmlt3_target_name} PRIVATE
@@ -265,6 +266,7 @@ target_include_directories(htmltdb3_tmp PRIVATE
 .
 win32
 win32/mpegamp
+mpegamp
 win32/xzip
 )
 

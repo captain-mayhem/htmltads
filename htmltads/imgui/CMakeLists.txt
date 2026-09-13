@@ -28,17 +28,18 @@ add_executable(guit3
 	
 	../tadshtml3.cpp
 	
-	../win32/mpegamp/misc2.cpp
-	../win32/mpegamp/layer3.cpp
-	../win32/mpegamp/layer2.cpp
-	../win32/mpegamp/getdata.cpp
-	../win32/mpegamp/huffman.cpp
-	../win32/mpegamp/transform.cpp
+	../mpegamp/misc2.cpp
+	../mpegamp/layer3.cpp
+	../mpegamp/layer2.cpp
+	../mpegamp/getdata.cpp
+	../mpegamp/huffman.cpp
+	../mpegamp/transform.cpp
 	# guit3-local forks of the amp MPEG driver.  mpegamp_w32.cpp/.h drop the
 	# DirectSound/HWND ctor params (miniaudio output path, migration.md 3.7);
 	# getbits.cpp routes its two file-I/O functions through the portable TADS
 	# osfile API instead of ReadFile/SetFilePointer (migration.md 5.4/I).
-	# The rest of win32/mpegamp/* is unchanged and shared with htmlt3.
+	# The rest of ../mpegamp/* is platform-independent and shared with htmlt3;
+	# these three Win32-specific files stay forked in win32/mpegamp/ instead.
 	getbits.cpp
 	mpegamp_w32.cpp
 	mpegamp_w32.h
@@ -204,7 +205,7 @@ target_link_libraries(guit3 PRIVATE
 
 target_include_directories(guit3 PRIVATE
 	.
-	../win32/mpegamp
+	../mpegamp
 	../../miniaudio
 )
 
@@ -235,6 +236,24 @@ if (WIN32)
 else()
 	find_package(OpenGL REQUIRED)
 	target_link_libraries(guit3 PRIVATE OpenGL::GL)
+endif()
+
+if (UNIX AND NOT APPLE)
+	# guit3 statically links its own copies of libpng/zlib/libjpeg/libmng
+	# (see ../../CMakeLists.txt), which by default export symbols like
+	# "png_free" into the executable's dynamic symbol table alongside its
+	# own code. GLFW's Wayland backend loads window-decoration plugins via
+	# libdecor, which (on glibc, per a known libdecor/dlmopen limitation)
+	# sanity-checks a handful of well-known symbols shared with its GTK
+	# plugin - if dlsym(RTLD_DEFAULT, "png_free") resolves to guit3's own
+	# statically-linked libpng instead of the system one the GTK plugin
+	# itself links against, libdecor refuses to load that plugin ("Plugin
+	# "GTK3 plugin" uses conflicting symbol "png_free"") and silently
+	# falls back to plainer decorations. --exclude-libs keeps every
+	# symbol pulled in from a static archive out of guit3's dynamic
+	# symbol table, without having to touch each vendored library's own
+	# build.
+	target_link_options(guit3 PRIVATE "-Wl,--exclude-libs,ALL")
 endif()
 
 # copy the charmap library next to the built exe, same as t3run's CMakeLists.txt does -

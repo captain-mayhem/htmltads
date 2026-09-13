@@ -886,7 +886,7 @@ factories in [guisnd.cpp](guisnd.cpp). Below that: all three digitized types are
 entire platform surface. The three decoders (`CWavW32`, `CMpegAmpW32`, `CVorbisW32`) only implement
 `do_decoding()` and call four protected methods: `open_playback_buffer(freq, bits, channels)`,
 `write_playback_buffer(buf, bytes)`, `close_playback_buffer()`, `halt_playback_buffer()`. The decoders
-themselves are already portable (`win32/mpegamp/*` is vendored C++, `libvorbis`/`libogg` are vendored
+themselves are already portable (`mpegamp/*` is vendored C++, `libvorbis`/`libogg` are vendored
 cross-platform libs).
 
 What was done:
@@ -1321,7 +1321,7 @@ via `tr32h`. `CTadsCompressedAudio::in_file_` is an `osfildef *` (was `HANDLE`) 
   stream-base offset so an embedded `.ogg` resource still seeks within its own slice. `get_track_len_ms()`
   likewise. The unused 64-bit `SetFilePointer` high-word dance and `INVALID_SET_FILE_POINTER` shim are
   gone.
-- **MP3** — `CMpegAmp::in_file` stays declared `HANDLE` in the *shared* `../win32/mpegamp/mpegamp.h`
+- **MP3** — `CMpegAmp::in_file` stays declared `HANDLE` in the *shared* `../mpegamp/mpegamp.h`
   (untouched, so the legacy `htmlt3` build is unaffected). Only **`getbits.cpp` was forked into `imgui/`**
   (joining the existing `mpegamp_w32.cpp`/`.h` forks): its two file-touching functions, `get_input()` and
   `dummy_getinfo()`, now call `osfrbc` / `osfseek` on `(osfildef *)in_file`. `mpegamp_w32.h`'s
@@ -1329,7 +1329,10 @@ via `tr32h`. `CTadsCompressedAudio::in_file_` is an `osfildef *` (was `HANDLE`) 
   through `osfile` with the same cast. `CMakeLists.txt` now compiles `imgui/getbits.cpp` instead of
   `../win32/mpegamp/getbits.cpp`; the other six shared amp `.cpp`s are unchanged. `osfrbc` can't tell a
   read error from EOF, so `get_input()`'s former `GETHDR_ERR`-vs-`GETHDR_EOF` split collapses to
-  `GETHDR_EOF` (both paths stop playback gracefully).
+  `GETHDR_EOF` (both paths stop playback gracefully). *(The `../win32/mpegamp/*` paths above are as they
+  were at the time; the portable amp sources including `mpegamp.h` were later pulled up a level into
+  `mpegamp/` — see the note near the end of this file. Only `getbits.cpp`/`mpegamp_w32.cpp`/`.h`, which
+  stay Win32-specific and forked, remain under `win32/mpegamp/`.)*
 
 **Verified**: clean build + link of `guit3`, `0 warnings` on the five touched/forked TUs (`getbits.cpp`,
 `tadscsnd.cpp`, `tadswav.cpp`, `tadsvorb.cpp`, `mpegamp_w32.cpp`) plus `guisnd.cpp` and `htmlgui.cpp`, and
@@ -2212,8 +2215,9 @@ noted):
   `typedef int boolean;` (both get included in the same libmng translation units) - jconfig.h already had an
   `__EMSCRIPTEN__`-specific `typedef int boolean;` carve-out for exactly this reason; broadened it to
   `defined(__EMSCRIPTEN__) || !defined(_WIN32)` so Linux gets the same fix.
-- **`htmltads/htmltads/win32/mpegamp/mpegamp.h`** (shared, unmodified-until-now Win32 MPEG decoder header)
-  had an unconditional `#include <Windows.h>` for one `HANDLE` member and one MSVC-only
+- **`htmltads/htmltads/win32/mpegamp/mpegamp.h`** (shared, unmodified-until-now Win32 MPEG decoder header;
+  since moved to `htmltads/htmltads/mpegamp/mpegamp.h` — see the note near the end of this file) had an
+  unconditional `#include <Windows.h>` for one `HANDLE` member and one MSVC-only
   `#define inline __inline`. Both are now `#ifdef _WIN32`/`#ifdef _MSC_VER`-gated; off Windows `HANDLE` is
   `void*`, matching `imgui/getbits.cpp`'s existing comment that it already treats `CMpegAmp::in_file` as an
   opaque `osfildef*`-holding token.
@@ -2235,14 +2239,33 @@ existed. `release.yml` is unaffected (Windows-only build).
   main loop under WSL Ubuntu 24.04 without crashing (`ditch3.t3`, several seconds, steady ~98% CPU as
   expected from an uncapped render loop) - but the actual rendered frame was never visually confirmed there:
   no X11 window ever appeared (`xwininfo -root -tree` found none), and the process logged
-  `libEGL warning: ... MESA: error: ZINK: failed to choose pdev` at startup even with `WAYLAND_DISPLAY`
-  unset before launch, while `glxinfo` on the same machine reports working direct-rendering GLX. This looks
-  like a WSLg-specific Mesa/EGL software-rendering quirk rather than a guit3 defect (nothing in the port
-  touches EGL, Wayland, or zink), but it was **not** run on a real Ubuntu desktop with a real GPU to confirm
-  that theory - do that before trusting the Linux build's rendering path.
+  `libEGL warning: ... MESA: error: ZINK: failed to choose pdev` and `libEGL warning: failed to get driver
+  name for fd -1` at startup even with `WAYLAND_DISPLAY` unset before launch, while `glxinfo` on the same
+  machine reports working direct-rendering GLX. Both lines are Mesa's own EGL/DRI loader failing to find a
+  real GPU device fd before it falls back to software rendering (`llvmpipe`) - a well-documented WSLg/VM
+  quirk (confirmed against public reports for both messages, commonly seen together) rather than anything
+  GLFW or guit3 does wrong; nothing in the port touches EGL, Wayland, DRM, or zink directly. Still **not**
+  run on a real Ubuntu desktop with a real GPU to confirm that theory - do that before trusting the Linux
+  build's rendering path, and before spending more effort chasing either warning in this environment.
 - `get_my_docs_path()`/`SHGetSpecialFolderLocation()` et al. now correctly report failure off Windows
   (post-HRESULT-fix), meaning the Options dialog's "Starting directory" default and similar features get no
   real value there rather than a wrong one - a real fallback (e.g. `$HOME`) would be a nicer follow-up.
+
+**Linux/Wayland startup warning: `Plugin "GTK3 plugin" uses conflicting symbol "png_free"` - fixed.** guit3
+statically links its own private copies of libpng/zlib/libjpeg/libmng (built from the vendored
+`../../CMakeLists.txt` subdirectories, `PNG_STATIC`/`PNG_SHARED` etc. default to static-only there), so those
+libraries' symbols end up in guit3's own dynamic symbol table alongside its own code, exported at the default
+visibility like any other symbol. On Wayland, GLFW loads window-decoration plugins through libdecor, which
+(working around a glibc/`dlmopen()` limitation) sanity-checks a few well-known symbols - including
+`png_free` - shared with its GTK plugin: if `dlsym(RTLD_DEFAULT, "png_free")` resolves to guit3's own
+statically-linked libpng instead of the system libpng the GTK plugin itself links against, it looks like two
+incompatible copies of the same library in one process, so libdecor refuses to load that plugin and silently
+falls back to plainer decorations, logging the warning above. Fixed in `imgui/CMakeLists.txt` by linking
+guit3 (non-Apple Unix only) with `-Wl,--exclude-libs,ALL`, a GNU ld/gold/lld flag that keeps every symbol
+pulled in from a static archive out of the final executable's dynamic symbol table - no need to touch any of
+the vendored libraries' own builds. Not verified against a real GTK/libdecor-enabled Wayland session in this
+pass (the WSLg environment used for Linux testing doesn't exercise this path, per the rendering note above);
+confirm the warning is actually gone next time this is run under a real Wayland desktop.
 
 **Windows re-verified after this pass**: `cmake --preset default` + `cmake --build build/default --target
 guit3` still succeed and the exe still launches `ditch3.t3` cleanly. This caught one real regression before
@@ -2385,6 +2408,20 @@ the outer window sat at screen `(0,0)`, and broke the moment the menu bar and to
 input-side copy of the same math.** The raw Win32-message-shaped input handlers (`do_leftbtn_down` etc.) were
 written independently of the ImGui rendering code they now have to agree with, so fixing one does not fix the
 other. §2's debug-window band and §3.2a's swallowed banner clicks are both instances of this same family.
+
+### mpegamp folder layout
+
+The amp MPEG decoder used to live entirely under `win32/mpegamp/`, which was misleading: six of its nine
+source files (`mpegamp.h`, `misc2.cpp`, `layer2.cpp`, `layer3.cpp`, `getdata.cpp`, `huffman.cpp`,
+`transform.cpp`) are plain portable C++ with no Win32 dependency — guit3 already compiled them straight out
+of that folder on Linux, unconditionally, before this cleanup. They've since been moved up one level to
+`htmltads/htmltads/mpegamp/`, sibling to `win32/` and `imgui/`. Only the genuinely Win32-specific, per-target
+forked trio — `getbits.cpp`, `mpegamp_w32.cpp`, `mpegamp_w32.h` (the ones with Windows file-I/O or
+DirectSound calls, each with its own `imgui/`-local fork per §3.7/§5.4-I above) — stays under
+`win32/mpegamp/`. Both `htmltads/CMakeLists.txt` (the legacy `htmlt3`/`htmltdb3` targets) and
+`imgui/CMakeLists.txt` (`guit3`) were updated for the new paths and include directories; the old vendored
+`win32/mpegamp/makefile.vc5` (a standalone VC5 test-harness makefile for the amp library, not part of any
+CMake build or CI) was left as-is when its files moved, since it was never wired into this repo's build.
 
 ### Finally
 

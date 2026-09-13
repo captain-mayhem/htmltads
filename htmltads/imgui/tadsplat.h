@@ -1215,7 +1215,7 @@ inline HMENU GetSubMenu(HMENU, int) { return 0; }
 #define MFT_BITMAP    0x00000004
 #define MFT_SEPARATOR 0x00000800
 #define MAKEWPARAM(lo, hi) ((WPARAM)MAKELONG(lo, hi))
-inline LPSTR CharNextExA(WORD, LPCSTR p, DWORD) { return (LPSTR)p; }
+inline LPSTR CharNextExA(WORD, LPCSTR p, DWORD) { return (LPSTR)(p + 1); }
 inline LPSTR CharPrevExA(WORD, LPCSTR start, LPCSTR p, DWORD)
     { return (LPSTR)(p > start ? p - 1 : start); }
 inline BOOL PostMessage(HWND, UINT, WPARAM, LPARAM) { return 0; }
