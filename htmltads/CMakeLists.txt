@@ -182,13 +182,15 @@ if (EMSCRIPTEN)
 	
 	install(TARGETS ${htmlt3_target_name}
 		DESTINATION .
+		COMPONENT Classic
 	)
-	
+
 	install (FILES
 		"$<TARGET_FILE_DIR:htmlt3>/htmlt3.wasm"
 		"$<TARGET_FILE_DIR:htmlt3>/htmlt3.wasm.map"
 		${CMAKE_CURRENT_SOURCE_DIR}/emscripten/htmlt3.html
-		DESTINATION .)
+		DESTINATION .
+		COMPONENT Classic)
 endif()
 
 tads_source_group(${htmlt3_target_name} ${HTMLTADS_DIR})
@@ -356,11 +358,13 @@ tads_source_group(tadsweb ${HTMLTADS_DIR})
 
 install(TARGETS tadsweb
 	DESTINATION .
+	COMPONENT Classic
 )
 
 install(PROGRAMS
 	${htmlt3_file} ${htmltdb3_file}
 	DESTINATION .
+	COMPONENT Classic
 )
 
 install(FILES
@@ -375,14 +379,17 @@ install(FILES
     win32/tads3addin.rc
     win32/wb_addin.h
     DESTINATION addins
+    COMPONENT Classic
 )
 
 install(FILES
 	notes3/authkit/license.txt
 	DESTINATION .
+	COMPONENT Classic
 )
 
 install(DIRECTORY
 	win32/mkwebfiles
 	DESTINATION .
+	COMPONENT Classic
 )

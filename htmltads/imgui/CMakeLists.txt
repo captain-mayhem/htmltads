@@ -278,14 +278,17 @@ tads_source_group(guit3 ${HTMLTADS_DIR})
 
 install(TARGETS guit3
 	DESTINATION .
+	COMPONENT GuiT3
 )
 
 install(FILES
 	${CMAKE_SOURCE_DIR}/tads3/charmap/cmaplib.t3r
 	DESTINATION charmap
+	COMPONENT GuiT3
 )
 
 install(FILES
 	${CMAKE_CURRENT_BINARY_DIR}/guit3.t3r
 	DESTINATION .
+	COMPONENT GuiT3
 )
