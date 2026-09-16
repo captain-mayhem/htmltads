@@ -210,4 +210,5 @@ install(TARGETS
 	Scintilla SciLexer
 	EXPORT TadsTargets
 	RUNTIME DESTINATION .
+	COMPONENT Classic
 )

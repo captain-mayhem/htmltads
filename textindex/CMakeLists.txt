@@ -24,4 +24,5 @@ install(TARGETS
 	docsearch
 	EXPORT TadsTargets
 	RUNTIME DESTINATION .
+	COMPONENT Classic
 )

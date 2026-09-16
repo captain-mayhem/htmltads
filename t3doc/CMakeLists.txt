@@ -1,4 +1,5 @@
 install(DIRECTORY
 	doc
 	DESTINATION .
+	COMPONENT Classic
 )

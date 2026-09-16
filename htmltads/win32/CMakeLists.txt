@@ -38,4 +38,5 @@ tads_source_group(script ${HTMLTADS_DIR})
 install(TARGETS
 	tads3 html script
 	EXPORT TadsTargets
-	RUNTIME DESTINATION .)
+	RUNTIME DESTINATION .
+	COMPONENT Classic)
