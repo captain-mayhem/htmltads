@@ -247,6 +247,27 @@ public:
     static void operator delete(void *ptr, class CHtmlFormatter *formatter);
 
     /*
+     *   Image display scaling factor.  The formatter multiplies every image's
+     *   on-screen width and height - the intrinsic size, an explicit WIDTH=/
+     *   HEIGHT= in pixels, and image-map pixel coordinates alike - by this
+     *   before laying the image out.  The default is 1.0 (no scaling), which
+     *   is what htmlt3 and the emscripten port rely on; guit3 sets it to the
+     *   monitor's content-scale factor at startup so that pictures track the
+     *   (already content-scaled) text instead of coming out too small on a
+     *   HiDPI display.  See htmltads/imgui/migration.md section 3.5a.
+     */
+    static void set_image_scale(double f) { image_scale_ = (f > 0.0 ? f : 1.0); }
+    static double get_image_scale() { return image_scale_; }
+
+    /* scale a pixel dimension by the image display scale (see above) */
+    static long scale_image_dim(long px)
+    {
+        return image_scale_ == 1.0
+            ? px
+            : (long)((double)px * image_scale_ + (px < 0 ? -0.5 : 0.5));
+    }
+
+    /*
      *   Get/set the line ID.  The formatter needs to be able to tell when
      *   two adjacent items in the display list are in different lines.
      *   To accomplish this, it tags each item with a line ID; upon
@@ -652,6 +673,9 @@ private:
 
     /* line ID bit */
     int line_id_bit_ : 8;
+
+    /* image display scaling factor - see set_image_scale() (default 1.0) */
+    static double image_scale_;
 };
 
 

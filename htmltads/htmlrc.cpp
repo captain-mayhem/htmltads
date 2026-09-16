@@ -167,8 +167,16 @@ CHtmlResCacheObject *CHtmlResCache::find_or_create(
                                   get_strlen(url->get_url()),
                                   &seekpos, &filesize);
 
-        /* load it */
-        resource = (*loader_func)(url, fname.get(), seekpos, filesize, win);
+        /*
+         *   If we couldn't find the resource anywhere, get_file_info()
+         *   will have left 'fname' unset (already logging a debug message
+         *   to that effect), so don't even try to load it - the loader
+         *   functions (e.g. CHtmlSysImageJpeg::create_jpeg) assume a valid
+         *   filename and will crash on a null one.  Just leave 'resource'
+         *   as 0, as if the load had failed.
+         */
+        if (fname.get() != 0)
+            resource = (*loader_func)(url, fname.get(), seekpos, filesize, win);
     }
 
     /* note if the entry is cacheable */

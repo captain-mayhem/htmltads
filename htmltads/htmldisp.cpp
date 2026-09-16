@@ -254,11 +254,17 @@ void CHtmlDispDisplaySite::dispsite_cancel_timer(CHtmlSysImageAnimated *)
 
 /* ------------------------------------------------------------------------ */
 /*
- *   Basic display object implementation 
+ *   Basic display object implementation
  */
 
 /*
- *   Memory allocation - use the formatter for memory management 
+ *   Image display scaling factor.  1.0 = no scaling (htmlt3 / emscripten);
+ *   guit3 overrides this via CHtmlDisp::set_image_scale().  See htmldisp.h.
+ */
+double CHtmlDisp::image_scale_ = 1.0;
+
+/*
+ *   Memory allocation - use the formatter for memory management
  */
 void *CHtmlDisp::operator new(size_t siz, CHtmlFormatter *formatter)
 {
@@ -3267,8 +3273,8 @@ CHtmlDispHR::CHtmlDispHR(CHtmlSysWin *win, int shade, long height,
          */
         if (image_ != 0 && image_->get_image() != 0)
         {
-            /* use the image's height as the default height */
-            height_ = image_->get_image()->get_height();
+            /* use the image's (display-scaled) height as the default height */
+            height_ = scale_image_dim(image_->get_image()->get_height());
         }
         else if (shade_)
         {
@@ -3412,8 +3418,9 @@ CHtmlDispListitemBullet::CHtmlDispListitemBullet
         /* make sure we're big enough to show the entire image */
         if (image->get_image() != 0)
         {
-            long image_wid = image->get_image()->get_width();
-            long image_ht = image->get_image()->get_height();
+            /* scaled by the global image display scale (1.0 = none) */
+            long image_wid = scale_image_dim(image->get_image()->get_width());
+            long image_ht = scale_image_dim(image->get_image()->get_height());
 
             /* make sure we're wide enough */
             if (pos_.right - pos_.left < image_wid)
@@ -3520,11 +3527,11 @@ void CHtmlDispListitemBullet::draw(CHtmlSysWin *win,
         long pos_wid, pos_ht;
         CHtmlRect drawpos;
         
-        /* center the image in our area */
+        /* center the image in our area (scaled by the image display scale) */
         pos_wid = pos_.right - pos_.left;
         pos_ht = pos_.bottom - pos_.top;
-        image_wid = image_->get_image()->get_width();
-        image_ht = image_->get_image()->get_height();
+        image_wid = scale_image_dim(image_->get_image()->get_width());
+        image_ht = scale_image_dim(image_->get_image()->get_height());
         drawpos.left = pos_.left + (pos_wid - image_wid)/2;
         drawpos.right = drawpos.left + image_wid;
         drawpos.top = pos_.top + (pos_ht - image_ht)/2;
@@ -3760,6 +3767,17 @@ CHtmlDispImg::CHtmlDispImg(CHtmlSysWin *win,
             }
         }
     }
+
+    /*
+     *   Apply the global image display scale (1.0 = none - see
+     *   CHtmlDisp::set_image_scale()).  Everything above worked in unscaled
+     *   pixels - the intrinsic image size, an explicit WIDTH=/HEIGHT=, and
+     *   the aspect-ratio fill-in - so scaling the final result here keeps it
+     *   all consistent, and scales the explicit-size case that couldn't be
+     *   handled anywhere else.
+     */
+    width_ = scale_image_dim(width_);
+    height_ = scale_image_dim(height_);
 
     /* set our position based on the final size */
     pos_.set(0, 0, width_, height_);

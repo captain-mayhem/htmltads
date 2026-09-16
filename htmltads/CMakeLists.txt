@@ -65,13 +65,13 @@ if (WIN32)
 	)
 
 	set(mpeg_src
-		win32/mpegamp/misc2.cpp
-		win32/mpegamp/layer3.cpp
-		win32/mpegamp/layer2.cpp
-		win32/mpegamp/getdata.cpp
+		mpegamp/misc2.cpp
+		mpegamp/layer3.cpp
+		mpegamp/layer2.cpp
+		mpegamp/getdata.cpp
 		win32/mpegamp/getbits.cpp
-		win32/mpegamp/huffman.cpp
-		win32/mpegamp/transform.cpp
+		mpegamp/huffman.cpp
+		mpegamp/transform.cpp
 		win32/mpegamp/mpegamp_w32.cpp
 	)
 	
@@ -109,6 +109,13 @@ set(trt3_src
     tadshtml3.cpp
 )
 
+# The classic htmlt3/tadsweb executables below only have a Win32 (and, for
+# htmlt3, an Emscripten) OS-glue backend - html_os.h has no non-Windows,
+# non-Emscripten branch for them (guit3, built unconditionally above via
+# add_subdirectory(imgui), is the supported cross-platform GUI target - see
+# migration.md M4). Skip them entirely elsewhere.
+if (WIN32 OR EMSCRIPTEN)
+
 if (WIN32)
 	set(htmlt3_target_name htmlt3_tmp)
 else()
@@ -128,7 +135,7 @@ target_include_directories(${htmlt3_target_name} PRIVATE
 target_link_libraries(${htmlt3_target_name} PRIVATE
 	Tads::t3htm
     Tads::tr32h
-	
+
 	PNG::PNG
 	JPEG::JPEG
 	MNG::MNG
@@ -138,6 +145,7 @@ if (WIN32)
 	target_include_directories(${htmlt3_target_name} PRIVATE
 		win32
 		win32/mpegamp
+		mpegamp
 	)
 
 	target_link_libraries(${htmlt3_target_name} PRIVATE
@@ -174,16 +182,24 @@ if (EMSCRIPTEN)
 	
 	install(TARGETS ${htmlt3_target_name}
 		DESTINATION .
+		COMPONENT Classic
 	)
-	
+
 	install (FILES
 		"$<TARGET_FILE_DIR:htmlt3>/htmlt3.wasm"
 		"$<TARGET_FILE_DIR:htmlt3>/htmlt3.wasm.map"
 		${CMAKE_CURRENT_SOURCE_DIR}/emscripten/htmlt3.html
-		DESTINATION .)
+		DESTINATION .
+		COMPONENT Classic)
 endif()
 
 tads_source_group(${htmlt3_target_name} ${HTMLTADS_DIR})
+
+endif() # WIN32 OR EMSCRIPTEN
+
+if (IMGUI_TADS)
+	add_subdirectory(imgui)
+endif()
 
 #we only build the runtime for non-windows targets
 if(NOT WIN32)
@@ -252,6 +268,7 @@ target_include_directories(htmltdb3_tmp PRIVATE
 .
 win32
 win32/mpegamp
+mpegamp
 win32/xzip
 )
 
@@ -341,11 +358,13 @@ tads_source_group(tadsweb ${HTMLTADS_DIR})
 
 install(TARGETS tadsweb
 	DESTINATION .
+	COMPONENT Classic
 )
 
 install(PROGRAMS
 	${htmlt3_file} ${htmltdb3_file}
 	DESTINATION .
+	COMPONENT Classic
 )
 
 install(FILES
@@ -360,20 +379,24 @@ install(FILES
     win32/tads3addin.rc
     win32/wb_addin.h
     DESTINATION addins
+    COMPONENT Classic
 )
 
 install(FILES
 	notes3/authkit/license.txt
 	DESTINATION .
+	COMPONENT Classic
 )
 
 install(DIRECTORY
 	win32/mkwebfiles
 	DESTINATION .
+	COMPONENT Classic
 )
 
 install(FILES
 	notes/changes.htm
 	notes/compat.htm
 	DESTINATION doc
+  COMPONENT Classic
 )

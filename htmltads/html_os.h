@@ -53,7 +53,7 @@ Modified
 /* 
  *   Include definitions for 32-bit Windows
  */
-#ifdef T_WIN32
+#if defined(T_WIN32) && !defined(IMGUI)
 #include "hos_w32.h"
 #endif
 
@@ -79,5 +79,13 @@ Modified
   */
 #ifdef __EMSCRIPTEN__
 #include "hos_emscripten.h"
+#endif
+
+/* ------------------------------------------------------------------------ */
+/*
+ *   Include definitions for Imgui
+ */
+#ifdef IMGUI
+#include "hos_gui.h"
 #endif
 

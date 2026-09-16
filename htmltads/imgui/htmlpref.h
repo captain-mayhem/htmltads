@@ -1,0 +1,1214 @@
+/* $Header: d:/cvsroot/tads/html/win32/htmlpref.h,v 1.4 1999/07/11 00:46:46 MJRoberts Exp $ */
+
+/* 
+ *   Copyright (c) 1997 by Michael J. Roberts.  All Rights Reserved.
+ *   
+ *   Please see the accompanying license file, LICENSE.TXT, for information
+ *   on using and copying this software.  
+ */
+/*
+Name
+  htmlpref.h - preferences dialog
+Function
+  
+Notes
+  
+Modified
+  10/26/97 MJRoberts  - Creation
+*/
+
+#ifndef HTMLPREF_H
+#define HTMLPREF_H
+
+#include "tadsplat.h"
+
+#ifndef TADSHTML_H
+#include "tadshtml.h"
+#endif
+#ifndef HTMLPLST_H
+#include "htmlplst.h"
+#endif
+#ifndef TADSSETTINGS_H
+#include "tadssettings.h"
+#endif
+
+/* forward declaration, matching htmlgui.h's definition (with the same
+   explicit underlying type, required for a standard-conforming forward
+   reference) - htmlgui.h isn't necessarily included yet at this point,
+   e.g. when this header is included directly before htmlgui.h (guisnd.cpp) */
+enum htmlw32_directx_err_t : int;
+
+
+/*
+ *   Preference ID's - these are the ID's of the preference settings in
+ *   the preference property list.  
+ */
+enum HTML_pref_id_t
+{
+    /* first property must start at zero */
+    HTML_PREF_PROP_FONT = 0,
+    HTML_PREF_MONO_FONT,
+    HTML_PREF_FONT_SCALE,
+    HTML_PREF_USE_WIN_COLORS,
+    HTML_PREF_TEXT_COLOR,
+    HTML_PREF_BG_COLOR,
+    HTML_PREF_LINK_COLOR,
+    HTML_PREF_VLINK_COLOR,
+    HTML_PREF_ALINK_COLOR,
+    HTML_PREF_UNDERLINE_LINKS,
+    HTML_PREF_EMACS_CTRL_V,
+    HTML_PREF_ARROW_KEYS_ALWAYS_SCROLL,
+    HTML_PREF_ALT_MORE_STYLE,
+    HTML_PREF_WINPOS,
+    HTML_PREF_HLINK_COLOR,
+    HTML_PREF_HOVER_HILITE,
+    HTML_PREF_DBGWINPOS,
+    HTML_PREF_MUSIC_ON,
+    HTML_PREF_SOUNDS_ON,
+    HTML_PREF_DBGMAINPOS,
+    HTML_PREF_OVERRIDE_COLORS,
+    HTML_PREF_LINKS_ON,
+    HTML_PREF_LINKS_CTRL,
+    HTML_PREF_DIRECTX_HIDEWARN,
+    HTML_PREF_DIRECTX_ERROR_CODE,
+    HTML_PREF_GRAPHICS_ON,
+    HTML_PREF_FILE_SAFETY_LEVEL,
+    HTML_PREF_FILE_SAFETY_READ,
+    HTML_PREF_FILE_SAFETY_WRITE,
+    HTML_PREF_EMACS_ALT_V,
+    HTML_PREF_COLOR_STATUS_BG,
+    HTML_PREF_COLOR_STATUS_TEXT,
+    HTML_PREF_FONT_SERIF,
+    HTML_PREF_FONT_SANS,
+    HTML_PREF_FONT_SCRIPT,
+    HTML_PREF_FONT_TYPEWRITER,
+    HTML_PREF_INPFONT_DEFAULT,
+    HTML_PREF_INPFONT_NAME,
+    HTML_PREF_INPFONT_COLOR,
+    HTML_PREF_INPFONT_BOLD,
+    HTML_PREF_INPFONT_ITALIC,
+    HTML_PREF_MEM_TEXT_LIMIT,
+    HTML_PREF_CLOSE_ACTION,
+    HTML_PREF_POSTQUIT_ACTION,
+    HTML_PREF_INIT_ASK_GAME,
+    HTML_PREF_INIT_OPEN_FOLDER,
+    HTML_PREF_RECENT_1,
+    HTML_PREF_RECENT_2,
+    HTML_PREF_RECENT_3,
+    HTML_PREF_RECENT_4,
+    HTML_PREF_RECENT_ORDER,
+    HTML_PREF_RECENT_DBG_1,
+    HTML_PREF_RECENT_DBG_2,
+    HTML_PREF_RECENT_DBG_3,
+    HTML_PREF_RECENT_DBG_4,
+    HTML_PREF_RECENT_DBG_ORDER,
+    HTML_PREF_TOOLBAR_VIS,
+    HTML_PREF_SHOW_TIMER,
+    HTML_PREF_SHOW_TIMER_SECONDS,
+    HTML_PREF_PROP_FONTSZ,
+    HTML_PREF_MONO_FONTSZ,
+    HTML_PREF_SERIF_FONTSZ,
+    HTML_PREF_SANS_FONTSZ,
+    HTML_PREF_SCRIPT_FONTSZ,
+    HTML_PREF_TYPEWRITER_FONTSZ,
+    HTML_PREF_INPUT_FONTSZ,
+    HTML_PREF_GC_DATABASE,
+    HTML_PREF_GC_BKG,
+    HTML_PREF_PROFILE_DESC,
+    HTML_PREF_MUTE_SOUND,
+    HTML_PREF_DEFAULT_PROFILE,
+    HTML_PREF_NET_CLIENT_SAFETY,
+    HTML_PREF_NET_SERVER_SAFETY,
+    HTML_PREF_SUBWINPOS,
+
+    /* high water mark - this is always the last property ID */
+    HTML_PREF_LAST
+};
+
+/*
+ *   Main Window Closing action definitions 
+ */
+const int HTML_PREF_CLOSE_CMD = 1;        /* enter "QUIT" command into game */
+const int HTML_PREF_CLOSE_PROMPT = 2;       /* prompt then close the window */
+const int HTML_PREF_CLOSE_NOW = 3;               /* close without prompting */
+
+/*
+ *   Post-Quit Action definitions
+ */
+const int HTML_PREF_POSTQUIT_EXIT = 1;   /* wait for a keystroke, then exit */
+const int HTML_PREF_POSTQUIT_KEEP = 2;                  /* keep window open */
+
+
+/*
+ *   Game UI Window interface.  This contains notification functions that the
+ *   preferences dialog invokes to let the UI know about changes that require
+ *   reformatting.  
+ */
+class CHtmlWinWithPrefs
+{
+public:
+    /*
+     *   Get the default character set for the window. 
+     */
+    virtual unsigned int get_default_charset() = 0;
+
+    /*
+     *   Set the new active profile, saving it as the game-specific profile
+     *   for the currently active game. 
+     */
+    virtual void set_game_specific_profile(const char *profile) = 0;
+
+    /* 
+     *   Receive notification of a Game Chest update that requires reloading 
+     */
+    virtual void notify_game_chest_update() = 0;
+
+    /* 
+     *   Save the game chest database to the given file 
+     */
+    virtual void save_game_chest_db_as(const char *fname) = 0;
+
+    /*
+     *   Is the window currently in "more" mode? 
+     */
+    virtual int in_more_mode() const = 0;
+
+    /*
+     *   Receive notification that the display preferences have changed,
+     *   usually due to the user selecting new options.  This requires
+     *   reformatting the UI window to reflect the new visual settings.  
+     */
+    virtual void notify_visual_pref_change() = 0;
+
+    /*
+     *   Receive notification of a change specifically to the hyperlink
+     *   visual style. 
+     */
+    virtual void notify_link_pref_change() = 0;
+
+    /*
+     *   Receive notification that audio preferences have changed, usually
+     *   due to the user selecting new options.  The window should check the
+     *   new audio preferences and adjust any current playback accordingly.  
+     */
+    virtual void notify_sound_pref_change() = 0;
+};
+
+
+/*
+ *   Preferences object 
+ */
+class CHtmlPreferences
+{
+public:
+    CHtmlPreferences();
+    ~CHtmlPreferences();
+
+    /* add a reference */
+    void add_ref() { ++refcnt_; }
+
+    /* remove a reference, deleting the object if no longer referenced */
+    void release_ref()
+    {
+        if (--refcnt_ == 0)
+            delete this;
+    }
+    
+    /*
+     *   Open the ImGui-native "Options" dialog (the guit3 replacement for
+     *   the old run_preferences_dlg() native property sheet, removed once
+     *   this dialog was fully ported - see migration.md 5.5/M1).  This
+     *   just marks the
+     *   dialog as pending open and snapshots the current preference values
+     *   into the dialog's working state; the dialog itself is drawn every
+     *   frame by render_options_dialog(), called from
+     *   CHtmlSys_mainwin::do_render().
+     */
+    void open_options_dialog(HWND owner, class CHtmlWinWithPrefs *win);
+
+    /*
+     *   Draw the Options dialog for the current ImGui frame, if it's open.
+     *   Safe to call unconditionally every frame; it's a no-op when the
+     *   dialog isn't open.
+     */
+    void render_options_dialog();
+
+    /*
+     *   Open the ImGui-native "Customize Theme" dialog (the guit3
+     *   replacement for the old native Fonts/Colors/More/Media property
+     *   sheet).  Same pending-open/snapshot pattern as open_options_dialog():
+     *   this just captures the current preference values into the dialog's
+     *   working state; render_customize_theme_dialog(), called from
+     *   CHtmlSys_mainwin::do_render(), draws it.
+     */
+    void open_customize_theme_dialog(HWND owner, class CHtmlWinWithPrefs *win);
+
+    /*
+     *   Draw the Customize Theme dialog for the current ImGui frame, if
+     *   it's open.  Safe to call unconditionally every frame.
+     */
+    void render_customize_theme_dialog();
+
+    /*
+     *   Open the ImGui-native "Manage Themes" dialog (the guit3 replacement
+     *   for run_profiles_dlg()'s native "Add/Delete Themes" property sheet -
+     *   the last real Win32 dialog in the port).  It's just the single
+     *   Appearance page that property sheet had, so it reuses the same
+     *   opt_ working state and the opt_render_appearance_tab() body as the
+     *   Options dialog's Appearance tab.  Same pending-open/snapshot pattern
+     *   as open_options_dialog(): render_manage_themes_dialog(), called from
+     *   CHtmlSys_mainwin::do_render(), draws it.
+     */
+    void open_manage_themes_dialog(HWND owner, class CHtmlWinWithPrefs *win);
+
+    /*
+     *   Draw the Manage Themes dialog for the current ImGui frame, if it's
+     *   open.  Safe to call unconditionally every frame.
+     */
+    void render_manage_themes_dialog();
+
+    /* get the global system message ID for broadcasting preference updates */
+    UINT get_prefs_updated_msg() const { return prefs_updated_msg_; }
+
+    /* 
+     *   get the game window - this is valid while we're running one of the
+     *   preferences dialogs 
+     */
+    class CHtmlWinWithPrefs *get_game_win() const { return win_; }
+
+    /* save/restore the preferences in permanent storage */
+    void save();
+    void save_as(const char *profile);
+    void restore(int synced_only);
+    void restore_as(const char *profile, int synced_only);
+
+    /* compare to values in permanent storage */
+    int equals_saved(int synced_only);
+    int equals_saved(const char *profile, int synced_only);
+
+    /* get my property list */
+    class CHtmlPropList *get_proplist() const { return proplist_; }
+
+    /* 
+     *   Schedule reformatting of the window.  If 'more_mode' is true,
+     *   we'll only reformat the window if it's in MORE mode; otherwise,
+     *   we'll unconditionally reformat the window. 
+     */
+    void schedule_reformat(int more_mode);
+
+    /* 
+     *   Notify the game window that a change in sound preferences has
+     *   occurred.  The game window might need to cancel sound playback if
+     *   the preferences now disable a type of sound.  
+     */
+    void notify_sound_pref_change();
+
+    /* notify the game window of a change to the link enabling status */
+    void notify_link_pref_change();
+
+    /* schedule reloading the game chest data */
+    void schedule_reload_game_chest();
+
+    /* save the current game chest into the given database file */
+    void save_game_chest_db_as(const char *fname);
+
+
+    /*
+     *   Preference settings 
+     */
+
+    /*
+     *   Recent games.  We refer to recent games by index - the index is a
+     *   character from the game order string, so '0' the first item, '1'
+     *   is the second item, and so on.  
+     */
+    const textchar_t *get_recent_game(textchar_t i) const
+        { return get_val_str(get_recent_pref_id(i)); }
+    void set_recent_game(textchar_t i, const textchar_t *str)
+        { set_val_str(get_recent_pref_id(i), str); }
+
+    /* get the pref ID for a recent game index (starting at '0') */
+    static HTML_pref_id_t get_recent_pref_id(textchar_t c)
+    {
+        static const HTML_pref_id_t id[] =
+        {
+            HTML_PREF_RECENT_1, HTML_PREF_RECENT_2,
+            HTML_PREF_RECENT_3, HTML_PREF_RECENT_4
+        };
+        int i;
+
+        /* get the index */
+        i = c - '0';
+
+        /* get the ID code from our array, making sure we're in bounds */
+        if (i > 0 && i < sizeof(id)/sizeof(id[0]))
+            return id[i];
+        else
+            return id[0];
+    }
+
+    /* 
+     *   recent game order - a string like 0123 indicating the order of
+     *   the items in the list 
+     */
+    const textchar_t *get_recent_game_order() const
+        { return get_val_str(HTML_PREF_RECENT_ORDER); }
+    void set_recent_game_order(const textchar_t *str)
+        { set_val_str(HTML_PREF_RECENT_ORDER, str); }
+
+    /*
+     *   Recent debug games - these entries track the projects recently
+     *   loaded in the debugger 
+     */
+    const textchar_t *get_recent_dbg_game(textchar_t i) const
+        { return get_val_str(get_recent_dbg_pref_id(i)); }
+    void set_recent_dbg_game(textchar_t i, const textchar_t *str)
+        { set_val_str(get_recent_dbg_pref_id(i), str); }
+
+    /* get the pref ID for a recent game index (starting at '0') */
+    static HTML_pref_id_t get_recent_dbg_pref_id(textchar_t c)
+    {
+        static const HTML_pref_id_t id[] =
+        {
+            HTML_PREF_RECENT_DBG_1, HTML_PREF_RECENT_DBG_2,
+            HTML_PREF_RECENT_DBG_3, HTML_PREF_RECENT_DBG_4
+        };
+        int i;
+
+        /* get the index */
+        i = c - '0';
+
+        /* get the ID code from our array, making sure we're in bounds */
+        if (i > 0 && i < sizeof(id)/sizeof(id[0]))
+            return id[i];
+        else
+            return id[0];
+    }
+
+    /* 
+     *   recent game order - a string like 0123 indicating the order of
+     *   the items in the list 
+     */
+    const textchar_t *get_recent_dbg_game_order() const
+        { return get_val_str(HTML_PREF_RECENT_DBG_ORDER); }
+    void set_recent_dbg_game_order(const textchar_t *str)
+        { set_val_str(HTML_PREF_RECENT_DBG_ORDER, str); }
+
+
+    /* 
+     *   font preferences 
+     */
+    
+    const textchar_t *get_prop_font() const
+        { return get_val_str(HTML_PREF_PROP_FONT); }
+    void set_prop_font(const textchar_t *newfont)
+        { set_val_str(HTML_PREF_PROP_FONT, newfont); }
+
+    const textchar_t *get_mono_font() const
+        { return get_val_str(HTML_PREF_MONO_FONT); }
+    void set_mono_font(const textchar_t *newfont)
+        { set_val_str(HTML_PREF_MONO_FONT, newfont); }
+    
+    int get_font_scale() const
+        { return get_val_longint(HTML_PREF_FONT_SCALE); }
+    void set_font_scale(int newscale)
+        { set_val_longint(HTML_PREF_FONT_SCALE, newscale); }
+
+    const textchar_t *get_font_serif() const
+        { return get_val_str(HTML_PREF_FONT_SERIF); }
+    void set_font_serif(const textchar_t *newfont)
+        { set_val_str(HTML_PREF_FONT_SERIF, newfont); }
+
+    const textchar_t *get_font_sans() const
+        { return get_val_str(HTML_PREF_FONT_SANS); }
+    void set_font_sans(const textchar_t *newfont)
+        { set_val_str(HTML_PREF_FONT_SANS, newfont); }
+
+    const textchar_t *get_font_script() const
+        { return get_val_str(HTML_PREF_FONT_SCRIPT); }
+    void set_font_script(const textchar_t *newfont)
+        { set_val_str(HTML_PREF_FONT_SCRIPT, newfont); }
+
+    const textchar_t *get_font_typewriter() const
+        { return get_val_str(HTML_PREF_FONT_TYPEWRITER); }
+    void set_font_typewriter(const textchar_t *newfont)
+        { set_val_str(HTML_PREF_FONT_TYPEWRITER, newfont); }
+
+    /*
+     *   font size settings 
+     */
+    int get_prop_fontsz() const
+        { return (int)get_val_longint(HTML_PREF_PROP_FONTSZ); }
+    void set_prop_fontsz(int sz)
+        { set_val_longint(HTML_PREF_PROP_FONTSZ, sz); }
+
+    int get_mono_fontsz() const
+        { return (int)get_val_longint(HTML_PREF_MONO_FONTSZ); }
+    void set_mono_fontsz(int sz)
+        { set_val_longint(HTML_PREF_MONO_FONTSZ, sz); }
+
+    int get_serif_fontsz() const
+        { return (int)get_val_longint(HTML_PREF_SERIF_FONTSZ); }
+    void set_serif_fontsz(int sz)
+        { set_val_longint(HTML_PREF_SERIF_FONTSZ, sz); }
+
+    int get_sans_fontsz() const
+        { return (int)get_val_longint(HTML_PREF_SANS_FONTSZ); }
+    void set_sans_fontsz(int sz)
+        { set_val_longint(HTML_PREF_SANS_FONTSZ, sz); }
+
+    int get_script_fontsz() const
+        { return (int)get_val_longint(HTML_PREF_SCRIPT_FONTSZ); }
+    void set_script_fontsz(int sz)
+        { set_val_longint(HTML_PREF_SCRIPT_FONTSZ, sz); }
+
+    int get_typewriter_fontsz() const
+        { return (int)get_val_longint(HTML_PREF_TYPEWRITER_FONTSZ); }
+    void set_typewriter_fontsz(int sz)
+        { set_val_longint(HTML_PREF_TYPEWRITER_FONTSZ, sz); }
+
+
+    /*
+     *   input font settings 
+     */
+
+    const textchar_t *get_inpfont_name() const
+        { return get_val_str(HTML_PREF_INPFONT_NAME); }
+    void set_inpfont_name(const textchar_t *newfont)
+        { set_val_str(HTML_PREF_INPFONT_NAME, newfont); }
+
+    int get_inpfont_size() const
+        { return (int)get_val_longint(HTML_PREF_INPUT_FONTSZ); }
+    void set_inpfont_size(int sz)
+        { set_val_longint(HTML_PREF_INPUT_FONTSZ, sz); }
+    
+    HTML_color_t get_inpfont_color() const
+        { return get_val_color(HTML_PREF_INPFONT_COLOR); }
+    void set_inpfont_color(HTML_color_t newclr)
+        { set_val_color(HTML_PREF_INPFONT_COLOR, newclr); }
+    
+    int get_inpfont_bold() const
+        { return get_val_bool(HTML_PREF_INPFONT_BOLD); }
+    void set_inpfont_bold(int dflt)
+        { set_val_bool(HTML_PREF_INPFONT_BOLD, dflt); }
+
+    int get_inpfont_italic() const
+        { return get_val_bool(HTML_PREF_INPFONT_ITALIC); }
+    void set_inpfont_italic(int dflt)
+        { set_val_bool(HTML_PREF_INPFONT_ITALIC, dflt); }
+    
+
+    /* 
+     *   color preferences 
+     */
+    
+    int get_use_win_colors() const
+        { return get_val_bool(HTML_PREF_USE_WIN_COLORS); }
+    void set_use_win_colors(int flag)
+        { set_val_bool(HTML_PREF_USE_WIN_COLORS, flag); }
+
+    int get_override_colors() const
+        { return get_val_bool(HTML_PREF_OVERRIDE_COLORS); }
+    void set_override_colors(int flag)
+        { set_val_bool(HTML_PREF_OVERRIDE_COLORS, flag); }
+
+    HTML_color_t get_text_color() const
+        { return get_val_color(HTML_PREF_TEXT_COLOR); }
+    void set_text_color(HTML_color_t newclr)
+        { set_val_color(HTML_PREF_TEXT_COLOR, newclr); }
+    
+    HTML_color_t get_bg_color() const
+        { return get_val_color(HTML_PREF_BG_COLOR); }
+    void set_bg_color(HTML_color_t newclr)
+        { set_val_color(HTML_PREF_BG_COLOR, newclr); }
+
+    /* 
+     *   link preferences 
+     */
+    
+    HTML_color_t get_link_color() const
+        { return get_val_color(HTML_PREF_LINK_COLOR); }
+    void set_link_color(HTML_color_t newclr)
+        { set_val_color(HTML_PREF_LINK_COLOR, newclr); }
+
+    HTML_color_t get_vlink_color() const
+        { return get_val_color(HTML_PREF_VLINK_COLOR); }
+    void set_vlink_color(HTML_color_t newclr)
+        { set_val_color(HTML_PREF_VLINK_COLOR, newclr); }
+
+    HTML_color_t get_hlink_color() const
+        { return get_val_color(HTML_PREF_HLINK_COLOR); }
+    void set_hlink_color(HTML_color_t newclr)
+        { set_val_color(HTML_PREF_HLINK_COLOR, newclr); }
+
+    HTML_color_t get_alink_color() const
+        { return get_val_color(HTML_PREF_ALINK_COLOR); }
+    void set_alink_color(HTML_color_t newclr)
+        { set_val_color(HTML_PREF_ALINK_COLOR, newclr); }
+    int get_underline_links() const
+        { return get_val_bool(HTML_PREF_UNDERLINE_LINKS); }
+    void set_underline_links(int flag)
+        { set_val_bool(HTML_PREF_UNDERLINE_LINKS, flag); }
+
+    int get_hover_hilite() const
+        { return get_val_bool(HTML_PREF_HOVER_HILITE); }
+    void set_hover_hilite(int flag)
+        { set_val_bool(HTML_PREF_HOVER_HILITE, flag); }
+
+    /* 
+     *   parameterized color settings 
+     */
+
+    HTML_color_t get_color_status_bg() const
+        { return get_val_color(HTML_PREF_COLOR_STATUS_BG); }
+    void set_color_status_bg(HTML_color_t newclr)
+        { set_val_color(HTML_PREF_COLOR_STATUS_BG, newclr); }
+
+    HTML_color_t get_color_status_text() const
+        { return get_val_color(HTML_PREF_COLOR_STATUS_TEXT); }
+    void set_color_status_text(HTML_color_t newclr)
+        { set_val_color(HTML_PREF_COLOR_STATUS_TEXT, newclr); }
+
+    /* 
+     *   keyboard preferences 
+     */
+
+    int get_emacs_ctrl_v() const
+        { return get_val_bool(HTML_PREF_EMACS_CTRL_V); }
+    void set_emacs_ctrl_v(int flag)
+        { set_val_bool(HTML_PREF_EMACS_CTRL_V, flag); }
+    int get_emacs_alt_v() const
+        { return get_val_bool(HTML_PREF_EMACS_ALT_V); }
+    void set_emacs_alt_v(int flag)
+        { set_val_bool(HTML_PREF_EMACS_ALT_V, flag); }
+
+    int get_arrow_keys_always_scroll() const
+        { return get_val_bool(HTML_PREF_ARROW_KEYS_ALWAYS_SCROLL); }
+    void set_arrow_keys_always_scroll(int flag)
+        { set_val_bool(HTML_PREF_ARROW_KEYS_ALWAYS_SCROLL, flag); }
+
+    /* 
+     *   MORE style 
+     */
+    
+    int get_alt_more_style() const
+        { return get_val_bool(HTML_PREF_ALT_MORE_STYLE); }
+    void set_alt_more_style(int flag)
+        { set_val_bool(HTML_PREF_ALT_MORE_STYLE, flag); }
+
+    /*
+     *   Memory text size limit.  A limit of zero indicates that there is
+     *   no limit on how large the text buffer can grow; otherwise, the
+     *   limit is the maximum number of bytes that we'll allow in the text
+     *   array.  
+     */
+    unsigned long get_mem_text_limit() const
+        { return (unsigned long)get_val_longint(HTML_PREF_MEM_TEXT_LIMIT); }
+    void set_mem_text_limit(unsigned long val)
+        { set_val_longint(HTML_PREF_MEM_TEXT_LIMIT, (long)val); }
+
+    /*
+     *   Ask for game at startup.  If this is set, we'll prompt for a game
+     *   immediately at startup; otherwise, we'll just stand by until the
+     *   user explicitly opens a game.  
+     */
+    int get_init_ask_game() const
+        { return (int)get_val_longint(HTML_PREF_INIT_ASK_GAME); }
+    void set_init_ask_game(int val)
+        { set_val_longint(HTML_PREF_INIT_ASK_GAME, (long)val); }
+
+    /*
+     *   Initial open folder.  This is the folder we'll start in when
+     *   asking for a game to open.
+     */
+    const textchar_t *get_init_open_folder() const
+        { return get_val_str(HTML_PREF_INIT_OPEN_FOLDER); }
+    void set_init_open_folder(const textchar_t *str)
+        { set_val_str(HTML_PREF_INIT_OPEN_FOLDER, str); }
+    
+    /*
+     *   Main Window Close Action - this specifies the response to closing
+     *   the main game window.  
+     */
+    int get_close_action() const
+        { return (int)get_val_longint(HTML_PREF_CLOSE_ACTION); }
+    void set_close_action(int val)
+        { set_val_longint(HTML_PREF_CLOSE_ACTION, (long)val); }
+
+    /*
+     *   Post-Quit Action - this specifies what happens after the user
+     *   quits the current game
+     */
+    int get_postquit_action() const
+        { return (int)get_val_longint(HTML_PREF_POSTQUIT_ACTION); }
+    void set_postquit_action(int val)
+        { set_val_longint(HTML_PREF_POSTQUIT_ACTION, (long)val); }
+
+    /* Game Chest database file location */
+    const textchar_t *get_gc_database() const
+        { return get_val_str(HTML_PREF_GC_DATABASE); }
+    void set_gc_database(const textchar_t *str)
+        { set_val_str(HTML_PREF_GC_DATABASE, str); }
+
+    /* Game Chest background image */
+    const textchar_t *get_gc_bkg() const
+        { return get_val_str(HTML_PREF_GC_BKG); }
+    void set_gc_bkg(const textchar_t *str)
+        { set_val_str(HTML_PREF_GC_BKG, str); }
+
+    /* profile description */
+    const textchar_t *get_profile_desc() const
+        { return get_val_str(HTML_PREF_PROFILE_DESC); }
+    void set_profile_desc(const textchar_t *str)
+        { set_val_str(HTML_PREF_PROFILE_DESC, str); }
+
+    /* 
+     *   set the profile description to the default description for one of
+     *   the standard pre-defined profiles 
+     */
+    void set_std_profile_desc(const textchar_t *profile_name);
+
+    /* 
+     *   window position 
+     */
+    const CHtmlRect *get_win_pos() const
+        { return get_val_rect(HTML_PREF_WINPOS); }
+    void set_win_pos(const CHtmlRect *rect)
+        { set_val_rect(HTML_PREF_WINPOS, rect); }
+
+    /*
+     *   child window position 
+     */
+    const CHtmlRect *get_subwin_pos() const
+        { return get_val_rect(HTML_PREF_SUBWINPOS); }
+    void set_subwin_pos(const CHtmlRect *rect)
+        { set_val_rect(HTML_PREF_SUBWINPOS, rect); }
+
+    /*
+     *   interpreter toolbar visibility 
+     */
+    int get_toolbar_vis() const
+        { return (int)get_val_longint(HTML_PREF_TOOLBAR_VIS); }
+    void set_toolbar_vis(int val)
+        { set_val_longint(HTML_PREF_TOOLBAR_VIS, (long)val); }
+
+    /*
+     *   timer display in status line
+     */
+    int get_show_timer() const
+        { return (int)get_val_longint(HTML_PREF_SHOW_TIMER); }
+    void set_show_timer(int val)
+        { set_val_longint(HTML_PREF_SHOW_TIMER, (long)val); }
+
+    /* show seconds in timer */
+    int get_show_timer_seconds() const
+        { return (int)get_val_longint(HTML_PREF_SHOW_TIMER_SECONDS); }
+    void set_show_timer_seconds(int val)
+        { set_val_longint(HTML_PREF_SHOW_TIMER_SECONDS, (long)val); }
+
+    /* 
+     *   debug log window position 
+     */
+    
+    const CHtmlRect *get_dbgwin_pos() const
+        { return get_val_rect(HTML_PREF_DBGWINPOS); }
+    void set_dbgwin_pos(const CHtmlRect *rect)
+        { set_val_rect(HTML_PREF_DBGWINPOS, rect); }
+
+    /* 
+     *   debug main control window position 
+     */
+    
+    const CHtmlRect *get_dbgmain_pos() const
+        { return get_val_rect(HTML_PREF_DBGMAINPOS); }
+    void set_dbgmain_pos(const CHtmlRect *rect)
+        { set_val_rect(HTML_PREF_DBGMAINPOS, rect); }
+
+    /*
+     *   master sound MUTE control 
+     */
+
+    int get_mute_sound() const
+        { return get_val_bool(HTML_PREF_MUTE_SOUND); }
+    void set_mute_sound(int f)
+        { set_val_bool(HTML_PREF_MUTE_SOUND, f); }
+    
+
+    /* 
+     *   music setting 
+     */
+    
+    int get_music_on() const
+        { return get_val_bool(HTML_PREF_MUSIC_ON); }
+    void set_music_on(int flag)
+        { set_val_bool(HTML_PREF_MUSIC_ON, flag); }
+
+    /* 
+     *   sound effects setting 
+     */
+    
+    int get_sounds_on() const
+        { return get_val_bool(HTML_PREF_SOUNDS_ON); }
+    void set_sounds_on(int flag)
+        { set_val_bool(HTML_PREF_SOUNDS_ON, flag); }
+
+    /* 
+     *   graphics visibility setting 
+     */
+    
+    int get_graphics_on() const
+        { return get_val_bool(HTML_PREF_GRAPHICS_ON); }
+    void set_graphics_on(int flag)
+        { set_val_bool(HTML_PREF_GRAPHICS_ON, flag); }
+
+    /* 
+     *   show links setting 
+     */
+    
+    int get_links_on() const
+        { return get_val_bool(HTML_PREF_LINKS_ON); }
+    void set_links_on(int flag)
+        { set_val_bool(HTML_PREF_LINKS_ON, flag); }
+
+    /* 
+     *   show links on control key down setting 
+     */
+    
+    int get_links_ctrl() const
+        { return get_val_bool(HTML_PREF_LINKS_CTRL); }
+    void set_links_ctrl(int flag)
+        { set_val_bool(HTML_PREF_LINKS_CTRL, flag); }
+
+    /* 
+     *   hide DirectX warnings on startup 
+     */
+    
+    int get_directx_hidewarn() const
+        { return get_val_bool(HTML_PREF_DIRECTX_HIDEWARN); }
+    void set_directx_hidewarn(int flag)
+        { set_val_bool(HTML_PREF_DIRECTX_HIDEWARN, flag); }
+
+    /* 
+     *   DirectX error code from last startup 
+     */
+    
+    enum htmlw32_directx_err_t get_directx_error_code() const
+        { return ((htmlw32_directx_err_t)
+                  get_val_longint(HTML_PREF_DIRECTX_ERROR_CODE)); }
+    void set_directx_error_code(htmlw32_directx_err_t val)
+        { set_val_longint(HTML_PREF_DIRECTX_ERROR_CODE, (long)val); }
+
+    /* 
+     *   File safety level.  The file safety level is a little different than
+     *   other preferences, in that it can have a temporary setting that's
+     *   different from the persisently-stored preference setting.  This is
+     *   used when the player uses a safety-level command line option when
+     *   starting the run-time: the command-line setting overrides the
+     *   setting from the preferences, but doesn't get stored in the
+     *   preferences.
+     *   
+     *   set_temp_file_safety_level() overrides the settings in the
+     *   preferences.  Calling set_file_safety_level() sets the current
+     *   setting as well as the stored setting.  
+     */
+    void get_file_safety_level(int *read, int *write) const
+    {
+        if (temp_file_safety_level_set_)
+        {
+            *read = temp_file_safety_read_;
+            *write = temp_file_safety_write_;
+        }
+        else
+        {
+            *read = (int)get_val_longint(HTML_PREF_FILE_SAFETY_READ);
+            *write = (int)get_val_longint(HTML_PREF_FILE_SAFETY_WRITE);
+        }
+    }
+    void set_file_safety_level(int read, int write)
+    {
+        /* set the value in the preferences */
+        set_val_longint(HTML_PREF_FILE_SAFETY_READ, read);
+        set_val_longint(HTML_PREF_FILE_SAFETY_WRITE, write);
+
+        /* from now on, use the preference setting */
+        temp_file_safety_level_set_ = FALSE;
+    }
+    void set_temp_file_safety_level(int read, int write)
+    {
+        /* remember the value in memory, but not in the saved settings */
+        temp_file_safety_level_set_ = TRUE;
+        temp_file_safety_read_ = read;
+        temp_file_safety_write_ = write;
+    }
+
+    /*
+     *   Network safety level.  This works analogously to the file safety
+     *   level. 
+     */
+    void get_net_safety_level(int *client, int *server) const
+    {
+        if (temp_net_safety_level_set_)
+        {
+            *client = temp_net_client_safety_;
+            *server = temp_net_server_safety_;
+        }
+        else
+        {
+            *client = (int)get_val_longint(HTML_PREF_NET_CLIENT_SAFETY);
+            *server = (int)get_val_longint(HTML_PREF_NET_SERVER_SAFETY);
+        }
+    }
+    void set_net_safety_level(int client, int server)
+    {
+        /* set the values in the preferences */
+        set_val_longint(HTML_PREF_NET_CLIENT_SAFETY, client);
+        set_val_longint(HTML_PREF_NET_SERVER_SAFETY, server);
+
+        /* use the preference setting from now on */
+        temp_net_safety_level_set_ = FALSE;
+    }
+    void set_temp_net_safety_level(int client, int server)
+    {
+        /* remember the settings in memory only */
+        temp_net_safety_level_set_ = TRUE;
+        temp_net_client_safety_ = client;
+        temp_net_server_safety_ = server;
+    }
+
+    /*
+     *   File safety get/set callbacks for TADS run-time
+     */
+    static void set_io_safety_level_cb(void *ctx, int read, int write)
+    {
+        /* 
+         *   TADS calls us to set the initial safety level from the
+         *   command line - set the command line value as the temporary
+         *   setting, overriding any saved preference setting for this
+         *   session but not updating the preferences 
+         */
+        ((CHtmlPreferences *)ctx)->set_temp_file_safety_level(read, write);
+    }
+    static void get_io_safety_level_cb(void *ctx, int *read, int *write)
+    {
+        ((CHtmlPreferences *)ctx)->get_file_safety_level(read, write);
+    }
+
+    /*
+     *   Network safety get/set callbacks for TADS run-time 
+     */
+    static void set_net_safety_level_cb(void *ctx, int client, int server)
+    {
+        /* this works analogously to the file safety level scheme */
+        ((CHtmlPreferences *)ctx)->set_temp_net_safety_level(client, server);
+    }
+    static void get_net_safety_level_cb(void *ctx, int *cli, int *srv)
+    {
+        ((CHtmlPreferences *)ctx)->get_net_safety_level(cli, srv);
+    }
+
+    /* 
+     *   get a property value 
+     */
+    const textchar_t *get_val_str(HTML_pref_id_t id) const
+        { return proplist_->get_val_str(id); }
+    const CHtmlRect *get_val_rect(HTML_pref_id_t id) const
+        { return proplist_->get_val_rect(id); }
+    HTML_color_t get_val_color(HTML_pref_id_t id) const
+        { return proplist_->get_val_color(id); }
+    long get_val_longint(HTML_pref_id_t id) const
+        { return proplist_->get_val_longint(id); }
+    int get_val_bool(HTML_pref_id_t id) const
+        { return proplist_->get_val_bool(id); }
+
+    /* 
+     *   set a property value 
+     */
+    void set_val_str(HTML_pref_id_t id, const textchar_t *str)
+        { proplist_->set_val_str(id, str); }
+    void set_val_str(HTML_pref_id_t id, const textchar_t *str, size_t len)
+        { proplist_->set_val_str(id, str, len); }
+    void set_val_rect(HTML_pref_id_t id, const CHtmlRect *rect)
+        { proplist_->set_val_rect(id, rect); }
+    void set_val_color(HTML_pref_id_t id, HTML_color_t color)
+        { proplist_->set_val_color(id, color); }
+    void set_val_longint(HTML_pref_id_t id, long val)
+        { proplist_->set_val_longint(id, val); }
+    void set_val_bool(HTML_pref_id_t id, int val)
+        { proplist_->set_val_bool(id, val); }
+
+    /* get the pointer to the custom colors array */
+    COLORREF *get_cust_colors() { return cust_colors_; }
+
+    /*
+     *   Offered point sizes - this is an array of the point sizes, in
+     *   ascending order, that we offer for the font preferences.  The last
+     *   entry is always a zero to indicate the end of the list.  
+     */
+    static const int font_pt_sizes[];
+
+    /*
+     *   Sizing for the Customize Theme dialog's cached font name lists
+     *   (see cust_refresh_font_lists() and the cust_fonts_*_ arrays below).
+     *   Public because the file-scope font-enumeration callback in
+     *   htmlpref.cpp needs them too.
+     */
+    enum { CUST_MAX_FONTS = 300, CUST_FONT_NAME_LEN = 64 };
+
+    /* get/set the active profile name in the registry */
+    const textchar_t *get_active_profile_name() const;
+    void set_active_profile_name(const char *profile);
+
+    /* get/set the default profile name */
+    const textchar_t *get_default_profile() const
+        { return proplist_->get_val_str(HTML_PREF_DEFAULT_PROFILE); }
+    void set_default_profile(const textchar_t *profile)
+        { proplist_->set_val_str(HTML_PREF_DEFAULT_PROFILE, profile); }
+
+    /* get the name of the registry key containing the settings */
+    void get_settings_key(char *buf, size_t buflen);
+
+    /* get the name of the registry key for the given profile */
+    static void get_settings_key_for(char *buf, size_t buflen,
+                                     const char *profile);
+
+    /* check to see if a profile exists */
+    static int profile_exists(const char *profile);
+
+    /* 
+     *   check a profile name to see if it's a "standard" profile - this is
+     *   one of the pre-configured profiles, which shouldn't be deleted or
+     *   renamed 
+     */
+    static int is_standard_profile(const char *profile)
+    {
+        return (stricmp(profile, "Multimedia") == 0
+                || stricmp(profile, "Plain Text") == 0
+                || stricmp(profile, "Web Style") == 0);
+    }
+
+    /* set the factory defaults for the given standard theme */
+    void set_theme_defaults(const textchar_t *theme);
+
+private:
+    /* initialize the standard profiles */
+    void init_standard_profiles();
+
+    /* read/write a property from/to the persistent settings store */
+    void write_to_registry(HTML_pref_id_t id, tads_settings_key_t key);
+    void read_from_registry(HTML_pref_id_t id, tads_settings_key_t key);
+
+    /* compare a value in memory to the value in the settings store */
+    int equals_registry_value(HTML_pref_id_t id, tads_settings_key_t key);
+    
+    /* reference count */
+    int refcnt_;
+
+    /* preference property list */
+    class CHtmlPropList *proplist_;
+
+    /* the game window */
+    class CHtmlWinWithPrefs *win_;
+
+    /* registry custom color value name */
+    static const textchar_t custclr_val_name[];
+
+    /* the active profile name */
+    CStringBuf active_profile_;
+
+    /* custom color settings */
+    COLORREF cust_colors_[16];
+
+    /* our global 'preferences updated' window message */
+    UINT prefs_updated_msg_;
+
+    /* temporary file safety level setting */
+    int temp_file_safety_read_;
+    int temp_file_safety_write_;
+    int temp_file_safety_level_set_ : 1;
+
+    /* temporary network safety settings */
+    int temp_net_client_safety_;
+    int temp_net_server_safety_;
+    int temp_net_safety_level_set_ : 1;
+
+    /* ------------------------------------------------------------------ */
+    /*
+     *   ImGui "Options" dialog state (see open_options_dialog() /
+     *   render_options_dialog() in htmlpref.cpp).  Unlike the old
+     *   property-sheet pages, there's no separate "Apply" step: each control
+     *   writes straight through to the preferences object as soon as it
+     *   changes, exactly like the rest of the already-ported ImGui chrome
+     *   (menu bar, toolbar).  These fields are just the dialog's working
+     *   copy of on-screen state (combo/radio selections, edit buffers).
+     */
+    bool opt_dlg_open_ = false;
+    bool opt_dlg_want_open_ = false;
+    HWND opt_owner_hwnd_ = 0;
+
+    /*
+     *   "Manage Themes" dialog state (see open_manage_themes_dialog() /
+     *   render_manage_themes_dialog()).  This is just a standalone framing of
+     *   the Appearance tab below - it shares all of that tab's opt_* working
+     *   state and its opt_render_appearance_tab() body - so it only needs its
+     *   own open/pending-open flags.  The two dialogs are never open at the
+     *   same time (there's no way to reach the Themes menu while a modal
+     *   popup is up), so sharing the working state is safe.
+     */
+    bool mt_dlg_open_ = false;
+    bool mt_dlg_want_open_ = false;
+
+    /* Appearance tab */
+    char opt_desc_[128] = "";
+    char opt_profile_names_[64][128];
+    int opt_profile_count_ = 0;
+    int opt_profile_sel_ = -1;
+    bool opt_new_profile_popup_pending_ = false;
+    char opt_new_profile_name_[128] = "";
+    char opt_new_profile_err_[256] = "";
+
+    /* Keyboard tab */
+    int opt_emacs_ctrl_v_ = 0;
+    int opt_arrow_scroll_ = 0;
+    int opt_emacs_alt_v_ = 0;
+
+    /* File Safety tab */
+    int opt_safety_read_ = 0;
+    int opt_safety_write_ = 0;
+
+    /* Network Safety tab */
+    int opt_net_client_ = 0;
+    int opt_net_server_ = 0;
+
+    /* Memory tab */
+    int opt_mem_idx_ = 0;
+
+    /* Starting tab */
+    int opt_ask_game_ = 0;
+    char opt_init_folder_[OSFNMAX] = "";
+
+    /* Quitting tab */
+    int opt_close_action_ = 0;
+    int opt_postquit_action_ = 0;
+
+    /* Game Chest tab */
+    char opt_gc_file_[OSFNMAX] = "";
+    char opt_gc_bkg_[OSFNMAX] = "";
+
+    /* refresh opt_profile_names_/opt_profile_count_/opt_profile_sel_ */
+    void opt_refresh_profile_list();
+
+    /* update opt_* Appearance-tab state for the (newly) active profile */
+    void opt_on_profile_change();
+
+    /* individual tab renderers, called from render_options_dialog() */
+    void opt_render_appearance_tab();
+    void opt_render_keys_tab();
+    void opt_render_filesafety_tab();
+    void opt_render_netsafety_tab();
+    void opt_render_mem_tab();
+    void opt_render_start_tab();
+    void opt_render_quit_tab();
+    void opt_render_gamechest_tab();
+
+    /* ------------------------------------------------------------------ */
+    /*
+     *   ImGui "Customize Theme" dialog state (see
+     *   open_customize_theme_dialog()/render_customize_theme_dialog() in
+     *   htmlpref.cpp).  Replaces the old native Fonts/Colors/More/Media
+     *   property sheet; same immediate-write,
+     *   no-Apply-step convention as the Options dialog above - every
+     *   control writes straight through to the preferences object (and
+     *   fires the same schedule_reformat()/notify_*_pref_change() side
+     *   effects the native PSN_APPLY handlers used to) the instant it
+     *   changes.  These fields are just the dialog's working copy of
+     *   on-screen state.
+     */
+    bool cust_dlg_open_ = false;
+    bool cust_dlg_want_open_ = false;
+    HWND cust_owner_hwnd_ = 0;
+
+    /* cached font name lists, gathered fresh each time the dialog opens */
+    char cust_fonts_all_[CUST_MAX_FONTS][CUST_FONT_NAME_LEN];
+    int cust_fonts_all_count_ = 0;
+    char cust_fonts_fixed_[CUST_MAX_FONTS][CUST_FONT_NAME_LEN];
+    int cust_fonts_fixed_count_ = 0;
+    char cust_fonts_serif_[CUST_MAX_FONTS][CUST_FONT_NAME_LEN];
+    int cust_fonts_serif_count_ = 0;
+    char cust_fonts_sans_[CUST_MAX_FONTS][CUST_FONT_NAME_LEN];
+    int cust_fonts_sans_count_ = 0;
+    char cust_fonts_script_[CUST_MAX_FONTS][CUST_FONT_NAME_LEN];
+    int cust_fonts_script_count_ = 0;
+    char cust_fonts_typewriter_[CUST_MAX_FONTS][CUST_FONT_NAME_LEN];
+    int cust_fonts_typewriter_count_ = 0;
+
+    /* Font tab working state */
+    char cust_font_prop_[CUST_FONT_NAME_LEN] = "";
+    int cust_fontsz_prop_ = 0;
+    char cust_font_mono_[CUST_FONT_NAME_LEN] = "";
+    int cust_fontsz_mono_ = 0;
+    char cust_font_serif_[CUST_FONT_NAME_LEN] = "";
+    int cust_fontsz_serif_ = 0;
+    char cust_font_sans_[CUST_FONT_NAME_LEN] = "";
+    int cust_fontsz_sans_ = 0;
+    char cust_font_script_[CUST_FONT_NAME_LEN] = "";
+    int cust_fontsz_script_ = 0;
+    char cust_font_typewriter_[CUST_FONT_NAME_LEN] = "";
+    int cust_fontsz_typewriter_ = 0;
+    char cust_font_input_[CUST_FONT_NAME_LEN] = "";
+    int cust_fontsz_input_ = 0;
+    HTML_color_t cust_input_color_ = 0;
+    bool cust_input_bold_ = false;
+    bool cust_input_italic_ = false;
+
+    /* Colors tab working state */
+    HTML_color_t cust_bg_color_ = 0;
+    HTML_color_t cust_text_color_ = 0;
+    HTML_color_t cust_link_color_ = 0;
+    HTML_color_t cust_vlink_color_ = 0;
+    HTML_color_t cust_hlink_color_ = 0;
+    HTML_color_t cust_alink_color_ = 0;
+    HTML_color_t cust_stat_text_color_ = 0;
+    HTML_color_t cust_stat_bg_color_ = 0;
+    bool cust_use_win_colors_ = false;
+    bool cust_override_colors_ = false;
+    bool cust_underline_links_ = false;
+    bool cust_hover_hilite_ = false;
+    int cust_show_links_sel_ = 0;          /* 0=Always, 1=Ctrl, 2=Never */
+    bool cust_warned_link_change_ = false;
+
+    /* More tab working state */
+    int cust_alt_more_style_ = 0;
+
+    /* Media tab working state */
+    bool cust_graphics_on_ = false;
+    bool cust_sounds_on_ = false;
+    bool cust_music_on_ = false;
+
+    /* re-gather the cust_fonts_*_ lists for the given character set */
+    void cust_refresh_font_lists(unsigned int charset_id);
+
+    /* font family selector callbacks, for cust_refresh_font_lists() */
+    static int cust_font_select_serif(ENUMLOGFONTEX *elf, NEWTEXTMETRIC *tm);
+    static int cust_font_select_sans(ENUMLOGFONTEX *elf, NEWTEXTMETRIC *tm);
+    static int cust_font_select_script(ENUMLOGFONTEX *elf, NEWTEXTMETRIC *tm);
+    static int cust_font_select_typewriter(ENUMLOGFONTEX *elf,
+                                          NEWTEXTMETRIC *tm);
+
+    /* individual tab renderers, called from render_customize_theme_dialog() */
+    void cust_render_font_tab();
+    void cust_render_colors_tab();
+    void cust_render_more_tab();
+    void cust_render_media_tab();
+
+    /* combo-box helpers shared by the Font tab's rows */
+    bool cust_font_combo(const char *imgui_id,
+                        char (*list)[CUST_FONT_NAME_LEN], int count,
+                        char *cur);
+    bool cust_fontsz_combo(const char *imgui_id, int *cur);
+
+    /* color-swatch helper shared by the Colors tab's rows */
+    bool cust_color_edit(const char *label, HTML_color_t *color);
+};
+
+#endif /* HTMLPREF_H */
+

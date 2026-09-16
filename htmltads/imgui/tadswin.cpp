@@ -1,0 +1,3925 @@
+#ifdef RCSID
+static char RCSid[] =
+"$Header: d:/cvsroot/tads/html/win32/tadswin.cpp,v 1.3 1999/07/11 00:46:48 MJRoberts Exp $";
+#endif
+
+/* 
+ *   Copyright (c) 1997 by Michael J. Roberts.  All Rights Reserved.
+ *   
+ *   Please see the accompanying license file, LICENSE.TXT, for information
+ *   on using and copying this software.  
+ */
+/*
+Name
+  tadswin.cpp - TADS window classes
+Function
+  
+Notes
+  
+Modified
+  09/16/97 MJRoberts  - Creation
+*/
+
+
+#ifdef _WIN32
+#include <Windows.h>
+#include <mmsystem.h>
+#include <commctrl.h>
+#else
+#include "tadsplat.h"
+#endif
+#include <limits.h>
+#include <stdarg.h>
+#include <stdio.h>
+
+#include <imgui/imgui.h>
+#include <imgui/imgui_impl_glfw.h>
+#include <imgui/imgui_impl_opengl3.h>
+
+#ifndef HTMLRES_H
+#include "htmlres.h"
+#endif
+#ifndef TADSWIN_H
+#include "tadswin.h"
+#endif
+#ifndef TADSAPP_H
+#include "tadsapp.h"
+#endif
+#ifndef TADSMIDI_H
+#include "tadsmidi.h"
+#endif
+#ifndef TADSFONT_H
+#include "tadsfont.h"
+#endif
+#ifndef GUIOS_H
+#include "guios.h"
+#endif
+#include "imgui/imgui_internal.h"
+
+#ifndef WM_MOUSEWHEEL
+#define WM_MOUSEWHEEL   0x020A                            /* from WinUser.h */
+#define WHEEL_DELTA     120                 /* Value for rolling one detent */
+#define SPI_GETWHEELSCROLLLINES 104                       /* from WinUser.h */
+#endif
+
+/* ------------------------------------------------------------------------ */
+/*
+ *   Our special version of the Win32 API call GetTextExtentPoint32.  This
+ *   API call is buggy on Windows 2000; some people have encountered odd
+ *   problems that we traced to this API, and MS tech support has confirmed
+ *   that the API has a problem calculating the size of some realized fonts.
+ *   
+ *   It seems that we can work around the problem by using the alternative
+ *   API call GetTextExtentExPoint instead; that function seems to work
+ *   consistently even in Win2k.  The only problem is that
+ *   GetTextExtentExPoint is documented as being considerably slower than
+ *   GetTextExtentPoint32.  So, we test the OS version, using
+ *   GetTextExtentExPoint if we're on Win2k, and GetTextExtentPoint32
+ *   everywhere else.  
+ */
+void ht_GetTextExtentPoint32(HDC dc, const textchar_t *txt, size_t len,
+                             SIZE *txtsiz)
+{
+    if (CTadsApp::get_app()->is_win2k())
+    {
+        /* 
+         *   We're on Windows 2000, where GetTextExtentPoint32 is known to be
+         *   buggy - use the more reliable (but slower) GetTextExtentExPoint
+         *   instead.
+         *   
+         *   On *some* versions of win2k, GetTextExtentExPoint is itself
+         *   buggy in one odd case: it fails when presented with a
+         *   zero-length string.  (I call this behavior "buggy" because it's
+         *   not documented, this function accepts zero-length strings on
+         *   other versions of Windows and even on some versions of Win2k.)
+         *   Fortunately, this one is easy enough to work around: check to
+         *   see if we have a zero-length string, and return a zero-by-zero
+         *   extent if so.  
+         */
+        if (len == 0)
+        {
+            /* it's an empty string, so return a 0x0 extent */
+            txtsiz->cx = txtsiz->cy = 0;
+            return;
+        }
+
+        /* get the text extent */
+        GetTextExtentExPoint(dc, txt, len, 0, 0, 0, txtsiz);
+    }
+    else
+    {
+        /* we're on anything but win2k, so GetTextExtentPoint32 is safe */
+        GetTextExtentPoint32(dc, txt, len, txtsiz);
+    }
+}
+
+/* ------------------------------------------------------------------------ */
+/*
+ *   ImGui-native replacement for MessageBox().  See tadswin.h for details.
+ */
+int tadswin_message_box(GLFWwindow *window, const textchar_t *msg,
+                        const textchar_t *caption, UINT type)
+{
+    /* with no GLFW window yet, there's nothing to render into */
+    if (window == 0)
+        return MessageBox(0, msg, caption, type);
+
+    /* work out the button set and what each button reports back */
+    struct { const char *label; int result; } btns[2];
+    int nbtns;
+    switch (type & 0x0000000F /* MB_TYPEMASK */)
+    {
+    case MB_OKCANCEL:
+        btns[0].label = "OK";     btns[0].result = IDOK;
+        btns[1].label = "Cancel"; btns[1].result = IDCANCEL;
+        nbtns = 2;
+        break;
+
+    case MB_YESNO:
+        btns[0].label = "Yes"; btns[0].result = IDYES;
+        btns[1].label = "No";  btns[1].result = IDNO;
+        nbtns = 2;
+        break;
+
+    case MB_OK:
+    default:
+        btns[0].label = "OK"; btns[0].result = IDOK;
+        nbtns = 1;
+        break;
+    }
+
+    int result = 0;
+    bool popup_opened = false;
+    while (result == 0 && !glfwWindowShouldClose(window))
+    {
+        glfwPollEvents();
+
+        ImGui_ImplOpenGL3_NewFrame();
+        ImGui_ImplGlfw_NewFrame();
+        ImGui::NewFrame();
+
+        /* open the popup on the first frame only; BeginPopupModal keeps it up */
+        if (!popup_opened)
+        {
+            ImGui::OpenPopup(caption);
+            popup_opened = true;
+        }
+
+        /* scale the fixed pixel sizes for the display - see migration.md 3.5a */
+        const float s = CTadsFont::get_dpi_scale();
+
+        ImGuiViewport *vp = ImGui::GetMainViewport();
+        ImGui::SetNextWindowPos(
+            ImVec2(vp->Pos.x + vp->Size.x * 0.5f, vp->Pos.y + vp->Size.y * 0.5f),
+            ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
+        ImGui::SetNextWindowSize(ImVec2(420 * s, 0), ImGuiCond_Appearing);
+
+        if (ImGui::BeginPopupModal(caption, 0,
+            ImGuiWindowFlags_NoResize | ImGuiWindowFlags_AlwaysAutoResize))
+        {
+            ImGui::PushTextWrapPos(400 * s);
+            ImGui::TextUnformatted(msg);
+            ImGui::PopTextWrapPos();
+
+            ImGui::Spacing();
+            ImGui::Separator();
+            ImGui::Spacing();
+
+            const float btn_w = 90.0f * s;
+            float total_w = btn_w * nbtns
+                            + ImGui::GetStyle().ItemSpacing.x * (nbtns - 1);
+            ImGui::SetCursorPosX(
+                ImGui::GetCursorPosX()
+                + (ImGui::GetContentRegionAvail().x - total_w) * 0.5f);
+
+            for (int i = 0; i < nbtns; ++i)
+            {
+                if (i > 0)
+                    ImGui::SameLine();
+                if (ImGui::Button(btns[i].label, ImVec2(btn_w, 0))
+                    || (i == 0 && ImGui::IsKeyPressed(ImGuiKey_Enter)))
+                {
+                    result = btns[i].result;
+                    ImGui::CloseCurrentPopup();
+                }
+            }
+
+            ImGui::EndPopup();
+        }
+
+        ImGui::Render();
+        int display_w, display_h;
+        glfwGetFramebufferSize(window, &display_w, &display_h);
+        glViewport(0, 0, display_w, display_h);
+        glClearColor(0.45f, 0.55f, 0.60f, 1.00f);
+        glClear(GL_COLOR_BUFFER_BIT);
+        ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
+
+        glfwSwapBuffers(window);
+    }
+
+    /* if the user closed the window itself, treat it like Cancel/No */
+    return result != 0 ? result : IDCANCEL;
+}
+
+/* ------------------------------------------------------------------------ */
+/*
+ *   Button click record
+ */
+
+/*
+ *   Determine if a click is a double, triple, etc click, and record the
+ *   click information so that we can make the same type of determination
+ *   for the next click.
+ */
+int BtnClick_t::get_click_count(LPARAM lpar)
+{
+    int x = LOWORD(lpar);
+    int y = HIWORD(lpar);
+    int dx = GetSystemMetrics(SM_CXDOUBLECLK);
+    int dy = GetSystemMetrics(SM_CYDOUBLECLK);
+    unsigned long curtime = os_get_tick_ms();
+    int cnt;
+
+    /*
+     *   if the click is within the distance and time parameters of the
+     *   last click, it's a mulitple click; otherwise, it's the first
+     *   click 
+     */
+    if (curtime <= time_ + GetDoubleClickTime()
+        && x >= x_ - dx && x <= x_ + dx
+        && y >= y_ - dx && y <= y_ + dy)
+    {
+        /*
+         *   it's close enough to the last click in time and space, so it
+         *   counts as the second click of a double click, third of a
+         *   triple click, or whatever -- up the count and return it 
+         */
+        cnt = ++cnt_;
+    }
+    else
+    {
+        /* it's the first click */
+        cnt = cnt_ = 1;
+    }
+
+    /* remember the new settings */
+    x_ = x;
+    y_ = y;
+    time_ = curtime;
+
+    /* return the count we calculated for this click */
+    return cnt;
+}
+
+/* ------------------------------------------------------------------------ */
+/*
+ *   Timer allocation record.  We use this structure to track free timer
+ *   ID's.  
+ */
+struct tadswin_timer_alo
+{
+    /* ID of this timer */
+    int id;
+
+    /* next in list */
+    tadswin_timer_alo *nxt;
+};
+
+/* ------------------------------------------------------------------------ */
+/*
+ *   Basic window implementation 
+ */
+
+/* window class names for system registration */
+const char CTadsWin::win_class_name[] = "TADS_Window";
+const char CTadsWin::mdichild_win_class_name[] = "TADS_MDIChild_Window";
+const char CTadsWin::mdiframe_win_class_name[] = "TADS_MDIFrame_Window";
+const char CTadsWin::mdiclient_win_class_name[] = "TADS_MDIClient_Window";
+
+/* statics */
+int CTadsWin::next_timer_id_ = 1;
+tadswin_timer_alo *CTadsWin::free_timers_ = 0;
+tadswin_timer_alo *CTadsWin::inuse_timers_ = 0;
+size_t CTadsWin::menuiteminfo_size_ = sizeof(MENUITEMINFO);
+size_t CTadsWin::rebarbandinfo_size_ = sizeof(REBARBANDINFO);
+size_t CTadsWin::imagelistdrawparams_size_ = sizeof(IMAGELISTDRAWPARAMS);
+
+/* some newer SDK items */
+#ifndef REBARBANDINFO_V6_SIZE
+# define REBARBANDINFOA_V6_SIZE CCSIZEOF_STRUCT(REBARBANDINFOA, cxHeader)
+# define REBARBANDINFOW_V6_SIZE CCSIZEOF_STRUCT(REBARBANDINFOW, cxHeader)
+# ifdef UNICODE
+#  define REBARBANDINFO_V6_SIZE REBARBANDINFOA_V6_SIZE
+# else
+#  define REBARBANDINFO_V6_SIZE REBARBANDINFOW_V6_SIZE
+# endif
+#endif
+
+
+/*
+ *   static class initialization 
+ */
+void CTadsWin::class_init(CTadsApp *app)
+{
+    /* 
+     *   If we're on Win95 or NT4, force the MENUITEMINFO structure size to
+     *   44 bytes - the old API's can't handle the new larger size that the
+     *   more recent Microsoft header files use for this structure.  For
+     *   other versions of the OS, use the current structure size.  
+     */
+    if (app->is_win95_or_nt4())
+        menuiteminfo_size_ = CDSIZEOF_STRUCT(MENUITEMINFO, cch);
+
+    /* if we're on anything before Vista, use the old REBARBANDINFO size */
+    if (!app->is_win_vista_plus())
+        rebarbandinfo_size_ = REBARBANDINFO_V6_SIZE;
+
+    /* if we're on anything before Vista, use old IMAGELISTDRAWPARAMS size */
+    if (!app->is_win_vista_plus())
+        imagelistdrawparams_size_ = IMAGELISTDRAWPARAMS_V3_SIZE;
+}
+
+/*
+ *   static class termination 
+ */
+void CTadsWin::class_terminate()
+{
+    tadswin_timer_alo *cur;
+    tadswin_timer_alo *nxt;
+
+    /* delete all of our timer allocation tracking structures */
+    for (cur = free_timers_ ; cur != 0 ; cur = nxt)
+    {
+        nxt = cur->nxt;
+        th_free(cur);
+    }
+    for (cur = inuse_timers_ ; cur != 0 ; cur = nxt)
+    {
+        nxt = cur->nxt;
+        th_free(cur);
+    }
+}
+
+/*
+ *   create a window object
+ */
+CTadsWin::CTadsWin()
+{
+    /* no handle or device context yet */
+    handle_ = 0;
+    hdc_ = 0;
+    display_hdc_ = 0;
+
+    /* no system interface object yet */
+    sysifc_ = 0;
+
+    /* not yet tracking a popup menu */
+    tracking_popup_menu_ = FALSE;
+
+    /* no toolbars yet */
+    toolbar_cnt_ = 0;
+    tb_timer_id_ = 0;
+
+    /* no drag in progress yet */
+    drag_ready_ = FALSE;
+    drag_capture_ = FALSE;
+
+    /* not registered as a drop target yet */
+    drop_target_regd_ = FALSE;
+    drop_target_helper_ = 0;
+
+    /* 
+     *   Start off with an OLE reference count of one - we'll use this as
+     *   the reference from the system window to this object, and release
+     *   it when the system window is destroyed.  Note that we add the
+     *   reference here rather than in do_create, since we don't want to
+     *   be in a state with a zero reference count, and we presume that
+     *   the system window will eventually be created.  
+     */
+    ole_refcnt_ = 1;
+
+    /* presume we're not yet maximized */
+    maximized_ = FALSE;
+
+    /* no external scrolling window yet */
+    scroll_win_ = 0;
+
+    /* no scroll wheel accumulation yet */
+    wheel_accum_ = 0;
+
+    /* by default, use direct rendering */
+    off_screen_render_ = FALSE;
+}
+
+CTadsWin::~CTadsWin()
+{
+    /* delete the system interface object */
+    if (sysifc_ != 0)
+        delete sysifc_;
+
+    /* 
+     *   if we're controlling scrolling in another window, release the
+     *   other window reference 
+     */
+    if (scroll_win_ != 0)
+        scroll_win_->Release();
+
+    if (parent_) {
+        for (auto it = parent_->m_children.begin(); it != parent_->m_children.end(); ++it) {
+            if (*it == this) {
+                parent_->m_children.erase(it);
+                break;
+            }
+        }
+    }
+    for (auto child : m_children) {
+        child->parent_ = nullptr;
+    }
+}
+
+/*
+ *   Register the window class with the operating system.  This must be
+ *   called once during program initialization, before any windows of this
+ *   class are created.  
+ */
+void CTadsWin::register_win_class(CTadsApp *app)
+{
+#ifdef _WIN32
+    WNDCLASS wc;
+
+    /* register the standard window class */
+    wc.style         = CS_OWNDC | CS_VREDRAW | CS_HREDRAW;
+    wc.cbClsExtra    = 0;
+    wc.cbWndExtra    = sizeof(void *);
+    wc.hInstance     = app->get_instance();
+    wc.hIcon         = LoadIcon(app->get_instance(),
+                                MAKEINTRESOURCE(IDI_MAINWINICON));
+    wc.hCursor       = LoadCursor(NULL, IDC_ARROW);
+    wc.hbrBackground = (HBRUSH)GetStockObject(WHITE_BRUSH);
+    wc.lpszMenuName  = NULL;
+    wc.lpfnWndProc   = std_message_handler;
+    wc.lpszClassName = win_class_name;
+    RegisterClass(&wc);
+#else
+    /* no real Win32 window class off Windows - guit3 never creates an HWND
+       of its own (migration.md 3.4/3.4a); this is a no-op here. */
+    (void)app;
+#endif
+}
+
+/*
+ *   Create the system window for this object
+ */
+int CTadsWin::create_system_window(CTadsWin *parent, int show,
+                                   const char *title,
+                                   const RECT *pos, CTadsSyswin *sysifc)
+{
+    /* use the default parent handle for the parent object */
+    return create_system_window(parent,
+                                parent != 0
+                                ? parent->get_parent_of_children() : 0,
+                                show, title, pos, sysifc);
+}
+
+/*
+ *   Create a system window given an explicit parent handle 
+ */
+int CTadsWin::create_system_window(CTadsWin *parent, HWND parent_hwnd,
+                                   int show, const char *title,
+                                   const RECT *pos, CTadsSyswin *sysifc)
+{
+    /* note my parent */
+    parent_ = parent;
+    if (parent != nullptr) {
+        parent->m_children.push_back(this);
+    }
+
+    m_title = title;
+    m_pos = ImVec2(pos->left, pos->top);
+    m_size = ImVec2(pos->right - pos->left, pos->bottom - pos->top);
+
+    /* remember the system interface object */
+    sysifc_ = sysifc;
+
+    /*
+     *   No real Win32 HWND any more, for any window - top-level or child.
+     *   guit3 has no GetMessage/DispatchMessage pump (see migration.md §2):
+     *   a real top-level frame only ever sat on screen as a dead, blank
+     *   window next to the GLFW/ImGui one, and the child controls that used
+     *   to need a real HWND parent (banners, scrollbars, etc.) are all ImGui
+     *   -native now (§3.4).  handle_ is an opaque, non-null, unique token -
+     *   the same technique §3.4 already uses for vscroll_/hscroll_ - so every
+     *   "handle_ != 0" / "hwnd == handle_" comparison in the still-partly-
+     *   ported tree keeps working unchanged.  Win32 calls that actually touch
+     *   a window (GetClientRect, timers, ...) have been replaced with ImGui/
+     *   GLFW equivalents; the remaining ones (InvalidateRect etc.) are inert
+     *   no-ops on a non-window handle, matching this port's "harmless dead
+     *   code" convention.
+     *
+     *   do_create() is normally called via WM_CREATE during CreateWindowEx;
+     *   with no window creation to trigger it, call it explicitly here, at
+     *   the same point in the sequence (for a top-level window, before its
+     *   GLFW m_window is made, matching the old ordering).
+     */
+    handle_ = reinterpret_cast<HWND>(this);
+    do_create();
+
+    if (parent == nullptr) {
+        m_window = sysifc->syswin_create_system_window(
+            title, get_winstyle(), pos->left, pos->top,
+            (pos->right == CW_USEDEFAULT && pos->left == CW_USEDEFAULT
+                ? CW_USEDEFAULT : pos->right - pos->left),
+            (pos->bottom == CW_USEDEFAULT && pos->bottom == CW_USEDEFAULT
+                ? CW_USEDEFAULT : pos->bottom - pos->top));
+    }
+
+    /* if that failed, return a failure indication */
+    if (handle_ == 0)
+        return 1;
+
+    /* show the window if desired */
+    if (show)
+		setVisible(true);
+
+    /* success */
+    return 0;
+}
+
+/*
+ *   Get the window frame position for persistence purposes 
+ */
+HWND CTadsWin::get_frame_pos(HWND win, RECT *pos)
+{
+    HWND hwnd;
+    int mdi;
+
+    /* get the enclosing popup or MDI client window */
+    for (mdi = FALSE, hwnd = win ; hwnd != 0 ; hwnd = GetParent(hwnd))
+    {
+        mdi = is_mdi_child();
+        if (mdi || is_frame_window())
+            break;
+    }
+
+    /* if we couldn't find a suitable parent, use our own handle */
+    if (hwnd == 0)
+        hwnd = win;
+
+    /* get the window rectangle */
+    GetWindowRect(hwnd, pos);
+
+    /* if it's an MDI child, adjust to client-relative coordinates */
+    if (mdi)
+        MapWindowPoints(0, GetParent(hwnd), (POINT *)pos, 2);
+
+    /* return the window handle we retrieved */
+    return hwnd;
+}
+
+
+/*
+ *   Windows message handler callback for MDI Frame windows 
+ */
+LRESULT CALLBACK CTadsWin::
+   mdiframe_message_handler(HWND hwnd, UINT msg, WPARAM wpar, LPARAM lpar)
+{
+    CTadsWin *win;
+
+    /* get the window from the window class */
+    win = (CTadsWin *)GetWindowLongPtr(hwnd, 0);
+
+    /* see if the window handle has been set yet */
+    if (win == 0)
+    {
+        switch(msg)
+        {
+        case WM_NCCREATE:
+            /* creating the window - get the handle from the parameters */
+            win = (CTadsWin *)((CREATESTRUCT *)lpar)->lpCreateParams;
+            break;
+
+        default:
+            /* 
+             *   use default handling for any messages we receive before
+             *   we get our window object 
+             */
+            return DefFrameProc(hwnd, 0, msg, wpar, lpar);
+        }
+
+        /* set the window handle in window long #0 */
+        SetWindowLongPtr(hwnd, 0, (LONG_PTR)win);
+    }
+
+    if (msg == WM_NCDESTROY) {
+        return DefWindowProc(hwnd, msg, wpar, lpar);
+    }
+
+    /* use the common message dispatcher */
+    return win->common_msg_handler(hwnd, msg, wpar, lpar);
+}
+
+
+/*
+ *   Windows message handler callback for MDI child windows 
+ */
+LRESULT CALLBACK CTadsWin::
+   mdichild_message_handler(HWND hwnd, UINT msg, WPARAM wpar, LPARAM lpar)
+{
+    CTadsWin *win;
+
+    /* get the window from the window class */
+    win = (CTadsWin *)GetWindowLongPtr(hwnd, 0);
+
+    /* see if the window handle has been set yet */
+    if (win == 0)
+    {
+        switch(msg)
+        {
+        case WM_NCCREATE:
+        case WM_CREATE:
+            /* 
+             *   For MDI child windows, we get a WM_CREATE message instead
+             *   of a WM_NCCREATE.  We need to look inside the
+             *   MDICREATESTRUCT structure instead of the CREATESTRUCT, as
+             *   we do for non-MDI windows.  
+             */
+            win = (CTadsWin *)
+                  ((MDICREATESTRUCT *)
+                   (((CREATESTRUCT *)lpar)->lpCreateParams))->lParam;
+
+            /* done */
+            break;
+
+        default:
+            /* 
+             *   return default handling for any messages we receive
+             *   before we find our window object 
+             */
+            return DefMDIChildProc(hwnd, msg, wpar, lpar);
+        }
+
+        /* set the window handle in window long #0 */
+        SetWindowLongPtr(hwnd, 0, (LONG_PTR)win);
+    }
+
+    /* check for messages we need to send our parent */
+    switch (msg)
+    {
+    case WM_CREATE:
+    case WM_DESTROY:
+    case WM_MDIACTIVATE:
+    case WM_SHOWWINDOW:
+    case WM_SIZE:
+        /* notify our parent, to let it manage its MDI child list */
+        win->get_parent()->mdi_child_event(win, msg, wpar, lpar);
+    }
+
+    if (msg == WM_NCDESTROY) {
+        return DefWindowProc(hwnd, msg, wpar, lpar);
+    }
+
+    /* use the common message dispatcher */
+    return win->common_msg_handler(hwnd, msg, wpar, lpar);
+}
+
+
+/*
+ *   Windows message handler callback for standard windows
+ */
+LRESULT CALLBACK CTadsWin::
+   std_message_handler(HWND hwnd, UINT msg, WPARAM wpar, LPARAM lpar)
+{
+    CTadsWin *win;
+
+    /* get the window from the window class */
+    win = (CTadsWin *)GetWindowLongPtr(hwnd, 0);
+
+    /* see if the window handle has been set yet */
+    if (win == 0)
+    {
+        switch(msg)
+        {
+        case WM_NCCREATE:
+            /* creating the window - get the handle from the parameters */
+            win = (CTadsWin *)((CREATESTRUCT *)lpar)->lpCreateParams;
+            break;
+            
+        default:
+            /* 
+             *   use default handling for any messages we receive before
+             *   we get our window object 
+             */
+            return DefWindowProc(hwnd, msg, wpar, lpar);
+        }
+
+        /* set the window handle in window long #0 */
+        SetWindowLongPtr(hwnd, 0, (LONG_PTR)win);
+    }
+
+    if (msg == WM_NCDESTROY) {
+        return DefWindowProc(hwnd, msg, wpar, lpar);
+    }
+
+    /* use the common message dispatcher */
+    return win->common_msg_handler(hwnd, msg, wpar, lpar);
+}
+
+/*
+ *   Common message handler used by all window types 
+ */
+LRESULT CTadsWin::common_msg_handler(HWND hwnd, UINT msg,
+                                     WPARAM wpar, LPARAM lpar)
+{
+    LRESULT ret;
+
+    /*
+     *   make sure the window handle is initialized in the window object,
+     *   in case we got a message before we got back from CreateWindowEx
+     *   (which is where the handle would normally first be stored in the
+     *   window) 
+     */
+    handle_ = hwnd;
+
+    /* see what message we got */
+    switch(msg)
+    {
+    case WM_CREATE:
+        do_create();
+        break;
+
+    case WM_CLOSE:
+        if (!do_close())
+            return 0;
+        break;
+
+    case WM_DESTROY:
+        do_destroy();
+        return 0;
+
+    case WM_ACTIVATE:
+        if (do_activate(LOWORD(wpar), HIWORD(wpar), (HWND)lpar))
+            return 0;
+        break;
+
+    case WM_ACTIVATEAPP:
+        if (do_activate_app((int)wpar, (DWORD)lpar))
+            return 0;
+        break;
+
+    case WM_NCACTIVATE:
+        if (do_ncactivate((int)wpar))
+            return 0;
+        break;
+
+    case WM_MDIACTIVATE:
+        if (do_mdiactivate((HWND)wpar, (HWND)lpar))
+            return 0;
+        break;
+
+    case WM_CHILDACTIVATE:
+        /* process the message */
+        do_childactivate();
+
+        /* always pass this to MDI */
+        break;
+
+    case WM_MDIREFRESHMENU:
+        /* MDI menu refresh */
+        if (do_mdirefreshmenu())
+            return 0;
+        break;
+
+    case WM_MOUSEACTIVATE:
+        {
+            LRESULT result;
+
+            /* see what the window thinks */
+            if (do_mouseactivate((HWND)wpar, (int)LOWORD(lpar),
+                                 (unsigned int)HIWORD(lpar), &result))
+            {
+                /* the window specified an explicit result - return it */
+                return result;
+            }
+        }
+        break;
+
+    case WM_INITMENU:
+        // $$$
+        break;
+        
+    case WM_INITMENUPOPUP:
+        /* call the virtual handler */
+        init_menu_popup((HMENU)wpar, LOWORD(lpar), HIWORD(lpar));
+
+        /* pass it to the global icon menu handlers as well */
+        CTadsApp::get_app()->
+            send_initmenupopup_to_menu_handlers(hwnd, wpar, lpar);
+
+        /* we've handled it */
+        return 0;
+
+    case WM_CONTEXTMENU:
+        if (do_context_menu((HWND)wpar, LOWORD(lpar), HIWORD(lpar)))
+            return 0;
+        break;
+
+    case WM_COMMAND:
+        /* try running the command */
+        if (do_command(HIWORD(wpar), LOWORD(wpar), (HWND)lpar))
+        {
+            /* 
+             *   the command was handled - update any toolbars immediately,
+             *   so that there's no delay in refreshing the toolbar
+             *   appearance after an explicit user command action 
+             */
+            update_toolbar_buttons();
+
+            /* tell Windows we handled it */
+            return 0;
+        }
+        break;
+
+    case WM_SYSCOMMAND:
+        /* process the system menu key or mouse command */
+        if ((wpar & 0xFFF0) == SC_KEYMENU
+            ? do_syskeymenu((TCHAR)lpar)
+            : do_syscommand((unsigned int)(wpar & 0xFFF0),
+                            (int)LOWORD(lpar), (int)HIWORD(lpar)))
+            return 0;
+        break;
+
+    case WM_MENUCHAR:
+        if (do_menuchar((TCHAR)LOWORD(wpar), (unsigned int)HIWORD(wpar),
+                        (HMENU)lpar, &ret))
+            return ret;
+        break;
+
+    case WM_NOTIFY:
+        /* 
+         *   Send the notification and return the result.  Note that we don't
+         *   invoke the default window procedure, no matter what the notify
+         *   handler returns; default window procedures never have any use
+         *   for notifications.  
+         */
+        return do_notify((int)wpar, ((LPNMHDR)lpar)->code, (LPNMHDR)lpar);
+
+    case WM_MEASUREITEM:
+        /* call the virtual measure-item routine */
+        ret = do_measure_item((int)wpar, (MEASUREITEMSTRUCT *)lpar);
+
+        /* also pass it to the global icon menu handlers */
+        CTadsApp::get_app()->send_measureitem_to_menu_handlers(
+            hwnd, wpar, lpar);
+
+        /* if the virtual handler handled it, we're done */
+        if (ret)
+            return TRUE;
+        break;
+
+    case WM_DRAWITEM:
+        /* call the virtual draw-item routine */
+        ret = do_draw_item((int)wpar, (DRAWITEMSTRUCT *)lpar);
+
+        /* also pass it to the global icon menu handlers */
+        CTadsApp::get_app()->send_drawitem_to_menu_handlers(hwnd, wpar, lpar);
+
+        /* if the virtual handler handled it, we're done */
+        if (ret)
+            return TRUE;
+        break;
+
+    case WM_SETFOCUS:
+        /* call the virtual handler */
+        do_setfocus((HWND)wpar);
+
+        /* 
+         *   Check to see if we must always pass this message to the
+         *   default handler -- for MDI frame windows, for example, we
+         *   must pass it to the default handler even if we handle it
+         *   ourselves. 
+         */
+        if (always_pass_message(WM_SETFOCUS))
+            break;
+
+        /* handled */
+        return 0;
+
+    case WM_KILLFOCUS:
+        do_killfocus((HWND)wpar);
+        return 0;
+
+    case WM_PAINT:
+        /* paint the window (iconically or normally, depending on state) */
+        if (IsIconic(hwnd) ? do_paint_iconic() : do_paint())
+            return 0;
+        break;
+
+    case WM_ERASEBKGND:
+        if (do_erase_bkg((HDC)wpar))
+            return 1;
+        break;
+
+    case WM_QUERYDRAGICON:
+        break;
+
+    case WM_LBUTTONDBLCLK:
+        break;
+
+    case WM_LBUTTONDOWN:
+        if (do_leftbtn_down(wpar, (short)LOWORD(lpar), (short)HIWORD(lpar),
+                            lbtn_click.get_click_count(lpar)))
+            return 0;
+        break;
+
+    case WM_LBUTTONUP:
+        if (do_leftbtn_up(wpar, (short)LOWORD(lpar), (short)HIWORD(lpar)))
+            return 0;
+        break;
+
+    case WM_RBUTTONDOWN:
+        if (do_rightbtn_down(wpar, (short)LOWORD(lpar), (short)HIWORD(lpar),
+                             rbtn_click.get_click_count(lpar)))
+            return 0;
+        break;
+
+    case WM_RBUTTONUP:
+        if (do_rightbtn_up(wpar, (short)LOWORD(lpar), (short)HIWORD(lpar)))
+            return 0;
+        break;
+
+    case WM_NCLBUTTONDOWN:
+        if (do_nc_leftbtn_down(get_key_mk_state(),
+                               MAKEPOINTS(lpar).x, MAKEPOINTS(lpar).y,
+                               lbtn_click.get_click_count(lpar), (int)wpar))
+            return 0;
+        break;
+
+    case WM_NCLBUTTONDBLCLK:
+        if (do_nc_leftbtn_down(get_key_mk_state(),
+                               MAKEPOINTS(lpar).x, MAKEPOINTS(lpar).y,
+                               2, (int)wpar))
+            return 0;
+        break;
+
+    case WM_NCLBUTTONUP:
+        if (do_nc_leftbtn_up(get_key_mk_state(),
+                             MAKEPOINTS(lpar).x, MAKEPOINTS(lpar).y,
+                             (int)wpar))
+            return 0;
+        break;
+
+    case WM_NCRBUTTONDOWN:
+        if (do_nc_rightbtn_down(get_key_mk_state(),
+                                MAKEPOINTS(lpar).x, MAKEPOINTS(lpar).y,
+                                rbtn_click.get_click_count(lpar), (int)wpar))
+            return 0;
+        break;
+
+    case WM_NCRBUTTONUP:
+        if (do_nc_rightbtn_up(get_key_mk_state(),
+                              MAKEPOINTS(lpar).x, MAKEPOINTS(lpar).y,
+                              (int)wpar))
+            return 0;
+        break;
+
+    case WM_NCMOUSEMOVE:
+        if (do_nc_mousemove(get_key_mk_state(),
+                            MAKEPOINTS(lpar).x, MAKEPOINTS(lpar).y,
+                            (int)wpar))
+            return 0;
+        break;
+
+    case WM_MOUSEMOVE:
+        if (do_mousemove(wpar, (short)LOWORD(lpar), (short)HIWORD(lpar)))
+            return 0;
+        break;
+
+    case WM_CAPTURECHANGED:
+        if (do_capture_changed((HWND)lpar))
+            return 0;
+        break;
+
+    case WM_TIMER:
+        if (do_timer(wpar))
+            return 0;
+        break;
+
+    case WM_CHAR:
+        if (do_char((TCHAR)wpar, lpar))
+            return 0;
+        break;
+
+    case WM_HOTKEY:
+        if (do_hotkey((int)wpar, (unsigned int)LOWORD(lpar),
+                      (unsigned int)HIWORD(lpar)))
+            return 0;
+        break;
+        
+    case WM_KEYDOWN:
+        if (do_keydown((int)wpar, lpar))
+            return 0;
+        break;
+
+    case WM_KEYUP:
+        if (do_keyup((int)wpar, lpar))
+            return 0;
+        break;
+
+    case WM_SYSCHAR:
+        if (do_syschar((TCHAR)wpar, (unsigned long)lpar))
+            return 0;
+        break;
+
+    case WM_SYSKEYDOWN:
+        if (do_syskeydown((int)wpar, lpar))
+            return 0;
+        break;
+
+    case WM_MENUSELECT:
+        /* 
+         *   process this through the global statusline handlers, regardless
+         *   of which window is getting the message - this makes it easy to
+         *   centralize the command-to-status message mapping 
+         */
+        CTadsApp::get_app()->send_menuselect_to_statuslines(hwnd, wpar, lpar);
+            
+        /* process this through our own handler as well */
+        if ((HMENU)lpar == 0 && (UINT)HIWORD(wpar) == 0xffff)
+        {
+            if (menu_close((UINT)LOWORD(wpar)))
+                return 0;
+        }
+        else
+        {
+            if (menu_item_select((unsigned int)LOWORD(wpar),
+                                 (unsigned int)HIWORD(wpar), (HMENU)lpar))
+            return 0;
+        }
+        break;
+
+    case WM_SETCURSOR:
+        /* if tracking a popup, use the default cursor setting */
+        if (tracking_popup_menu_)
+            break;
+
+        /* ask the window to set the cursor */
+        if (do_setcursor((HWND)wpar, (short)LOWORD(lpar),
+                         (short)HIWORD(lpar)))
+            return TRUE;
+        break;
+
+    case WM_VSCROLL:
+        do_scroll(TRUE, (HWND)lpar,
+                  (short)LOWORD(wpar), (short)HIWORD(wpar), FALSE);
+        break;
+
+    case WM_HSCROLL:
+        do_scroll(FALSE, (HWND)lpar, (short)LOWORD(wpar),
+                  (short)HIWORD(wpar), FALSE);
+        break;
+
+    case WM_MOUSEWHEEL:
+        if (do_mousewheel(LOWORD(wpar), (int)(short)HIWORD(wpar),
+                          LOWORD(lpar), HIWORD(lpar)))
+            return 0;
+        break;
+
+    case WM_ENTERSIZEMOVE:
+        do_entersizemove();
+        break;
+
+    case WM_EXITSIZEMOVE:
+        do_exitsizemove();
+        break;
+
+    case WM_WINDOWPOSCHANGING:
+        if (do_windowposchanging((WINDOWPOS *)lpar))
+            return 0;
+        break;
+
+    case WM_WINDOWPOSCHANGED:
+        if (do_windowposchanged((WINDOWPOS *)lpar))
+            return 0;
+        break;
+
+    case WM_SHOWWINDOW:
+        if (do_showwindow((int)wpar, (int)lpar))
+            return 0;
+        break;
+
+    case WM_SIZE:
+        /* let the subclass handle it */
+        do_resize(wpar, (short)LOWORD(lpar), (short)HIWORD(lpar));
+
+        /* 
+         *   send the message to the system handler as well - if that
+         *   handles it, do not send it to the default message handler 
+         */
+        if (sysifc_->syswin_do_resize(wpar, (short)LOWORD(lpar),
+                                      (short)HIWORD(lpar)))
+            return 0;
+        break;
+
+    case WM_MOVE:
+        do_move(LOWORD(lpar), HIWORD(lpar));
+        break;
+
+    case WM_GETMINMAXINFO:
+        break;
+
+    case WM_QUERYNEWPALETTE:
+        return do_querynewpalette();
+
+    case WM_PALETTECHANGED:
+        do_palettechanged((HWND)wpar);
+        return 0;
+
+    case WM_CTLCOLORSTATIC:
+    case WM_CTLCOLOREDIT:
+        {
+            HBRUSH br;
+
+            /* try the override */
+            br = do_ctlcolor(msg, (HDC)wpar, (HWND)lpar);
+
+            /* 
+             *   if that returned something, return it; otherwise, go on
+             *   to the default handling 
+             */
+            if (br != 0)
+                return (LPARAM)br;
+        }
+        break;
+
+    case WM_SETTINGCHANGE:
+        /* handle the system setting change notification */
+        if (do_sys_setting_change(wpar, (const char *)lpar))
+            return 0;
+        break;
+
+    case WM_SYSCOLORCHANGE:
+        /* handle the system color change notification */
+        if (do_sys_color_change())
+            return 0;
+        break;
+
+    case MM_MOM_DONE:
+    case MM_MOM_CLOSE:
+    case MM_MOM_OPEN:
+        /* handle the MIDI event */
+        return do_midi_event(msg, wpar, lpar);
+
+    default:
+        /* check for a user message */
+        if ((msg >= WM_USER && msg <= 0x7FFF)
+            || (msg >= 0xC000 && msg <= 0xFFFF))
+            return do_user_message(msg, wpar, lpar);
+        break;
+    }
+
+    /*
+     *   if we didn't override the processing, let the default window
+     *   procedure process it 
+     */
+    return call_defwinproc(hwnd, msg, wpar, lpar);
+}
+
+/*
+ *   Handle a notification message. 
+ */
+int CTadsWin::do_notify(int control_id, int notify_code, LPNMHDR nm)
+{
+    switch(notify_code)
+    {
+    case NM_SETFOCUS:
+    case NM_KILLFOCUS:
+        /* 
+         *   Focus change message - by default, simply reflect these to
+         *   our parent window, if we have one.  This allows windows to
+         *   know when the focus is contained within one of their children
+         *   and when it leaves.  
+         */
+        if (GetParent(handle_) != 0)
+            SendMessage(GetParent(handle_), WM_NOTIFY, control_id,
+                        (LPARAM)nm);
+
+        /* handled */
+        return TRUE;
+
+    default:
+        /* not handled */
+        return FALSE;
+    }
+}
+
+/*
+ *   Update the toolbar buttons 
+ */
+void CTadsWin::update_toolbar_buttons()
+{
+    int i;
+
+    /* go through each registered toolbar */
+    for (i = 0 ; i < toolbar_cnt_ ; ++i)
+    {
+        int btncnt;
+        int btn;
+
+        /* go through this toolbar's buttons */
+        btncnt = SendMessage(toolbars_[i], TB_BUTTONCOUNT, 0, 0);
+        for (btn = 0 ; btn < btncnt ; ++btn)
+        {
+            TBBUTTON info;
+
+            /* get information on this button */
+            if (SendMessage(toolbars_[i], TB_GETBUTTON, btn, (LPARAM)&info))
+            {
+                /* if it's a command button, update its status */
+                if ((info.fsStyle & TBSTYLE_SEP) == 0)
+                {
+                    unsigned oldstate;
+                    unsigned newstate;
+                    check_cmd_info cci(info.idCommand);
+
+                    /* get the status of this command */
+                    switch(check_command(&cci))
+                    {
+                    case TADSCMD_ENABLED:
+                        newstate = TBSTATE_ENABLED;
+                        break;
+
+                    case TADSCMD_DISABLED:
+                        newstate = 0;
+                        break;
+
+                    case TADSCMD_CHECKED:
+                        newstate = TBSTATE_ENABLED | TBSTATE_CHECKED;
+                        break;
+
+                    case TADSCMD_DISABLED_CHECKED:
+                        newstate = TBSTATE_CHECKED;
+                        break;
+
+                    case TADSCMD_INDETERMINATE:
+                        newstate = TBSTATE_ENABLED | TBSTATE_INDETERMINATE;
+                        break;
+
+                    case TADSCMD_DISABLED_INDETERMINATE:
+                        newstate = TBSTATE_INDETERMINATE;
+                        break;
+
+                    default:
+                        break;
+                    }
+
+                    /* get the current state */
+                    oldstate = SendMessage(toolbars_[i], TB_GETSTATE,
+                                           info.idCommand, 0);
+
+                    /*
+                     *   if the button is being pressed, don't change that in
+                     *   the new state 
+                     */
+                    if ((oldstate & TBSTATE_PRESSED) != 0)
+                        newstate |= TBSTATE_PRESSED;
+
+                    /*
+                     *   update the state only if it differs, to avoid
+                     *   flicker or other overhead of unnecessary changes 
+                     */
+                    if (oldstate != newstate)
+                    {
+                        /* set the new state */
+                        SendMessage(toolbars_[i], TB_SETSTATE,
+                                    info.idCommand,
+                                    (LPARAM)MAKELONG(newstate, 0));
+                    }
+                }
+            }
+        }
+    }
+}
+
+/*
+ *   Handle a MIDI event.  By default, we'll just let the MIDI player
+ *   handle it for us.  
+ */
+int CTadsWin::do_midi_event(UINT msg, WPARAM wpar, LPARAM lpar)
+{
+    /* let the MIDI player handle it */
+    return CTadsMidiFilePlayer::handle_mm_message(msg, wpar, lpar);
+}
+
+
+/*
+ *   Is the given command enabled? 
+ */
+int CTadsWin::check_command_enabled(int command_id)
+{
+    check_cmd_info ci(command_id);
+    switch (check_command(&ci))
+    {
+    case TADSCMD_ENABLED:
+    case TADSCMD_CHECKED:
+    case TADSCMD_INDETERMINATE:
+    case TADSCMD_DEFAULT:
+    case TADSCMD_DO_NOT_CHANGE:
+        return TRUE;
+
+    default:
+        return FALSE;
+    }
+}
+
+/*
+ *   Update a menu item's name during check_command() processing
+ */
+void CTadsWin::check_command_change_menu(const check_cmd_info *info,
+                                         int res_str_id, ...)
+{
+    va_list args;
+    char buf1[256];
+    char buf2[256];
+    char oldlbl[256];
+    MENUITEMINFO mii;
+    char *p;
+
+    /* if the check_command() wasn't generated by a menu item, skip this */
+    if (info->menu == 0)
+        return;
+
+    /* load the resource string */
+    if (!LoadString(CTadsApp::get_app()->get_instance(), res_str_id,
+                    buf1, sizeof(buf1)))
+        return;
+
+    /* format the message */
+    va_start(args, res_str_id);
+    _vsnprintf(buf2, sizeof(buf2) - 1, buf1, args);
+    buf2[sizeof(buf2)-1] = '\0';
+    va_end(args);
+
+    /* retrieve the current label, for the accelerator value */
+    memset(&mii, 0, sizeof(mii));
+    mii.cbSize = menuiteminfo_size_;
+    mii.fMask = MIIM_STRING;
+    mii.dwTypeData = oldlbl;
+    mii.cch = sizeof(oldlbl);
+    GetMenuItemInfo(info->menu, info->item_idx, MF_BYPOSITION, &mii);
+
+    /* start the new label with the formatted new message */
+    strcpy(buf1, buf2);
+
+    /* append the "\tAccelerator" information, if any */
+    if ((p = strchr(oldlbl, '\t')) != 0)
+    {
+        strncat(buf1, p, sizeof(buf1) - strlen(buf1) - 1);
+        buf1[sizeof(buf1)-1] = '\0';
+    }
+
+    /* update the menu message */
+    mii.dwTypeData = buf1;
+    SetMenuItemInfo(info->menu, info->item_idx, MF_BYPOSITION, &mii);
+}
+
+/*
+ *   Initialize a popup menu that's about to be opened 
+ */
+void CTadsWin::init_menu_popup(HMENU menuhdl, unsigned int /*pos*/,
+                               int sysmenu)
+{
+    int i;
+    int cnt;
+    UINT id;
+    
+    /* run through each item in the menu, and check its command status */
+    cnt = GetMenuItemCount(menuhdl);
+    for (i = 0 ; i < cnt ; ++i)
+    {
+        TadsCmdStat_t stat;
+        UINT flags;
+        MENUITEMINFO info;
+        
+        /* get the ID for this item */
+        id = GetMenuItemID(menuhdl, i);
+
+        /* if it's a submenu, ignore this item */
+        if (id == 0xffffffff)
+            continue;
+
+        /* check this item's ID */
+        check_cmd_info cci(id, menuhdl, i);
+        stat = (id < 0xF000
+                ? check_command(&cci)
+                : check_sys_command(sysmenu, &cci));
+
+        /* 
+         *   if they want to leave it unchanged (presumably because
+         *   they've set the status already elsewhere), leave it as it is 
+         */
+        if (stat == TADSCMD_DO_NOT_CHANGE)
+            continue;
+
+        /* if it wasn't otherwise set, disable it by default */
+        if (stat == TADSCMD_UNKNOWN)
+            stat = TADSCMD_DISABLED;
+
+        /* check the item if appropriate */
+        flags = (stat == TADSCMD_CHECKED || stat == TADSCMD_DISABLED_CHECKED)
+                ? MF_CHECKED : MF_UNCHECKED;
+        CheckMenuItem(menuhdl, i, MF_BYPOSITION | flags);
+
+        /* enable or disable the item as appropriate */
+        flags = (stat == TADSCMD_ENABLED || stat == TADSCMD_CHECKED
+                 || stat == TADSCMD_INDETERMINATE || stat == TADSCMD_DEFAULT)
+                ? MF_ENABLED : MF_GRAYED;
+        EnableMenuItem(menuhdl, i, MF_BYPOSITION | flags);
+
+        /* get the current state information */
+        memset(&info, 0, sizeof(info));
+        info.cbSize = menuiteminfo_size_;
+        info.fMask = MIIM_STATE;
+        GetMenuItemInfo(menuhdl, i, MF_BYPOSITION, &info);
+
+        /* if the default state is changing, make the change */
+        if ((stat == TADSCMD_DEFAULT && (info.fState & MFS_DEFAULT) == 0)
+            || (stat != TADSCMD_DEFAULT && (info.fState & MFS_DEFAULT) != 0))
+        {
+            /* set the new state */
+            if (stat == TADSCMD_DEFAULT)
+                info.fState |= MFS_DEFAULT;
+            else
+                info.fState &= ~MFS_DEFAULT;
+            SetMenuItemInfo(menuhdl, i, MF_BYPOSITION, &info);
+        }
+    }
+}
+
+/*
+ *   Set up a menu so that its items all use radio button checkmarks 
+ */
+void CTadsWin::set_menu_radiocheck(HMENU submenu)
+{
+    set_menu_radiocheck(submenu, 0, GetMenuItemCount(submenu) - 1);
+}
+
+/*
+ *   Set up a menu so that a range of its items (by position, inclusive of
+ *   first and last) use radio button checkmarks 
+ */
+void CTadsWin::set_menu_radiocheck(HMENU submenu, int first, int last)
+{
+    int i;
+
+    /* loop through each item in the submenu */
+    for (i = first ; i <= last ; ++i)
+    {
+        char buf[256];
+
+        MENUITEMINFO minfo;
+
+        /* 
+         *   set up the menu item structure to receive information on the
+         *   menu item -- all we need is the type, but getting the type
+         *   also gets the label string, so we need to set up space to
+         *   receive the string 
+         */
+        memset(&minfo, 0, sizeof(minfo));
+        minfo.cbSize = menuiteminfo_size_;
+        minfo.fMask = MIIM_TYPE;
+        minfo.cch = sizeof(buf);
+        minfo.dwTypeData = buf;
+
+        /* retrieve the information on this item */
+        GetMenuItemInfo(submenu, i, TRUE, &minfo);
+
+        /* add the radio button check style */
+        minfo.fType |= MFT_RADIOCHECK;
+
+        /* set the item */
+        SetMenuItemInfo(submenu, i, TRUE, &minfo);
+    }
+}
+
+/*
+ *   find a particular menu item and set it to radio-check mode 
+ */
+void CTadsWin::set_menuitem_radiocheck(HMENU menu, int cmd)
+{
+    MENUITEMINFO mii;
+    
+    /* find the menu item */
+    memset(&mii, 0, sizeof(mii));
+    mii.cbSize = menuiteminfo_size_;
+    mii.fMask = MIIM_FTYPE | MIIM_ID;
+    mii.wID = cmd;
+    if (GetMenuItemInfo(menu, cmd, FALSE, &mii))
+    {
+        /* set it to radio-check mode */
+        mii.fType |= MFT_RADIOCHECK;
+        SetMenuItemInfo(menu, cmd, FALSE, &mii);
+    }
+}
+
+
+/*
+ *   paint the window 
+ */
+int CTadsWin::do_paint()
+{
+    PAINTSTRUCT ps;
+    HDC dc;
+    HDC win_dc;
+    HBITMAP off_bmp;
+    HBITMAP off_bmp_old;
+    HPALETTE hpal = 0;
+
+    /* hide the caret while painting, if we have a caret */
+    HideCaret(handle_);
+
+    /* set up painting, and remember the dc */
+    display_hdc_ = hdc_ = win_dc = dc = BeginPaint(handle_, &ps);
+
+    /* if they want off-screen rendering, set up for it */
+    if (off_screen_render_)
+    {
+        /* 
+         *   note whether or not the window is paletted (it is if the display
+         *   mode uses 8 bits or fewer per pixel) 
+         */
+        if (get_bits_per_pixel() <= 8)
+            hpal = get_paint_palette();
+
+        /* 
+         *   create an in-memory DC compatible with the display DC - we'll
+         *   render to this memory DC rather than directly to the display,
+         *   then blt the result to the display, to avoid the flicker we'd
+         *   get if we were to render directly on the display 
+         */
+        dc = CreateCompatibleDC(win_dc);
+
+        /* if that succeeded, create the bitmap */
+        if (dc != 0)
+        {
+            /* create a bitmap for the memory DC */
+            if ((off_bmp = CreateCompatibleBitmap(
+                 win_dc, ps.rcPaint.right, ps.rcPaint.bottom)) != 0)
+            {
+                /* select the bitmap into the memory DC */
+                off_bmp_old = (HBITMAP)SelectObject(dc, off_bmp);
+
+                /* plug in our memory DC while we do the content painting */
+                hdc_ = dc;
+
+                /* 
+                 *   if we're paletted, realize our fixed palette into the
+                 *   memory DC so that the rendering matches our palette 
+                 */
+                if (hpal != 0)
+                {
+                    SelectPalette(dc, hpal, TRUE);
+                    RealizePalette(dc);
+                }
+            }
+            else
+            {
+                /* 
+                 *   we couldn't create the bitmap - there's probably not
+                 *   enough memory; just draw directly into the display DC
+                 *   instead 
+                 */
+                DeleteDC(dc);
+                dc = win_dc;
+            }
+        }
+        else
+        {
+            /* 
+             *   we couldn't allocate the memory DC - draw into the display
+             *   directly instead 
+             */
+            dc = win_dc;
+        }
+    }
+
+    /* paint the affected area */
+    do_paint_content(dc, &ps.rcPaint);
+    
+    /* 
+     *   if we successfully created a memory DC for off-screen rendering,
+     *   copy the off-screen bitmap's contents into the display DC now that
+     *   we're finished painting it 
+     */
+    if (dc != win_dc)
+    {
+        /* realize the palette if we're in a paletted video mode */
+        if (hpal != 0)
+        {
+            /* realize the palette */
+            SelectPalette(win_dc, hpal, TRUE);
+            RealizePalette(win_dc);
+        }
+        
+        /* copy the off-screen bitmap into the window device context */
+        BitBlt(win_dc, ps.rcPaint.left, ps.rcPaint.top,
+               ps.rcPaint.right - ps.rcPaint.left,
+               ps.rcPaint.bottom - ps.rcPaint.top,
+               dc, ps.rcPaint.left, ps.rcPaint.top, SRCCOPY);
+
+        /* delete the off-screen drawing objects */
+        SelectObject(dc, off_bmp_old);
+        DeleteObject(off_bmp);
+        DeleteDC(dc);
+    }
+
+    /* finish painting */
+    display_hdc_ = hdc_ = 0;
+    EndPaint(handle_, &ps);
+    
+    /* show the caret again */
+    ShowCaret(handle_);
+
+    /* handled */
+    return TRUE;
+}
+
+/*
+ *   render the window
+ */
+int CTadsWin::do_render()
+{
+    if (!isVisible())
+        return TRUE;
+
+    do_render_content_begin();
+
+    for (auto childwin : m_children) {
+        childwin->do_render();
+    }
+
+    do_render_content_end();
+
+    return TRUE;
+}
+
+int CTadsWin::do_leftbtn_down(int keys, int x, int y,
+    int clicks) {
+    for (auto& child : m_children) {
+        int handled = FALSE;
+        if (child->isVisible())
+            handled = child->do_leftbtn_down(keys, x, y, clicks);
+        if (handled)
+            return TRUE;
+    }
+    return FALSE;
+}
+
+/*
+ *   Same child-dispatch as do_leftbtn_down() above, needed so a right-click
+ *   anywhere under a top-level window (e.g. CHtmlSys_mainwin, which is what
+ *   event_loop()'s manual mouse routing calls this on) reaches the actual
+ *   leaf banner/text window instead of stopping at the base class's no-op
+ *   default.  do_rightbtn_up() doesn't need the same treatment: by the time
+ *   it fires, mouse capture (set by the leaf window's do_leftbtn_down(),
+ *   called via its do_rightbtn_down() override) already identifies the
+ *   right target, so event_loop() dispatches button-up straight to the
+ *   captured window rather than via this recursive search.
+ */
+int CTadsWin::do_rightbtn_down(int keys, int x, int y,
+    int clicks) {
+    for (auto& child : m_children) {
+        int handled = FALSE;
+        if (child->isVisible())
+            handled = child->do_rightbtn_down(keys, x, y, clicks);
+        if (handled)
+            return TRUE;
+    }
+    return FALSE;
+}
+
+/*
+ *   paint the window minimized 
+ */
+int CTadsWin::do_paint_iconic()
+{
+    PAINTSTRUCT ps;
+
+    /* set up painting, and remember the dc */
+    display_hdc_ = hdc_ = BeginPaint(handle_, &ps);
+
+    /* paint the affected area */
+    do_paint_content(hdc_, &ps.rcPaint);
+
+    /* finish painting */
+    display_hdc_ = hdc_ = 0;
+    EndPaint(handle_, &ps);
+
+    /* handled */
+    return TRUE;
+}
+
+
+/*
+ *   paint the content of the window
+ */
+void CTadsWin::do_paint_content(HDC hdc, const RECT *area_to_draw)
+{
+    /* fill the affected area with a white background */
+    FillRect(hdc, area_to_draw, (HBRUSH)GetStockObject(WHITE_BRUSH));
+}
+
+void CTadsWin::do_render_content_begin()
+{
+    float border_thickness = 0;
+    //ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, border_thickness);
+    if (parent_) {
+        /*
+         *   m_pos is computed by calc_banner_layout() as a position relative
+         *   to our parent (mirroring the parent-relative coordinates
+         *   MoveWindow() used for the native child HWND this window used to
+         *   be), but ImGui::SetNextWindowPos() always takes an absolute
+         *   screen position.  Convert by adding the parent's absolute screen
+         *   position - available via GetWindowPos() here because the parent's
+         *   Begin()/BeginChild() is still open around this call (do_render()
+         *   calls do_render_content_begin() on each child from inside the
+         *   parent's own content block).  Without this, every child window
+         *   renders pinned near the screen's absolute top-left instead of
+         *   following its parent - invisible while the parent always sat at
+         *   screen (0,0), but visible as soon as chrome above the parent
+         *   (menu bar, toolbar) pushes it down the screen.
+         */
+        ImVec2 parent_pos = ImGui::GetWindowPos();
+        ImGui::SetNextWindowPos(ImVec2(parent_pos.x + m_pos.x, parent_pos.y + m_pos.y));
+        ImGui::SetNextWindowSize(m_size);
+        ImGui::BeginChild(m_title.c_str(), ImVec2(0, 0),
+            get_content_child_flags(), get_content_window_flags());
+    }
+    else {
+        /*
+         *   A parentless CTadsWin that isn't the main frame (e.g. the debug
+         *   log window) is a genuine floating overlay window, not the
+         *   full-bleed manually-routed canvas CHtmlSys_mainwin's own override
+         *   (do_render_content_begin() in htmlgui.cpp) renders - it should be
+         *   draggable/collapsible like any normal ImGui window.  So, unlike
+         *   that override, we don't pass ImGuiWindowFlags_NoInputs here, and
+         *   we only seed the position/size once (ImGuiCond_FirstUseEver)
+         *   rather than forcing it every frame, so a drag actually sticks.
+         *   Afterwards we read the live position/size back into m_pos/m_size
+         *   so get_screen_pos() (used to translate absolute mouse coordinates
+         *   for our children's hit-testing) stays correct after the window
+         *   has been moved.
+         */
+        ImGui::SetNextWindowPos(m_pos, ImGuiCond_FirstUseEver);
+        ImGui::SetNextWindowSize(m_size, ImGuiCond_FirstUseEver);
+        ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0.0f, 0.0f));
+        bool *p_open = get_titlebar_open_flag();
+        ImGui::Begin(m_title.c_str(), p_open,
+            ImGuiWindowFlags_NoResize | get_floating_window_flags());
+        if (p_open != nullptr && !*p_open)
+            on_titlebar_close();
+        m_pos = ImGui::GetWindowPos();
+        m_size = ImGui::GetWindowSize();
+    }
+}
+
+void CTadsWin::do_render_content_end()
+{
+    if (parent_) {
+        ImGui::EndChild();
+    }
+    else {
+        ImGui::End();
+        ImGui::PopStyleVar();
+    }
+}
+
+/*
+ *   resize the window 
+ */
+void CTadsWin::do_resize(int mode, int x, int y)
+{
+    m_size = ImVec2(x, y);
+
+    //for (auto childwin : m_children) {
+    //    childwin->do_resize(mode, x, y);
+    //}
+}
+
+/*
+ *   synthesize a resize event 
+ */
+void CTadsWin::synth_resize()
+{
+    /*
+     *   There's no real HWND to query (GetWindowRect/IsIconic), and every
+     *   window's size is re-synced from its layout / the GLFW viewport each
+     *   frame (calc_banner_layout(), CHtmlSys_mainwin::do_render()), so a
+     *   synthesized resize has nothing to do.
+     */
+}
+
+/*
+ *   move the window 
+ */
+void CTadsWin::do_move(int x, int y)
+{
+    m_pos = ImVec2(x, y);
+}
+
+/*
+ *   Process window creation message 
+ */
+void CTadsWin::do_create()
+{
+    /* tell the system window interface about the creation */
+    sysifc_->syswin_do_create();
+}
+
+/*
+ *   Process a window close message.
+ */
+int CTadsWin::do_close()
+{
+    /* 
+     *   default doesn't do any extra work - return true to indicate that
+     *   we should go ahead and close the window 
+     */
+    return TRUE;
+}
+
+int CTadsWin::do_setcursor(int x, int y) {
+    for (auto& child : m_children) {
+        int handled = FALSE;
+        if (child->isVisible())
+            handled = child->do_setcursor(x, y);
+        if (handled)
+            return TRUE;
+    }
+    return FALSE;
+}
+
+/*
+ *   Process a destroy window message 
+ */
+void CTadsWin::do_destroy()
+{
+    /* if we have the active accelerator, remove it */
+    CTadsApp::get_app()->closing_accel_win(this);
+
+    /* tell the system interface object about it */
+    sysifc_->syswin_do_destroy();
+
+    /*
+     *   handle_ is just an opaque token now (see create_system_window()), so
+     *   there's no window-class 'this' pointer to forget and no real
+     *   SetWindowLongPtr()/drop-target state to unwind - only our own
+     *   per-window timer schedules to drop.
+     */
+    if (tb_timer_id_ != 0)
+    {
+        win_kill_timer(tb_timer_id_);
+        free_timer_id(tb_timer_id_);
+        tb_timer_id_ = 0;
+    }
+    timer_scheds_.clear();
+
+    /* if we're registered as a drop target, unregister now (no-op today) */
+    drop_target_unregister();
+
+    /* our window handle is no longer valid */
+    handle_ = 0;
+
+    /* release the reference the system window has on the object */
+    Release();
+}
+
+/*
+ *   Register as an OLE drop target 
+ */
+void CTadsWin::drop_target_register()
+{
+    /* if we're already registered, there's nothing to do */
+    if (drop_target_regd_)
+        return;
+
+    /* create the drop target helper */
+    create_drop_target_helper();
+
+    /* register with OLE - if that fails, give up */
+    if (RegisterDragDrop(handle_, this) != S_OK)
+        return;
+
+    /* note that we're registered */
+    drop_target_regd_ = TRUE;
+}
+
+/*
+ *   Create the drop target helper object 
+ */
+void CTadsWin::create_drop_target_helper()
+{
+    /* if we don't already have a drop target helper, create one */
+    if (drop_target_helper_ == 0)
+    {
+        /* create a drop target helper object, if available */
+        CoCreateInstance(CLSID_DragDropHelper, 0, CLSCTX_INPROC_SERVER,
+                         IID_IDropTargetHelper,
+                         (LPVOID *)&drop_target_helper_);
+    }
+}
+
+/*
+ *   Unregister as an OLE drop target 
+ */
+void CTadsWin::drop_target_unregister()
+{
+    /* if we're not registered, there's nothing to do */
+    if (!drop_target_regd_)
+        return;
+
+    /* unregister with OLE */
+    RevokeDragDrop(handle_);
+
+    /* note that we're no longer registered */
+    drop_target_regd_ = FALSE;
+
+    /* if there's a drop target helper, release it */
+    if (drop_target_helper_ != 0)
+    {
+        drop_target_helper_->Release();
+        drop_target_helper_ = 0;
+    }
+}
+
+/*
+ *   process activation/deactivation 
+ */
+int CTadsWin::do_activate(int /*flag*/, int /*minimized*/, HWND /*other_win*/)
+{
+    /* inherit default processing */
+    return FALSE;
+}
+
+/*
+ *   invalidate the window 
+ */
+void CTadsWin::inval()
+{
+    /* invalidate the entire window */
+    InvalidateRect(handle_, 0, FALSE);
+}
+
+void CTadsWin::inval(const RECT *area)
+{
+    /* invalidate the given area */
+    InvalidateRect(handle_, area, FALSE);
+}
+
+/* timer ID tracking bit array */
+unsigned long CTadsWin::timers_alloced_ = 0;
+
+/*
+ *   Allocate a new timer ID.  Returns zero if no timer is available.
+ */
+int CTadsWin::alloc_timer_id()
+{
+    tadswin_timer_alo *t;
+    int id;
+
+    /* if we have anything in the free list, allocate from the free list */
+    if (free_timers_ != 0)
+    {
+        /* take the first item off the free list */
+        t = free_timers_;
+
+        /* unlink it from the free list */
+        free_timers_ = t->nxt;
+    }
+    else
+    {
+        /* there's nothing in the free list, so allocate a new timer */
+        t = (tadswin_timer_alo *)th_malloc(sizeof(tadswin_timer_alo));
+
+        /* use and consume the next available never-before-allocated ID */
+        t->id = next_timer_id_++;
+    }
+
+    /* get its ID */
+    id = t->id;
+
+    /* link our timer into the in-use list */
+    t->nxt = inuse_timers_;
+    inuse_timers_ = t;
+
+    /* 
+     *   Clear the ID in the item - the in-use list is not a record of the
+     *   timers that are in use but merely a pool of allocation records that
+     *   can be returned to the free list.  We don't care what ID's are in
+     *   the in-use records, but emphasize this (to make sure we don't
+     *   accidentally start relying on it somewhere) by clearing every ID as
+     *   we move items to the in-use list.  
+     */
+    t->id = 0;
+
+    /* return the ID we allocated */
+    return id;
+}
+
+/*
+ *   Per-window periodic timers - the guit3 replacement for
+ *   SetTimer(handle_, id, ms, 0) / KillTimer(handle_, id).  There's no
+ *   message loop to deliver WM_TIMER, so tick_timers() (driven once per frame
+ *   from CHtmlSys_mainwin::event_loop()) fires do_timer(id) for each schedule
+ *   that has come due, then reschedules it (WM_TIMER is periodic).
+ */
+void CTadsWin::win_set_timer(UINT_PTR id, unsigned int interval_ms)
+{
+    double now = glfwGetTime() * 1000.0;
+
+    /* if this id is already scheduled, just update it */
+    for (size_t i = 0 ; i < timer_scheds_.size() ; ++i)
+    {
+        if (timer_scheds_[i].id == id)
+        {
+            timer_scheds_[i].interval_ms = (double)interval_ms;
+            timer_scheds_[i].next_ms = now + (double)interval_ms;
+            return;
+        }
+    }
+
+    /* new schedule */
+    tadswin_timer_sched s;
+    s.id = id;
+    s.interval_ms = (double)interval_ms;
+    s.next_ms = now + (double)interval_ms;
+    timer_scheds_.push_back(s);
+}
+
+void CTadsWin::win_kill_timer(UINT_PTR id)
+{
+    for (auto it = timer_scheds_.begin() ; it != timer_scheds_.end() ; ++it)
+    {
+        if (it->id == id)
+        {
+            timer_scheds_.erase(it);
+            return;
+        }
+    }
+}
+
+void CTadsWin::tick_timers(double now_ms)
+{
+    if (timer_scheds_.empty())
+        return;
+
+    /*
+     *   Collect the ids that have come due and reschedule them first, before
+     *   firing any - do_timer() can add or remove timers (e.g. a one-shot
+     *   timer kills itself), and we don't want that to disturb this pass.
+     *   Cap catch-up at one interval so a stall doesn't unleash a burst.
+     */
+    std::vector<UINT_PTR> due;
+    for (size_t i = 0 ; i < timer_scheds_.size() ; ++i)
+    {
+        tadswin_timer_sched &t = timer_scheds_[i];
+        if (now_ms >= t.next_ms)
+        {
+            due.push_back(t.id);
+            t.next_ms = now_ms + (t.interval_ms > 0.0 ? t.interval_ms : 1.0);
+        }
+    }
+
+    for (size_t i = 0 ; i < due.size() ; ++i)
+        do_timer((int)due[i]);
+}
+
+void CTadsWin::tick_timers_tree(double now_ms)
+{
+    tick_timers(now_ms);
+
+    /*
+     *   Recurse into children.  Snapshot the list first: a timer callback can
+     *   create or destroy windows (e.g. a game timer that clears a banner),
+     *   which would otherwise invalidate this iteration.
+     */
+    std::vector<CTadsWin *> kids(m_children);
+    for (size_t i = 0 ; i < kids.size() ; ++i)
+        kids[i]->tick_timers_tree(now_ms);
+}
+
+/*
+ *   Free a timer ID
+ */
+void CTadsWin::free_timer_id(int id)
+{
+    tadswin_timer_alo *t;
+
+    /* if there are no in-use timers, there's nothing for us to do */
+    if (inuse_timers_ == 0)
+        return;
+
+    /*
+     *   Take the first allocation record off the in-use list.  The records
+     *   in the in-use list are simply placeholders awaiting return to the
+     *   free list, so we don't care about finding the ID we're freeing; just
+     *   take the first available record and move it to the free list.  
+     */
+    t = inuse_timers_;
+    inuse_timers_ = t->nxt;
+
+    /* set the record's ID to the ID we're freeing */
+    t->id = id;
+
+    /* move the record onto the free list */
+    t->nxt = free_timers_;
+    free_timers_ = t;
+}
+
+/*
+ *   run the system menu as a right-click context menu 
+ */
+int CTadsWin::track_system_context_menu_ext(int x, int y, DWORD flags,
+                                            HMENU sysmenu)
+{
+    /* if there's no menu, there's nothing to track */
+    if (sysmenu == 0)
+        return 0;
+
+    /* track the menu, returning the command */
+    int cmd = track_context_menu_ext(sysmenu, x, y, flags | TPM_RETURNCMD);
+    
+    /* 
+     *   If we got something, send it to myself.  If it's in the system
+     *   range, send it as a WM_SYSCOMMAND; otherwise send it as an ordinary
+     *   WM_COMMAND.  
+     */
+    if (cmd != 0)
+    {
+        POINT pt;
+        
+        /* get the cursor position */
+        GetCursorPos(&pt);
+        
+        /* send the WM_SYSCOMMAND or WM_COMMAND, according to the code */
+        if (cmd >= 0xF000)
+            SendMessage(handle_, WM_SYSCOMMAND, cmd, MAKELPARAM(pt.x, pt.y));
+        else
+            SendMessage(handle_, WM_COMMAND, cmd, 0);
+    }
+
+    /* not command to return */
+    return 0;
+}
+
+/*
+ *   run a popup context menu 
+ */
+int CTadsWin::track_context_menu_ext(HMENU menuhdl, int x, int y, DWORD flags)
+{
+    POINT pt;
+    int ret;
+
+    /* get screen coordinates for the popup menu */
+    pt.x = x;
+    pt.y = y;
+    client_to_screen(&pt);
+
+    /* note that we're in the menu */
+    begin_tracking_popup_menu();
+
+    /* show the menu and run it */
+    ret = TrackPopupMenu(menuhdl, flags, pt.x, pt.y, 0, handle_, 0);
+
+    /* done with the tracking */
+    end_tracking_popup_menu();
+
+    /* return the result */
+    return ret;
+}
+
+
+/*
+ *   Determine if I'm maximized 
+ */
+int CTadsWin::is_win_maximized() const
+{
+    /* if my internal maximized flag is set, I'm maximized */
+    if (maximized_)
+        return TRUE;
+
+    /* ask my system interface to make the call */
+    return sysifc_->syswin_is_maximized(parent_);
+}
+
+/* 
+ *   get the display color resolution in bits per pixel in the desktop window
+ */
+int CTadsWin::get_desk_bits_per_pixel()
+{
+    HDC deskdc;
+    int bits_per_pixel;
+
+    /* get the desktop device context */
+    deskdc = GetDC(GetDesktopWindow());
+
+    /* check the device capabilities to determine the color resolution */
+    bits_per_pixel = GetDeviceCaps(deskdc, BITSPIXEL)
+                     * GetDeviceCaps(deskdc, PLANES);
+
+    /* done with the desktop dc */
+    ReleaseDC(GetDesktopWindow(), deskdc);
+
+    /* return our results */
+    return bits_per_pixel;
+}
+
+/*
+ *   Draw a bitmap 
+ */
+void CTadsWin::draw_hbitmap(HBITMAP bmp, const RECT *dstrc,
+                            const RECT *srcrc)
+{
+    struct
+    {
+        BITMAPINFO bi;
+        RGBQUAD colors[256];
+    } bmphdr;
+    char pix[1024];
+    LPVOID pixptr;
+
+    /* get the bitmap descriptor */
+    bmphdr.bi.bmiHeader.biSize = sizeof(bmphdr.bi.bmiHeader);
+    bmphdr.bi.bmiHeader.biBitCount = 0;
+    GetDIBits(hdc_, bmp, 0, 0, 0,
+              (LPBITMAPINFO)&bmphdr.bi, DIB_RGB_COLORS);
+
+    /* 
+     *   Allocate space for the pixel map.  If it'll fit in our stack
+     *   buffer, use that, otherwise allocate space.  
+     */
+    if (bmphdr.bi.bmiHeader.biSizeImage <= sizeof(pix))
+        pixptr = pix;
+    else
+        pixptr = th_malloc(bmphdr.bi.bmiHeader.biSizeImage);
+
+    /* get the bits */
+    GetDIBits(hdc_, bmp, 0, bmphdr.bi.bmiHeader.biHeight, pixptr,
+              (LPBITMAPINFO)&bmphdr.bi, DIB_RGB_COLORS);
+    
+    /* draw it */
+    StretchDIBits(hdc_, dstrc->left, dstrc->top,
+                  dstrc->right - dstrc->left, dstrc->bottom - dstrc->top,
+                  srcrc->left, srcrc->top,
+                  srcrc->right - srcrc->left, srcrc->bottom - srcrc->top,
+                  pixptr, (LPBITMAPINFO)&bmphdr.bi, DIB_RGB_COLORS, SRCCOPY);
+
+    /* free space if we allocated it */
+    if (pixptr != pix)
+        th_free(pixptr);
+}
+
+/*
+ *   Add a toolbar idle status processor 
+ */
+void CTadsWin::add_toolbar_proc(HWND toolbar)
+{
+    /* if we don't have room, ignore the request */
+    if (toolbar_cnt_ == TADSWIN_TBMAX)
+        return;
+
+    /* add the toolbar to our list */
+    toolbars_[toolbar_cnt_++] = toolbar;
+
+    /* if this is our first toolbar, set up the timer */
+    if (toolbar_cnt_ == 1)
+    {
+        tb_timer_id_ = alloc_timer_id();
+        if (tb_timer_id_ != 0)
+            win_set_timer(tb_timer_id_, 500);
+    }
+}
+
+/*
+ *   Remove a toolbar idle status processor 
+ */
+void CTadsWin::rem_toolbar_proc(HWND toolbar)
+{
+    int i;
+    
+    /* find the toolbar in our list */
+    for (i = 0 ; i < toolbar_cnt_ && toolbars_[i] != toolbar ; ++i) ;
+
+    /* if we didn't find it, there's nothing to do */
+    if (i == toolbar_cnt_)
+        return;
+
+    /* close the gap */
+    for ( ; i + 1 < toolbar_cnt_ ; ++i)
+        toolbars_[i] = toolbars_[i+1];
+
+    /* decrement the count */
+    --toolbar_cnt_;
+
+    /* if there are no more toolbars, kill the timer */
+    if (toolbar_cnt_ == 0 && tb_timer_id_ != 0)
+    {
+        /* tell Windows to stop the timer */
+        win_kill_timer(tb_timer_id_);
+
+        /* we're done with the timer ID, so deallocate it */
+        free_timer_id(tb_timer_id_);
+        tb_timer_id_ = 0;
+    }
+}
+
+/*
+ *   Handle timer events 
+ */
+int CTadsWin::do_timer(int timer_id)
+{
+    /* if it's the toolbar timer, handle it */
+    if (timer_id == tb_timer_id_)
+    {
+        /* update the toolbar command buttons */
+        update_toolbar_buttons();
+
+        /* handled */
+        return TRUE;
+    }
+
+    /* not handled */
+    return FALSE;
+}
+
+/*
+ *   Handle mouse movement 
+ */
+int CTadsWin::do_mousemove(int keys, int x, int y)
+{
+    for (auto& child : m_children) {
+        int handled = FALSE;
+        if (child->isVisible())
+            handled = child->do_mousemove(keys, x, y);
+        if (handled)
+            return TRUE;
+    }
+
+    /* continue any drag operation */
+    drag_check();
+    
+    /* handled */
+    return TRUE;
+}
+
+/*
+ *   Mouse up 
+ */
+int CTadsWin::do_leftbtn_up(int keys, int x, int y)
+{
+    for (auto& child : m_children) {
+        int handled = FALSE;
+        if (child->isVisible())
+            handled = child->do_leftbtn_up(keys, x, y);
+        if (handled)
+            return TRUE;
+    }
+
+    /* end any drag that we've started */
+    drag_end(FALSE);
+
+    /* handled */
+    return TRUE;
+}
+
+/*
+ *   Receive notification of a capture change 
+ */
+int CTadsWin::do_capture_changed(HWND)
+{
+    /* end any drag operation currently in progress */
+    drag_end(TRUE);
+
+    /* handled */
+    return TRUE;
+}
+
+/*
+ *   Prepare to begin a drag operation 
+ */
+void CTadsWin::drag_prepare(int already_have_capture)
+{
+    /* capture the mouse if we haven't done so already */
+    if (!already_have_capture)
+    {
+        /* capture the mouse */
+        CTadsApp::get_app()->setMouseCapture(this);
+
+        /* note that we set the capture */
+        drag_capture_ = TRUE;
+    }
+
+    /* note that we're watching for mouse dragging */
+    drag_ready_ = TRUE;
+
+    /* note the current cursor location */
+    GetCursorPos(&drag_start_pos_);
+}
+
+/*
+ *   Check dragging 
+ */
+int CTadsWin::drag_check()
+{
+    POINT curpos;
+    DWORD effect;
+
+    /* if we weren't ready to drag, ignore it */
+    if (!drag_ready_)
+        return FALSE;
+
+    /* get the current cursor position */
+    GetCursorPos(&curpos);
+
+    /* check to see if the cursor has moved from the initial position */
+    if (curpos.x < drag_start_pos_.x - 3
+        || curpos.x > drag_start_pos_.x + 3
+        || curpos.y < drag_start_pos_.y - 3
+        || curpos.y > drag_start_pos_.y + 3)
+    {
+        IDataObject *dataobj;
+        
+        /* release the capture */
+        CTadsApp::get_app()->setMouseCapture(nullptr);
+        drag_capture_ = FALSE;
+        
+        /* we're no longer waiting for a drag (since we really have one) */
+        drag_ready_ = FALSE;
+
+        /* note the mouse key state at the start of the drag operation */
+        drag_start_key_ = 0;
+        if (get_lbtn_key()) drag_start_key_ |= MK_LBUTTON;
+        if (get_rbtn_key()) drag_start_key_ |= MK_RBUTTON;
+        if (get_mbtn_key()) drag_start_key_ |= MK_MBUTTON;
+
+        /* get the data object for the source data */
+        dataobj = get_drag_dataobj();
+
+        /* notify myself that dragging is about to begin */
+        drag_pre();
+
+		if (ImGui::GetCurrentContext()->CurrentWindow != nullptr) {
+            /* start the drag operation */
+            DoDragDrop(dataobj, this, get_drag_effects(), &effect);
+        }
+
+        /* notify myself that dragging has ended */
+        drag_post();
+
+        /* remove our reference on the data object */
+        dataobj->Release();
+
+        /* indicate that drag-and-drop occurred */
+        return TRUE;
+    }
+
+    /* didn't do any dragging yet */
+    return FALSE;
+}
+
+/*
+ *   End dragging 
+ */
+void CTadsWin::drag_end(int already_lost_capture)
+{
+    /* if we're not set up for dragging, there's nothing to do */
+    if (!drag_ready_)
+        return;
+
+    /* release capture if we had it and we didn't already release it */
+    if (!already_lost_capture && drag_capture_)
+    {
+        /* release the capture */
+        CTadsApp::get_app()->setMouseCapture(nullptr);
+
+        /* note that we no longer have capture */
+        drag_capture_ = FALSE;
+    }
+
+    /* the drag is over */
+    drag_ready_ = FALSE;
+}
+
+
+/* ------------------------------------------------------------------------ */
+/*
+ *   CTadsWin - IDragSource implementation 
+ */
+
+HRESULT STDMETHODCALLTYPE CTadsWin::QueryInterface(REFIID iid, void **ifc)
+{
+    /* check to see if it's one of our supported interfaces */
+    if (iid == IID_IUnknown)
+        *ifc = (void *)(IUnknown *)(IDropSource *)this;
+    else if (iid == IID_IDropSource)
+        *ifc = (void *)(IDropSource *)this;
+    else if (iid == IID_IDropTarget)
+        *ifc = (void *)(IDropTarget *)this;
+    else
+        return E_NOINTERFACE;
+
+    /* add a reference on behalf of the caller */
+    AddRef();
+
+    /* success */
+    return S_OK;
+}
+
+ULONG STDMETHODCALLTYPE CTadsWin::Release()
+{
+    /* decrement the reference count and note it for returning */
+    ULONG ret = --ole_refcnt_;
+
+    /* if the reference count has dropped to zero, delete me */
+    if (ole_refcnt_ == 0)
+        delete this;
+
+    /* return the new reference count */
+    return ret;
+}
+
+HRESULT STDMETHODCALLTYPE
+   CTadsWin::QueryContinueDrag(BOOL esc_pressed, DWORD key_state)
+{
+    /* if they hit the escape key, cancel the operation */
+    if (esc_pressed)
+        return DRAGDROP_S_CANCEL;
+
+    /* 
+     *   check the key state - if the original key that started the
+     *   operation is no longer down, do the drop 
+     */
+    if ((key_state & drag_start_key_) == 0)
+        return DRAGDROP_S_DROP;
+
+    /* 
+     *   if other mouse buttons besides the original key that started the
+     *   operation are now down, abort the drop 
+     */
+    if ((key_state & (MK_LBUTTON | MK_RBUTTON | MK_MBUTTON))
+        != drag_start_key_)
+        return DRAGDROP_S_CANCEL;
+
+    /* proceed with the operation */
+    return S_OK;
+}
+
+HRESULT STDMETHODCALLTYPE CTadsWin::GiveFeedback(DWORD effect)
+{
+    /* tell the system to use the default feedback */
+    return DRAGDROP_S_USEDEFAULTCURSORS;
+}
+
+/* ------------------------------------------------------------------------ */
+/*
+ *   CTadsWin - IDropTarget implementation (we share the IUnknown
+ *   implementation with IDragSource)
+ */
+
+/*
+ *   start dragging over this window
+ */
+HRESULT STDMETHODCALLTYPE CTadsWin::DragEnter(
+    IDataObject __RPC_FAR *dataobj, DWORD keystate, POINTL pt,
+    DWORD __RPC_FAR *effect)
+{
+    /* let the helper object do its work, if any */
+    DropHelper_Enter(dataobj, keystate, pt, effect);
+
+    /* by default, we won't allow dropping here */
+    *effect = DROPEFFECT_NONE;
+    return S_OK;
+}
+
+/*
+ *   continue dragging over this window 
+ */
+HRESULT STDMETHODCALLTYPE CTadsWin::DragOver(
+    DWORD keystate, POINTL pt, DWORD __RPC_FAR *effect)
+{
+    /* let the helper object do its work, if any */
+    DropHelper_Over(keystate, pt, effect);
+
+    /* by default, we won't allow dropping here */
+    *effect = DROPEFFECT_NONE;
+    return S_OK;
+}
+
+/*
+ *   leave this window with no drop having occurred 
+ */
+HRESULT STDMETHODCALLTYPE CTadsWin::DragLeave()
+{
+    /* let the helper object do its work, if any */
+    DropHelper_Leave();
+
+    /* by default, we don't have anything we need to do here */
+    return S_OK;
+}
+
+/*
+ *   drop in this window 
+ */
+HRESULT STDMETHODCALLTYPE CTadsWin::Drop(
+    IDataObject __RPC_FAR *dataobj, DWORD keystate, POINTL pt,
+    DWORD __RPC_FAR *effect)
+{
+    /* let the helper object do its work, if any */
+    DropHelper_Drop(dataobj, keystate, pt, effect);
+
+    /* by default, don't allow dropping here */
+    *effect = DROPEFFECT_NONE;
+    return S_OK;
+}
+
+void CTadsWin::setWindowTitle(const textchar_t* title) {
+    if (m_window) {
+        glfwSetWindowTitle(m_window, title);
+    }
+    auto pos = m_title.find("##");
+    if (pos == m_title.npos) {
+        m_title = title + std::string("##") + m_title;
+    }
+    else {
+        m_title = title + m_title.substr(pos);
+    }
+}
+
+void CTadsWin::setVisible(bool visible) {
+    m_visible = visible;
+    if (parent_ == nullptr) {
+        /*
+         *   Top-level window (parent_ == nullptr): its Win32 HWND
+         *   (handle_) must never be shown on screen, or we'd end up with a
+         *   second, real OS window alongside the GLFW/ImGui one.  It still
+         *   exists in parallel because not-yet-ported native children
+         *   (banners, scrollbars, dialogs) need a real HWND to parent
+         *   themselves to.
+         *
+         *   Only the *main* top-level window actually owns a GLFWwindow
+         *   (m_window) - syswin_create_system_window()'s GLFW overload
+         *   deliberately refuses to create a second one ("we want only one
+         *   real main window").  A secondary top-level window, like the
+         *   debug log (CHtmlSys_dbglogwin), has m_window == nullptr and is
+         *   instead drawn every frame as an ImGui overlay inside the main
+         *   window's GLFW context (see CTadsWin::do_render_content_begin()'s
+         *   parentless branch and CHtmlSys_mainwin::event_loop()'s
+         *   dbgwin_->do_render() call) - so it has nothing here to
+         *   show/hide at all; isVisible() (used to gate that overlay
+         *   rendering) already reflects m_visible regardless.
+         */
+        if (m_window) {
+            if (visible)
+                glfwShowWindow(m_window);
+            else
+                glfwHideWindow(m_window);
+        }
+    }
+    else if (visible) {
+		ShowWindow(handle_, SW_SHOW);
+    }
+    else {
+		ShowWindow(handle_, SW_HIDE);
+    }
+}
+
+bool CTadsWin::isVisible() const {
+	return m_visible;
+}
+
+/* ------------------------------------------------------------------------ */
+/*
+ *   scrolling window implementation 
+ */
+
+/* static variables */
+HHOOK CTadsWinScroll::sb_filter_hook_ = 0;
+int CTadsWinScroll::sb_thumb_track_ = FALSE;
+
+
+/*
+ *   static class initialization 
+ */
+void CTadsWinScroll::class_init(CTadsApp *app)
+{
+    /* install a hook to capture scrollbar events */
+    sb_filter_hook_ = SetWindowsHookEx(WH_MSGFILTER,
+                                       (HOOKPROC)sb_filter_proc,
+                                       app->get_instance(),
+                                       GetCurrentThreadId());
+}
+
+/*
+ *   static class termination 
+ */
+void CTadsWinScroll::class_terminate()
+{
+    /* remove our windows hook */
+    UnhookWindowsHookEx(sb_filter_hook_);
+}
+
+/*
+ *   construction
+ */
+CTadsWinScroll::CTadsWinScroll(int has_vscroll, int has_hscroll)
+{
+    /* no scrollbars yet */
+    hscroll_ = 0;
+    vscroll_ = 0;
+    ext_hscroll_ = FALSE;
+    ext_vscroll_ = FALSE;
+    memset(&vscroll_info_, 0, sizeof(vscroll_info_));
+    memset(&hscroll_info_, 0, sizeof(hscroll_info_));
+    vscroll_info_.cbSize = hscroll_info_.cbSize = sizeof(SCROLLINFO);
+    vscroll_vis_ = TRUE;
+    hscroll_vis_ = TRUE;
+
+    /* position at top left */
+    vscroll_ofs_ = 0;
+    hscroll_ofs_ = 0;
+
+    /* note whether the scrollbars are desired */
+    has_vscroll_ = (has_vscroll != 0);
+    has_hscroll_ = (has_hscroll != 0);
+
+    /* presume there will be no sizebox */
+    has_sizebox_ = FALSE;
+
+    /* not drag-scrolling currently */
+    in_drag_scroll_ = FALSE;
+}
+
+/*
+ *   deletion 
+ */
+CTadsWinScroll::~CTadsWinScroll()
+{
+}
+
+/*
+ *   window creation 
+ */
+void CTadsWinScroll::do_create()
+{
+    /* inherit default */
+    CTadsWin::do_create();
+
+    /*
+     *   We used to create real child SCROLLBAR/STATIC controls here
+     *   (vscroll_/hscroll_, plus a sizebox_/graybox_ pair for the corner
+     *   gap) - see migration.md §3.4.  Like every other control nested
+     *   under our permanently-hidden handle_, they were created but never
+     *   actually painted or reachable by input (no message pump - see
+     *   "root cause: both windows open"); render_vscrollbar_imgui() is
+     *   what actually draws and drives the scrollbar now.  The sizebox/
+     *   graybox pair had no ImGui-native replacement (live resize is
+     *   still off - see render_vscrollbar_imgui()'s neighbor comments),
+     *   so it's just gone.
+     *
+     *   vscroll_/hscroll_ still need distinct non-null values: they're
+     *   used as opaque identifiers (do_scroll(), win_get_scroll_info(),
+     *   etc. compare a handle against them to tell the two apart), just
+     *   no longer as real window handles.
+     */
+    if (has_vscroll_)
+        vscroll_ = (HWND)this;
+    if (has_hscroll_)
+        hscroll_ = (HWND)((char *)this + 1);
+
+    /* adjust initial scrollbar positions */
+    adjust_scrollbar_ranges();
+    adjust_scrollbar_positions();
+}
+
+/*
+ *   Turn the sizebox on or off.
+ */
+void CTadsWinScroll::set_has_sizebox(int f)
+{
+    /*
+     *   Just track the flag - we no longer back this with a real sizebox
+     *   control (see do_create()'s comment). There's no ImGui-native
+     *   size-grip yet to show/hide in its place; live resize of these
+     *   windows is still off regardless (see render_vscrollbar_imgui()'s
+     *   neighbor comments), so this is bookkeeping for future resize
+     *   support rather than something with a visible effect today.
+     */
+    has_sizebox_ = (f != 0);
+}
+
+/*
+ *   set external scrollbars
+ *
+ *   Note: unlike our own vscroll_/hscroll_ (see do_create()), an "external"
+ *   scrollbar set here would be a real caller-owned HWND - but
+ *   win_get_scroll_info()/win_set_scroll_info() always read/write our own
+ *   internal vscroll_info_/hscroll_info_ regardless of what vscroll_/
+ *   hscroll_ point to, so this would silently ignore a real external
+ *   control's actual state.  Not a concern today: nothing in guit3 calls
+ *   this (confirmed by grepping the whole imgui/ tree), so ext_vscroll_/
+ *   ext_hscroll_ are always false in practice. Would need to route
+ *   win_get/set_scroll_info() through the real Win32 API for whichever
+ *   scrollbar is external if this is ever revived.
+ */
+void CTadsWinScroll::set_ext_scrollbar(HWND ext_vscroll, HWND ext_hscroll)
+{
+    /* set the external vertical scrollbar, if provided */
+    if (ext_vscroll != 0)
+    {
+        vscroll_ = ext_vscroll;
+        ext_vscroll_ = TRUE;
+    }
+
+    /* set the external horizontal scrollbar, if provided */
+    if (ext_hscroll != 0)
+    {
+        hscroll_ = ext_hscroll;
+        ext_hscroll_ = TRUE;
+    }
+
+    /* adjust the scrollbar ranges now that we've changed scrollbars */
+    adjust_scrollbar_ranges();
+}
+
+/*
+ *   handle a WM_MOUSEWHEEL (scroll wheel) event 
+ */
+int CTadsWinScroll::do_mousewheel(int keys, int dist, int x, int y)
+{
+    UINT lines;
+    
+    /* if we have no scrollbars, do nothing */
+    if (!has_vscroll_ && !has_hscroll_)
+        return FALSE;
+
+    /* add the distance to the wheel accumulator */
+    wheel_accum_ += dist;
+
+    /* get the number of lines to scroll per increment */
+    if (!SystemParametersInfo(SPI_GETWHEELSCROLLLINES, 0, &lines, 0))
+    {
+        /* failed to get the parameter - the default is 3 lines */
+        lines = 3;
+    }
+
+    /* scroll by WHEEL_DELTA increments */
+    while (wheel_accum_ >= WHEEL_DELTA || wheel_accum_ <= -WHEEL_DELTA)
+    {
+        UINT i;
+        
+        /* 
+         *   Process a scroll up or down, as appropriate.  Apply the
+         *   scrolling to the vertical scrollbar if we have one, or to the
+         *   horizontal scrollbar if not. 
+         */
+        for (i = 0 ; i < lines ; ++i)
+            do_scroll(has_vscroll_, has_vscroll_ ? vscroll_ : hscroll_,
+                      wheel_accum_ > 0 ? SB_LINEUP : SB_LINEDOWN, 0, FALSE);
+
+        /* remove one increment from the accumulated total */
+        if (wheel_accum_ > 0)
+            wheel_accum_ -= WHEEL_DELTA;
+        else
+            wheel_accum_ += WHEEL_DELTA;
+    }
+
+    /*  handled */
+    return TRUE;
+}
+
+/*
+ *   Draw and drive an ImGui scrollbar overlay for our content, if we have
+ *   a vertical scrollbar.  Our content is windowed to our visible area
+ *   via doc_to_screen()/vscroll_ofs_ before it's ever drawn (see
+ *   CHtmlSysWin_win32::do_render_content_begin()), so ImGui's own
+ *   content-overflow tracking never sees anything to scroll - this reads
+ *   and drives the real scroll range/position (get_scroll_info(),
+ *   do_scroll(), do_mousewheel()) directly instead.  Must be called while
+ *   our content's ImGui child window is current.
+ */
+void CTadsWinScroll::render_vscrollbar_imgui()
+{
+    if (!has_vscroll_ || vscroll_ == 0)
+        return;
+
+    ImGuiIO &io = ImGui::GetIO();
+
+    /*
+     *   Our own content window is flagged NoInputs (get_content_window_flags()),
+     *   so ImGui::IsWindowHovered() would always read false here - do our
+     *   own geometric hover test instead, independent of ImGui's window
+     *   capture flags, so wheel-scroll still works anywhere over our
+     *   content, not just over the scrollbar track below.
+     */
+    ImVec2 win_pos = ImGui::GetWindowPos();
+    bool hovered = io.MousePos.x >= win_pos.x && io.MousePos.x < win_pos.x + m_size.x
+        && io.MousePos.y >= win_pos.y && io.MousePos.y < win_pos.y + m_size.y;
+    if (hovered && io.MouseWheel != 0.0f)
+        do_mousewheel(0, (int)(io.MouseWheel * WHEEL_DELTA), 0, 0);
+
+    SCROLLINFO info;
+    memset(&info, 0, sizeof(info));
+    if (!get_scroll_info(TRUE, &info))
+        return;
+
+    /*
+     *   SCROLLINFO follows Win32 scrollbar conventions: nMax is the bottom-
+     *   most logical unit of content (inclusive), not a "scrollable extent"
+     *   the way ImGui's own GetScrollMaxY() is - so the total logical
+     *   extent covered by the bar is (nMax - nMin + 1), and the thumb can
+     *   only travel from nMin up to (total - page), not all the way to
+     *   nMax. Getting this wrong (treating nMax - nMin as the denominator
+     *   throughout) both shows a partial-looking thumb when the content
+     *   actually fits on one page, and stops the thumb short of the track's
+     *   bottom when scrolled all the way down.
+     */
+    long total = info.nMax - info.nMin + 1;
+    if (total <= 0)
+        return;
+
+    long page = (info.nPage > 0 ? (long)info.nPage : 1);
+    long max_pos = total - page;
+    if (max_pos <= 0)
+        return;
+
+    RECT rc;
+    get_scroll_area(&rc, TRUE);
+    const float track_w = 10.0f;
+    /*
+     *   get_scroll_area() already subtracts SM_CXVSCROLL from rc.right to
+     *   carve out a margin for the scrollbar - rc.right is the boundary
+     *   text/content is laid out up to (see CHtmlSysWin_win32::do_resize()'s
+     *   disp_width_). The track belongs in that already-reserved margin, to
+     *   the right of rc.right, not inside it: positioning it at
+     *   [rc.right - track_w, rc.right] (the old code) drew it over the last
+     *   track_w pixels of the content area instead, so any line of text
+     *   using the full available width visually ran under the scrollbar.
+     */
+    ImVec2 track_min(win_pos.x + rc.right, win_pos.y + rc.top);
+    ImVec2 track_max(win_pos.x + rc.right + track_w, win_pos.y + rc.bottom);
+    float track_h = track_max.y - track_min.y;
+    if (track_h <= 0)
+        return;
+
+    float thumb_h = track_h * ((float)page / (float)total);
+    if (thumb_h < 20.0f) thumb_h = 20.0f;
+    if (thumb_h > track_h) thumb_h = track_h;
+    float avail = track_h - thumb_h;
+    float frac = (float)(info.nPos - info.nMin) / (float)max_pos;
+    if (frac < 0.0f) frac = 0.0f;
+    if (frac > 1.0f) frac = 1.0f;
+
+    /*
+     *   The track/thumb itself needs real ImGui mouse handling (drag via
+     *   IsItemActive()) - but our content window is NoMouseInputs, and
+     *   ImGui skips a NoMouseInputs window (and everything drawn loosely
+     *   inside it, including an InvisibleButton) during hover testing, so
+     *   a widget placed directly here would never be interactive. Give the
+     *   track its own tiny nested window instead: ImGui tests each window
+     *   for hover independently of its parent's flags, so a normal-flags
+     *   child here is clickable even though the content window around it
+     *   is not, without reopening the whole content area to input.
+     */
+    ImGui::PushID("vscrollbar_imgui");
+    ImGui::SetNextWindowPos(track_min);
+    ImGui::SetNextWindowSize(ImVec2(track_w, track_h));
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0.0f, 0.0f));
+    ImGui::BeginChild("##track_win", ImVec2(track_w, track_h), 0,
+        ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse
+        | ImGuiWindowFlags_NoNavInputs | ImGuiWindowFlags_NoNavFocus
+        | ImGuiWindowFlags_NoBackground);
+    ImGui::SetCursorScreenPos(track_min);
+    ImGui::InvisibleButton("##track", ImVec2(track_w, track_h));
+    bool active = ImGui::IsItemActive();
+    if (active)
+    {
+        float my = io.MousePos.y - track_min.y - thumb_h * 0.5f;
+        float f = avail > 0.0f ? my / avail : 0.0f;
+        if (f < 0.0f) f = 0.0f;
+        if (f > 1.0f) f = 1.0f;
+        long newpos = info.nMin + (long)(f * max_pos + 0.5f);
+        do_scroll(TRUE, vscroll_, SB_THUMBPOSITION, newpos, TRUE);
+        frac = f;
+    }
+
+    float thumb_y = track_min.y + avail * frac;
+    ImU32 track_col = IM_COL32(0, 0, 0, 40);
+    ImU32 thumb_col = (active || ImGui::IsItemHovered())
+        ? IM_COL32(120, 120, 120, 230) : IM_COL32(150, 150, 150, 170);
+    ImDrawList *draw = ImGui::GetWindowDrawList();
+    draw->AddRectFilled(track_min, track_max, track_col);
+    draw->AddRectFilled(ImVec2(track_min.x + 1, thumb_y),
+        ImVec2(track_max.x - 1, thumb_y + thumb_h), thumb_col, 3.0f);
+    ImGui::EndChild();
+    ImGui::PopStyleVar();
+    ImGui::PopID();
+}
+
+/*
+ *   perform scrolling, either in response to a scrollbar input event or
+ *   programmatically
+ */
+void CTadsWinScroll::do_scroll(int vert, HWND hwnd, int scroll_code,
+                               long pos, int use_pos)
+{
+    long newpos;
+    long oldpos;
+    SCROLLINFO info;
+
+    /* if there's no control, ignore it */
+    if (hwnd == 0)
+        return;
+
+    /* get the information on the scrollbar */
+    info.cbSize = sizeof(info);
+    info.fMask = SIF_ALL;
+    win_get_scroll_info(hwnd, &info);
+
+    /* presume the position won't change */
+    newpos = info.nPos;
+
+    /* figure out what we're doing */
+    switch(scroll_code)
+    {
+    case SB_BOTTOM:
+        newpos = info.nMax;
+        break;
+
+    case SB_ENDSCROLL:
+        newpos = info.nPos;
+        break;
+
+    case SB_LINEUP:
+        if (info.nPos > info.nMin)
+            newpos = info.nPos - 1;
+        break;
+
+    case SB_LINEDOWN:
+        newpos = info.nPos + 1;
+        break;
+
+    case SB_PAGEUP:
+        newpos = info.nPos - info.nPage;
+        if (newpos < info.nMin)
+            newpos = info.nMin;
+        break;
+
+    case SB_PAGEDOWN:
+        newpos = info.nPos + info.nPage;
+        break;
+
+    case SB_THUMBPOSITION:
+        /*
+         *   Get the new position.  Use the position passed by the caller if
+         *   they asked us to, otherwise use the scrollbar's internal
+         *   control position.  
+         */
+        newpos = (use_pos ? pos : info.nTrackPos);
+
+        /* note that thumb tracking is done */
+        sb_thumb_track_ = FALSE;
+        break;
+
+    case SB_THUMBTRACK:
+        /*
+         *   if we track the thumb continuously, update immediately;
+         *   otherwise ignore thumb tracking and wait for the final
+         *   THUMBPOSITION message 
+         */
+        newpos = active_scroll_thumb_tracking(hwnd) ? info.nTrackPos
+                 : info.nPos;
+
+        /* note that thumb tracking is in progress */
+        sb_thumb_track_ = TRUE;
+        break;
+
+    case SB_TOP:
+        newpos = info.nMin;
+        break;
+    }
+
+    /* remember the original position */
+    oldpos = (vert ? vscroll_ofs_ : hscroll_ofs_);
+
+    /* 
+     *   if we're not tracking the thumb, update the scrollbar (updating
+     *   isn't necessary when tracking the thumb, because the scrollbar is
+     *   doing the moving in the first place; it's also undesirable, since
+     *   rounding from pixels to scroll units and then going back to pixels
+     *   on the update can result in jumpiness) 
+     */
+    if (scroll_code != SB_THUMBTRACK)
+    {
+        /* set the new position */
+        info.nPos = newpos;
+        info.fMask = SIF_ALL | SIF_DISABLENOSCROLL;
+        win_set_scroll_info(hwnd, &info);
+
+        /*
+         *   check the new position, which Windows will limit to the valid
+         *   range set in the scrollbar 
+         */
+        win_get_scroll_info(hwnd, &info);
+    }
+    else
+    {
+        /* 
+         *   tracking the thumb - use the current position without updating
+         *   the scrollbar, since doing so could cause jumpiness due to
+         *   rounding from pixels to scroll units and back 
+         */
+        info.nPos = newpos;
+    }
+
+    /* if the position changed, do the scrolling */
+    if (info.nPos != oldpos)
+    {
+        RECT rc;
+        int  dx;
+        int  dy;
+        int  draw_now;
+
+        /*
+         *   Determine if we're going to redraw the window at its new
+         *   scrolled position.  If the old scrolling position was valid,
+         *   we'll update the window immediately; otherwise, we'll simply
+         *   invalidate the window for a later refresh.  If the old scrolling
+         *   position was invalid, we can't reliably refresh the previous
+         *   contents of the window, so we'll need to redraw the whole thing;
+         *   this is most likely to happen when we're making a drastic change
+         *   to the window's contents anyway, so it's generally not worth the
+         *   trouble to try to minimize redrawing in such cases.  
+         */
+        draw_now = (oldpos >= info.nMin && oldpos <= info.nMax);
+
+        /* get the area to be scrolled */
+        get_scroll_area(&rc, vert);
+
+        /*
+         *   Make sure any invalid area of the window is drawn immediately
+         *   prior to scrolling, since Windows won't relocate the invalid
+         *   region to compensate for the scrolling.  Do this only if we're
+         *   immediately updating; if not, invalidate the window's entire
+         *   scrolling area so we'll update the affected region at next
+         *   regular painting opportunity.  
+         */
+        if (draw_now)
+            UpdateWindow(handle_);
+        else
+            inval(&rc);
+
+        /* hide the caret while scrolling, if we have one */
+        HideCaret(handle_);
+
+        /* do any pre-scrolling work */
+        notify_pre_scroll(hwnd);
+
+        /* do the scrolling if we're actually redrawing */
+        if (draw_now)
+        {
+            /* calculate the change in position, in pixels */
+            dx = (vert ? 0 : (oldpos - info.nPos) * get_hscroll_units());
+            dy = (vert ? (oldpos - info.nPos) * get_vscroll_units() : 0);
+
+            /* scroll the window by the offset */
+            ScrollWindow(handle_, dx, dy, &rc, &rc);
+        }
+
+        /* remember the new scrolling position */
+        if (vert)
+        {
+            /* fix up vertical scrolling position */
+            vscroll_ofs_ = info.nPos;
+        }
+        else
+        {
+            /* fix up horizontal scrolling position */
+            hscroll_ofs_ = info.nPos;
+        }
+
+        /* redraw the exposed area immediately if we're drawing in-line */
+        if (draw_now)
+            UpdateWindow(handle_);
+
+        /* okay to show the caret again */
+        ShowCaret(handle_);
+
+        /* do any subclass-specific handling */
+        notify_scroll(hwnd, oldpos, info.nPos);
+    }
+
+    /*
+     *   Get the new scroll settings.  If they differ from the current
+     *   settings in the min, max, or page values, we need to udpate the
+     *   scrollbar.  This can happen when, for example, we're scrolled off
+     *   too far to the right for the current window size (which can be
+     *   the case after we resize the window while it's scrolled), then
+     *   scroll up or left.  Only do this on scrolling left or up or
+     *   setting the position explicitly (but not during tracking), since
+     *   these parameters should not be subject to change when scrolling
+     *   down or right, and we don't want them changing dynamically during
+     *   tracking.  
+     */
+    switch(scroll_code)
+    {
+    case SB_BOTTOM:
+    case SB_LINELEFT:
+    case SB_PAGELEFT:
+    case SB_THUMBPOSITION:
+    case SB_TOP:
+        {
+            SCROLLINFO newinfo;
+            int old_vis, new_vis;
+
+            /* get the new scrollbar information */
+            new_vis = get_scroll_info(vert, &newinfo);
+
+            /* 
+             *   if there's any change in the scrollbar range or visibility,
+             *   adjust the scrollbar to reflect the new settings 
+             */
+            old_vis = ((vert ? hscroll_vis_ : vscroll_vis_) != 0);
+            if (newinfo.nMin != info.nMin
+                || newinfo.nMax != info.nMax
+                || newinfo.nPage != info.nPage
+                || new_vis != old_vis)
+                adjust_scrollbar_ranges();
+        }
+        break;
+        
+    default:
+        /* don't adjust on other changes */
+        break;
+    }
+}
+
+/*
+ *   Windows hook procedure for the message filter hook.
+ *   
+ *   We use this hook to process scrollbar events.  When the scrollbar is
+ *   tracking the mouse for thumb movement, we'll note this when we see the
+ *   initial SB_THUMBTRACK message in the parent window.  Once we see this
+ *   event in the parent, we'll constrain subsequent mouse events in the
+ *   scrollbar, which are filtered through this hook, to stay within the
+ *   scrollbar area.  
+ */
+LRESULT CALLBACK CTadsWinScroll::sb_filter_proc(int code, WPARAM wpar,
+                                                LPARAM lpar)
+{
+    MSG *msg;
+
+    /* get the message object */
+    msg = (MSG *)lpar;
+
+    /* 
+     *   check the code - if it's a mouse-move message in the scrollbar,
+     *   constrain the mouse position so that it lies within the area of the
+     *   scrollbar, even if the mouse has strayed 
+     */
+    if (code == MSGF_SCROLLBAR
+        && sb_thumb_track_
+        && (msg->message == WM_MOUSEMOVE
+            || msg->message == WM_LBUTTONUP
+            || msg->message == WM_RBUTTONUP
+            || msg->message == WM_MBUTTONUP))
+    {
+        RECT rc;
+        int x;
+        int y;
+
+        /* get the original coordinates from the message */
+        x = (short)LOWORD(msg->lParam);
+        y = (short)HIWORD(msg->lParam);
+
+        /* get the client area of the scrollbar */
+        GetClientRect(msg->hwnd, &rc);
+
+        /* force the x position to lie within the scrollbar */
+        if (x < 0)
+            x = 0;
+        else if (x > rc.right)
+            x = rc.right;
+
+        /* force the y position to lie within the scrollbar */
+        if (y < 0)
+            y = 0;
+        else if (y > rc.bottom)
+            y = rc.bottom;
+
+        /* reconstruct the lparam with the constrained position */
+        msg->lParam = MAKELONG(x, y);
+    }
+
+    /* invoke the next hook */
+    return CallNextHookEx(sb_filter_hook_, code, wpar, lpar);
+}
+
+/*
+ *   Get the scrolling area
+ */
+void CTadsWinScroll::get_scroll_area(RECT *rc, int /*vertical*/) const
+{
+    /* start off with the entire client area */
+    get_client_rect(rc);
+
+    /* subtract out the scrollbars if present */
+    if (vscroll_is_visible())
+        rc->right -= GetSystemMetrics(SM_CXVSCROLL);
+
+    if (hscroll_is_visible())
+        rc->bottom -= GetSystemMetrics(SM_CYHSCROLL);
+
+    /*
+     *   Never go negative.  get_client_rect() reflects m_size, which for a
+     *   window that's part of the banner layout tree (e.g. the main game
+     *   panel) is only established once calc_banner_layout() has run for it
+     *   at least once - but adjust_scrollbar_ranges() can run before that
+     *   first pass (e.g. right after creation), so rc can start out {0,0},
+     *   go negative here, and feed a bogus negative width into
+     *   CHtmlSysWin_win32::get_scroll_info()'s horizontal-scrollbar math
+     *   (int-divided by get_hscroll_units(), then stored into an unsigned
+     *   SCROLLINFO::nPage - wrapping to near UINT_MAX).  That one bad frame
+     *   is enough to permanently latch the panel into showing a phantom
+     *   horizontal scrollbar shifted a few pixels open with nothing to
+     *   scroll to (get_scroll_info()'s "|| hscroll_ofs_ != 0" keeps it
+     *   visible forever after), silently clipping the first several pixels
+     *   of every line for the rest of the session.  A real Win32
+     *   GetClientRect() can never report a negative width or height, so
+     *   this ported equivalent shouldn't either.
+     */
+    if (rc->right < rc->left)
+        rc->right = rc->left;
+    if (rc->bottom < rc->top)
+        rc->bottom = rc->top;
+}
+
+/*
+ *   Adjust scrollbars to their proper positions.
+ *
+ *   This used to MoveWindow()/ShowWindow() our real vscroll_/hscroll_/
+ *   sizebox_/graybox_ child controls into place. Now that none of those
+ *   are real windows any more (see do_create()'s comment), there's
+ *   nothing left to position here - render_vscrollbar_imgui() computes
+ *   its own on-screen track rect directly from get_scroll_area()/m_size
+ *   each frame, independent of this method. Kept as a no-op rather than
+ *   removed, since it's still called from several places (do_resize(),
+ *   do_create(), a visibility change in CHtmlSysWin_win32::
+ *   adjust_scrollbar_ranges()) that would otherwise all need updating.
+ */
+void CTadsWinScroll::adjust_scrollbar_positions()
+{
+}
+
+/*
+ *   resize the window 
+ */
+void CTadsWinScroll::do_resize(int mode, int, int)
+{
+    switch(mode)
+    {
+    case SIZE_MAXHIDE:
+    case SIZE_MAXSHOW:
+    case SIZE_MINIMIZED:
+        /* ignore these modes */
+        break;
+
+    case SIZE_MAXIMIZED:
+    case SIZE_RESTORED:
+    default:
+        /* position the scrollbars and the gray box */
+        adjust_scrollbar_positions();
+
+        /* adjust the scrollbar settings and positions */
+        adjust_scrollbar_ranges();
+        break;
+    }
+}
+
+/*
+ *   Set control colors 
+ */
+HBRUSH CTadsWinScroll::do_ctlcolor(UINT msg, HDC hdc, HWND hwnd)
+{
+    /*
+     *   Used to paint our (now-removed, see do_create()) graybox_ control
+     *   gray; that control is gone, and this message never actually
+     *   reached it anyway (no message pump - see migration.md §2).
+     */
+    return CTadsWin::do_ctlcolor(msg, hdc, hwnd);
+}
+
+
+/*
+ *   Initialize drag scrolling.  Sets a timer that will be called to
+ *   simulate mouse move events when the mouse is being held outside the
+ *   window.  
+ */
+void CTadsWinScroll::start_drag_scroll()
+{
+    /* remember that we're doing drag scrolling */
+    in_drag_scroll_ = TRUE;
+
+    /* allocate a timer for the drag scroll operations */
+    if ((drag_scroll_timer_id_ = alloc_timer_id()) == 0)
+        return;
+
+    /* set up to receive timer events */
+    win_set_timer(drag_scroll_timer_id_, 20);
+
+    /* set the time for the next drag scroll */
+    drag_scroll_time_ = os_get_tick_ms() + TADSWIN_DRAG_SCROLL_WAIT;
+}
+
+/*
+ *   Perform drag scrolling if appropriate 
+ */
+int CTadsWinScroll::maybe_drag_scroll(long x, long y,
+                                      int x_inset, int y_inset)
+{
+    int scrolled = FALSE;
+    SCROLLINFO oldinfo;
+    SCROLLINFO newinfo;
+
+    /*
+     *   if insufficient time has elapsed since the last drag scroll, do
+     *   nothing 
+     */
+    if (os_get_tick_ms() < drag_scroll_time_)
+        return FALSE;
+
+    /* hide any visual overlay provided by the drop target helper */
+    DropHelper_Show(FALSE);
+
+    /*
+     *   if the mouse is outside the scrolling area, scroll in the
+     *   appropriate direction 
+     */
+    RECT vrc, hrc;
+    get_scroll_area(&vrc, TRUE);
+    get_scroll_area(&hrc, FALSE);
+    if (hscroll_ != 0
+        && hscroll_vis_)
+    {
+        /* note the old horizontal scroll position */
+        get_scroll_info(FALSE, &oldinfo);
+
+        /* see which way we need to scroll, if any */
+        if (x < hrc.left + x_inset)
+            do_scroll(FALSE, hscroll_, SB_LINEUP, 0, FALSE);
+        else if (x > hrc.right - x_inset)
+            do_scroll(FALSE, hscroll_, SB_LINEDOWN, 0, FALSE);
+
+        /* get the new position and note whether it changed */
+        get_scroll_info(FALSE, &newinfo);
+        scrolled = (oldinfo.nPos != newinfo.nPos);
+    }
+
+    if (vscroll_ != 0
+        && vscroll_vis_)
+    {
+        /* note the old horizontal scroll position */
+        get_scroll_info(TRUE, &oldinfo);
+
+        if (y < vrc.top + y_inset)
+            do_scroll(TRUE, vscroll_, SB_LINEUP, 0, FALSE);
+        else if (y > vrc.bottom - y_inset)
+            do_scroll(TRUE, vscroll_, SB_LINEDOWN, 0, FALSE);
+
+        /* get the new position and note whether it changed */
+        get_scroll_info(TRUE, &newinfo);
+        scrolled |= (oldinfo.nPos != newinfo.nPos);
+    }
+
+    /* if we scrolled, set next scrolling time */
+    drag_scroll_time_ += TADSWIN_DRAG_SCROLL_WAIT;
+
+    /* restore any drag/drop visual overlay */
+    DropHelper_Show(TRUE);
+
+    /* return indication of whether scrolling occurred */
+    return scrolled;
+}
+
+/*
+ *   End drag scrolling.  This should be called when capture is released
+ *   to remove the drag-scroll timer.  
+ */
+void CTadsWinScroll::end_drag_scroll()
+{
+    /* remove the timer */
+    if (drag_scroll_timer_id_ != 0)
+    {
+        win_kill_timer(drag_scroll_timer_id_);
+        free_timer_id(drag_scroll_timer_id_);
+    }
+
+    /* we're no longer doing drag scrolling */
+    in_drag_scroll_ = FALSE;
+}
+
+/*
+ *   Process a timer event.  If we're doing drag scrolling, we'll act as
+ *   though we'd received a mouse-moved event 
+ */
+int CTadsWinScroll::do_timer(int timer_id)
+{
+    /*
+     *   if we're doing drag scrolling, and the this is the drag-scroll
+     *   timer, handle it 
+     */
+    if (in_drag_scroll_ && timer_id == drag_scroll_timer_id_)
+    {
+        POINT pt;
+        RECT hrc, vrc;
+        
+        /*
+         *   if the mouse is outside our scrolling area, generate a
+         *   mouse-moved event even if the mouse is in the same place it's
+         *   been 
+         */
+        GetCursorPos(&pt);
+        screen_to_client(&pt);
+        get_scroll_area(&vrc, TRUE);
+        get_scroll_area(&hrc, FALSE);
+        if (ImGui::GetCurrentContext()->CurrentWindow != nullptr) {
+            if (!PtInRect(&hrc, pt) || !PtInRect(&vrc, pt))
+            {
+                /* generate a mouse-moved event */
+                do_mousemove(get_key_mk_state(), pt.x, pt.y);
+            }
+        }
+
+        /* handled */
+        return TRUE;
+    }
+    
+    /* inherit default */
+    return CTadsWin::do_timer(timer_id);
+}
+
+/* ------------------------------------------------------------------------ */
+/*
+ *   Basic Window System Interface class 
+ */
+
+/*
+ *   get the handle to use as the parent of children of this window -
+ *   we'll simply return our window's handle 
+ */
+HWND CTadsSyswin::syswin_get_parent_of_children() const
+{
+    /* return my window's handle */
+    return win_->get_handle();
+}
+
+/*
+ *   create the system window object 
+ */
+HWND CTadsSyswin::syswin_create_system_window(DWORD ex_style,
+                                              const textchar_t *wintitle,
+                                              DWORD style,
+                                              int x, int y, int wid, int ht,
+                                              HWND parent, HMENU menu,
+                                              HINSTANCE inst, void *param)
+{
+    return CreateWindowEx(ex_style, CTadsWin::win_class_name,
+                          wintitle, style,
+                          x, y, wid, ht, parent, menu, inst, param);
+}
+
+static void charCallback(GLFWwindow* window, unsigned int codepoint) {
+
+}
+
+GLFWwindow* CTadsSyswin::syswin_create_system_window(
+    const textchar_t* wintitle,
+    DWORD sstyle,
+    int x, int y, int wid, int ht) {
+    //we want only one real main window
+    if (glfwGetCurrentContext() != nullptr) {
+        return nullptr;
+    }
+    if (wid == CW_USEDEFAULT)
+        wid = 1426;
+    if (ht == CW_USEDEFAULT)
+        ht = 746;
+    // Decide GL+GLSL versions
+#if defined(IMGUI_IMPL_OPENGL_ES2)
+    // GL ES 2.0 + GLSL 100 (WebGL 1.0)
+    const char* glsl_version = "#version 100";
+    glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 2);
+    glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 0);
+    glfwWindowHint(GLFW_CLIENT_API, GLFW_OPENGL_ES_API);
+#elif defined(IMGUI_IMPL_OPENGL_ES3)
+    // GL ES 3.0 + GLSL 300 es (WebGL 2.0)
+    const char* glsl_version = "#version 300 es";
+    glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 3);
+    glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 0);
+    glfwWindowHint(GLFW_CLIENT_API, GLFW_OPENGL_ES_API);
+#elif defined(__APPLE__)
+    // GL 3.2 + GLSL 150
+    const char* glsl_version = "#version 150";
+    glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 3);
+    glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 2);
+    glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);  // 3.2+ only
+    glfwWindowHint(GLFW_OPENGL_FORWARD_COMPAT, GL_TRUE);            // Required on Mac
+#else
+    // GL 3.0 + GLSL 130
+    const char* glsl_version = "#version 130";
+    glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 3);
+    glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 0);
+    //glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);  // 3.2+ only
+    //glfwWindowHint(GLFW_OPENGL_FORWARD_COMPAT, GL_TRUE);            // 3.0+ only
+#endif
+
+    // Create window with graphics context
+    /*
+     *   Start hidden: GLFW shows a window by default as soon as it's
+     *   created, but our caller (CTadsWin::create_system_window) decides
+     *   whether the window should actually be shown, and does so
+     *   separately via setVisible().  Without this hint the window would
+     *   flash on screen immediately, regardless of the caller's "show"
+     *   argument.
+     */
+    glfwWindowHint(GLFW_VISIBLE, GLFW_FALSE);
+    float main_scale = ImGui_ImplGlfw_GetContentScaleForMonitor(glfwGetPrimaryMonitor()); // Valid on GLFW 3.3+ only
+    GLFWwindow* window = glfwCreateWindow((int)(wid * main_scale), (int)(ht * main_scale), wintitle, nullptr, nullptr);
+    if (window == nullptr) {
+        fprintf(stderr, "glfwCreateWindow failed\n");
+        return nullptr;
+    }
+    glfwMakeContextCurrent(window);
+    glfwSwapInterval(1); // Enable vsync
+
+    // Setup scaling
+    ImGuiStyle& style = ImGui::GetStyle();
+    style.ScaleAllSizes(main_scale);        // Bake a fixed style scale. (until we have a solution for dynamic style scaling, changing this requires resetting Style + calling this again)
+    /*
+     *   Deliberately NOT setting style.FontScaleDpi here.  The ImGui example
+     *   code this was copied from adds its fonts at their nominal point size
+     *   and relies on FontScaleDpi to do the DPI step - but CTadsFont works
+     *   the other way round: it already bakes the monitor's content scale
+     *   into every font it creates, via get_screen_dpi() (= 96 * content
+     *   scale) feeding calc_lfHeight().  Setting FontScaleDpi = main_scale on
+     *   top of that applied the content scale a second time, so on a display
+     *   scaled above 100% all game text came out at scale-squared (e.g. 2.25x
+     *   at 150%) and no longer matched the formatter's own layout metrics.
+     *   Leaving it at its default 1.0 makes text scale by exactly the content
+     *   scale, the same factor the window itself is enlarged by above.
+     */
+
+
+    // Setup Platform/Renderer backends
+    ImGui_ImplGlfw_InitForOpenGL(window, true);
+#ifdef __EMSCRIPTEN__
+    ImGui_ImplGlfw_InstallEmscriptenCallbacks(window, "#canvas");
+#endif
+    ImGui_ImplOpenGL3_Init(glsl_version);
+    return window;
+}
+
+/*
+ *   Set the menu bar for the window.  For default windows, we merely call
+ *   SetMenu.
+ */
+void CTadsSyswin::syswin_set_win_menu(HMENU menu, int /*win_menu_index*/)
+{
+    SetMenu(win_->get_handle(), menu);
+}
+
+/*
+ *   Determine if I'm maximized 
+ */
+int CTadsSyswin::syswin_is_maximized(CTadsWin *parent) const
+{
+    WINDOWPLACEMENT winpl;
+    HWND par;
+    HWND nxt;
+
+    /* 
+     *   if I'm a child window, use my parent's information, since I'm
+     *   dependent on my parent's layout 
+     */
+    if ((GetWindowLong(win_->get_handle(), GWL_STYLE) & WS_CHILD) != 0)
+    {
+        /* if I have a CTadsWin parent, ask it to make the call */
+        if (parent != 0)
+            return parent->is_win_maximized();
+
+        /* find the outermost parent handle that's a popup window */
+        for (par = win_->get_handle() ; par != 0 ; par = nxt)
+        {
+            /* if this window is not a child, stop looking */
+            if ((GetWindowLong(par, GWL_STYLE) & WS_CHILD) == 0)
+                break;
+            
+            /* move on to the parent */
+            nxt = GetParent(par);
+            
+            /* if there's not another parent, stop searching */
+            if (nxt == 0)
+                break;
+        }
+    }
+    else
+    {
+        /* I'm not a popup window, so we can make our own determination */
+        par = win_->get_handle();
+    }
+
+    /* get the window's placement to determine if it's maximized */
+    winpl.length = sizeof(winpl);
+    GetWindowPlacement(par, &winpl);
+    return (winpl.showCmd == SW_SHOWMAXIMIZED);
+}
+
+/* ------------------------------------------------------------------------ */
+/*
+ *   Window creation hook 
+ */
+
+/*
+ *   delete 
+ */
+CTadsWinCreateHook::~CTadsWinCreateHook()
+{
+    /* make sure I'm not the active window hook */
+    unset_hook();
+}
+
+/*
+ *   set the hook 
+ */
+void CTadsWinCreateHook::set_hook()
+{
+    /* get my thread-local storage object */
+    CTadsAppTls *tls = CTadsApp::get_tls_obj();
+
+    /* if there's already a hook, we can't set another */
+    if (tls->chook != 0)
+        return;
+
+    /* set this as the active hook */
+    hhook_ = SetWindowsHookEx(WH_CBT, &hookproc, 0, GetCurrentThreadId());
+
+    /* remember this as the thread's hook */
+    tls->chook = this;
+}
+
+/*
+ *   remove the hook 
+ */
+void CTadsWinCreateHook::unset_hook()
+{
+    /* get my thread-local storage object */
+    CTadsAppTls *tls = CTadsApp::get_tls_obj();
+
+    /* if I'm the active hook in the TLS object, remove me */
+    if (tls->chook == this)
+        tls->chook = 0;
+
+    /* remove my hook handle */
+    if (hhook_ != 0)
+        UnhookWindowsHookEx(hhook_);
+}
+
+/*
+ *   hook a message 
+ */
+LRESULT CALLBACK CTadsWinCreateHook::hookproc(
+    int code, WPARAM wpar, LPARAM lpar)
+{
+    /* get 'self' from the thread local storage */
+    CTadsAppTls *tls = CTadsApp::get_tls_obj();
+    CTadsWinCreateHook *self = tls->chook;
+    int unhook = FALSE;
+
+    /* if there's no 'self', we can't go on */
+    if (self == 0)
+        return 0;
+
+    /* process create window messages only */
+    if (code == HCBT_CREATEWND)
+    {
+        /* get the window handle and the 'create' structure */
+        HWND hwnd = (HWND)wpar;
+        LPCREATESTRUCT lpcs = ((LPCBT_CREATEWND)lpar)->lpcs;
+
+        /* ignore the IME window */
+        if ((GetClassLong(hwnd, GCL_STYLE) & CS_IME) == 0)
+        {
+            /* check the class name as well */
+            const char *clsname;
+            char clsnamebuf[10];
+            if (DWORD_PTR(lpcs->lpszClass) > 0xffff)
+            {
+                /* the class name is actually given as a string, so use it
+                   directly */
+                clsname = lpcs->lpszClass;
+            }
+            else
+            {
+                /* the class name is an atom, so retrieve the corresponding
+                   string */
+                clsname = clsnamebuf;
+                clsnamebuf[0] = '\0';
+                GlobalGetAtomName((ATOM)(intptr_t)lpcs->lpszClass, clsnamebuf,
+                                  sizeof(clsnamebuf));
+            }
+
+            if (lstrcmpi(clsname, "ime") != 0)
+            {
+                /* it's the window we want - process the creation message */
+                self->do_create_hook(hwnd, lpcs);
+
+                /* that's all we need to do, so unhook before we return */
+                unhook = TRUE;
+            }
+        }
+    }
+
+done:
+    /* call the next hook in line */
+    LRESULT ret = CallNextHookEx(self->hhook_, code, wpar, lpar);
+
+    /* if we want to unhook ourself before returning, it's time */
+    if (unhook)
+        self->unset_hook();
+
+    /* return the result */
+    return ret;
+}
+
+/* ------------------------------------------------------------------------ */
+/*
+ *   Subclassing window creation hook 
+ */
+
+/* the property name we use for our subclass hook */
+const char *CTadsWinSubclassHook::scprop_ = "CTadsWinSubclassHook.self";
+
+/*
+ *   destroy 
+ */
+CTadsWinSubclassHook::~CTadsWinSubclassHook()
+{
+}
+
+/*
+ *   on creation, install the subclassed window procedure 
+ */
+void CTadsWinSubclassHook::do_create_hook(HWND hwnd, LPCREATESTRUCT lpcs)
+{
+    /* remember our window handle */
+    hwnd_ = hwnd;
+
+    /* install our subclassing procedure */
+    oldwinproc_ = (WNDPROC)GetWindowLongPtr(hwnd, GWLP_WNDPROC);
+    SetWindowLongPtr(hwnd, GWLP_WNDPROC, (DWORD_PTR)&s_winproc);
+
+    /* remember our 'this' pointer in a window property */
+    SetProp(hwnd, scprop_, this);
+}
+
+/*
+ *   handle destruction 
+ */
+void CTadsWinSubclassHook::do_destroy()
+{
+    /* remove our subclassing */
+    RemoveProp(hwnd_, scprop_);
+    SetWindowLongPtr(hwnd_, GWLP_WNDPROC, (DWORD_PTR)oldwinproc_);
+}
+
+/*
+ *   subclassed window procedure 
+ */
+LRESULT CTadsWinSubclassHook::winproc(HWND hwnd, UINT msg,
+                                      WPARAM wpar, LPARAM lpar)
+{
+    /* check the message */
+    switch (msg)
+    {
+    case WM_CREATE:
+        do_create((LPCREATESTRUCT)lpar);
+        break;
+        
+    case WM_DESTROY:
+        do_destroy();
+        break;
+    }
+
+    /* call the original window procedure */
+    return CallWindowProc(oldwinproc_, hwnd, msg, wpar, lpar);
+}
+

@@ -1,0 +1,953 @@
+#ifdef RCSID
+static char RCSid[] =
+"$Header: d:/cvsroot/tads/html/win32/w32main.cpp,v 1.4 1999/07/11 00:46:51 MJRoberts Exp $";
+#endif
+
+/* 
+ *   Copyright (c) 1998 by Michael J. Roberts.  All Rights Reserved.
+ *   
+ *   Please see the accompanying license file, LICENSE.TXT, for information
+ *   on using and copying this software.  
+ */
+/*
+Name
+  w32main.cpp - tads html win32 - main entrypoint
+Function
+  
+Notes
+  
+Modified
+  01/31/98 MJRoberts  - Creation
+*/
+
+#include <stdio.h>
+#include <ctype.h>
+
+#ifdef _WIN32
+#include <Windows.h>
+#include <CommCtrl.h>
+#else
+#include "tadsplat.h"
+#endif
+
+#ifndef TADSHTML_H
+#include "tadshtml.h"
+#endif
+#ifndef HTMLGUI_H
+#include "htmlgui.h"
+#endif
+#ifndef HTMLPRS_H
+#include "htmlprs.h"
+#endif
+#ifndef HTMLFMT_H
+#include "htmlfmt.h"
+#endif
+#ifndef HTML_OS_H
+#include "html_os.h"
+#endif
+#ifndef TADSAPP_H
+#include "tadsapp.h"
+#endif
+#ifndef HTMLPREF_H
+#include "htmlpref.h"
+#endif
+#ifndef HTMLRF_H
+#include "htmlrf.h"
+#endif
+#ifndef W32MAIN_H
+#include "guimain.h"
+#endif
+#ifndef TADSDLG_H
+#include "tadsdlg.h"
+#endif
+#ifndef TADSIMG_H
+#include "tadsimg.h"
+#endif
+#ifndef HTMLPNG_H
+#include "htmlpng.h"
+#endif
+#ifndef HTMLMNG_H
+#include "htmlmng.h"
+#endif
+#ifndef HTMLJPEG_H
+#include "htmljpeg.h"
+#endif
+#ifndef HTMLRES_H
+#include "htmlres.h"
+#endif
+#ifndef W32WEBUI_H
+#include "guiwebui.h"
+#endif
+#include "guios.h"
+
+
+/* TADS runtime definitions */
+#ifndef TRD_H
+#include "trd.h"
+#endif
+
+/* TADS OS header */
+#include "os.h"
+
+/* some additional windows version-dependent definitions */
+#ifndef ICC_STANDARD_CLASSES
+#define ICC_STANDARD_CLASSES   0x00004000
+#endif
+
+
+/* ------------------------------------------------------------------------ */
+/*
+ *   Application instance handle global variable - oswin.c requires that
+ *   we (the definer of WinMain) define and initialize this variable. 
+ */
+#ifdef _WIN32
+extern "C" { HINSTANCE oss_G_hinstance; }
+#endif
+
+#ifndef _WIN32
+/*
+ *   oss_set_askfile_hook()/oss_win_free_all()/oss_win_static_init_done() are
+ *   declared in tads2/msdos/oswin.h and implemented in tads2/msdos/oswin.c,
+ *   which the non-Windows build of Tads::tr32h doesn't compile (it builds
+ *   unix/osunixt.c instead - migration.md 5.1). The Unix os_askfile()
+ *   (unix/osunixt.c) is itself compiled out under USE_STDIO (which this
+ *   build defines), so a text-prompt fallback (askf_tx.c) handles
+ *   File > Open/Save/Restore off Windows for now rather than
+ *   CTadsFileDialog - wiring the hook into a real non-Windows os_askfile()
+ *   is follow-up work, not needed to get guit3 compiling. These three are
+ *   harmless no-ops in the meantime so guimain.cpp links.
+ */
+typedef int (*os_askfile_hook_t)(const char *prompt, const char *filter,
+                                 const char *initial_dir, char *fname_buf,
+                                 int fname_buf_len, int is_save);
+inline void oss_set_askfile_hook(os_askfile_hook_t) { }
+inline void oss_win_free_all() { }
+inline void oss_win_static_init_done() { }
+#endif
+
+
+/* ------------------------------------------------------------------------ */
+/*
+ *   Hook for os_askfile()'s native file dialog (see oswin.h/oswin.c) - shows
+ *   our ImGui-native CTadsFileDialog instead of the Win32
+ *   GetOpenFileName()/GetSaveFileName() common dialog.  os_askfile() builds
+ *   the filter string, initial directory, and default filename exactly as
+ *   it would for the native dialog, then calls this instead of showing it.
+ *
+ *   This runs from deep within the VM's synchronous command processing (for
+ *   example, the "restore" command sent by File > Restore Position...), not
+ *   from an ImGui frame's own click handler, so - like get_game_name_cb()
+ *   below - it uses CTadsFileDialog::open_blocking() rather than the
+ *   deferred open()/render() pair.  Unlike get_game_name_cb() (which runs
+ *   before there's any game content to show), this can fire mid-game, so it
+ *   passes open_blocking() a render_background callback that runs the main
+ *   window's normal per-frame do_render() - the same call the ordinary
+ *   event_loop() makes - so the running game stays visible behind the
+ *   dialog instead of being replaced by a blank cleared screen.
+ */
+static int askfile_hook(const char *prompt, const char *filter,
+                        const char *initial_dir, char *fname_buf,
+                        int fname_buf_len, int is_save)
+{
+    char initial_path[OSFNMAX];
+    size_t len;
+
+    /* combine the initial directory and default filename into one path */
+    initial_path[0] = '\0';
+    if (initial_dir != 0 && initial_dir[0] != '\0')
+    {
+        strncpy(initial_path, initial_dir, sizeof(initial_path) - 1);
+        initial_path[sizeof(initial_path) - 1] = '\0';
+
+        len = strlen(initial_path);
+        if (fname_buf[0] != '\0' && len > 0 && len < sizeof(initial_path) - 1
+            && initial_path[len - 1] != '\\')
+        {
+            initial_path[len++] = '\\';
+            initial_path[len] = '\0';
+        }
+        strncat(initial_path, fname_buf, sizeof(initial_path) - len - 1);
+    }
+    else
+    {
+        strncpy(initial_path, fname_buf, sizeof(initial_path) - 1);
+        initial_path[sizeof(initial_path) - 1] = '\0';
+    }
+
+    CHtmlSys_mainwin *win = CHtmlSys_mainwin::get_main_win();
+    std::function<void()> render_background;
+    if (win != 0)
+    {
+        render_background = [win]()
+        {
+            win->do_render();
+            if (win->get_debug_win() != 0)
+                win->get_debug_win()->do_render();
+        };
+    }
+
+    return CTadsFileDialog::open_blocking(
+        win != 0 ? win->get_glfw_window() : 0,
+        is_save ? TADSFILEDLG_SAVE : TADSFILEDLG_OPEN,
+        prompt, filter, initial_path, !is_save,
+        fname_buf, fname_buf_len, render_background) ? 1 : 0;
+}
+
+/* ------------------------------------------------------------------------ */
+/*
+ *   Flag: get-game-name callback has been invoked
+ */
+static int S_get_game_cb_invoked;
+
+/*
+ *   Callback for getting the name of the game file.  The run-time will
+ *   call this if it can't find the name of the game to play through any
+ *   other means (such as via the command line).
+ */
+static int get_game_name_cb(void *ctx, char *buf, size_t buflen)
+{
+    CHtmlSys_mainwin *win = (CHtmlSys_mainwin *)ctx;
+    int ret;
+    char prompt[256];
+
+    /* note that this callback has been invoked */
+    S_get_game_cb_invoked = TRUE;
+
+    /*
+     *   If we have a pending game name, it means that the player has
+     *   already selected a new game to play.  Simply return it now. 
+     */
+    if (win != 0 && win->get_pending_new_game() != 0
+        && strlen(win->get_pending_new_game()) + 1 <= buflen)
+    {
+        /* copy the name */
+        strcpy(buf, win->get_pending_new_game());
+
+        /* 
+         *   the pending game name has now been consumed - tell the window
+         *   to forget about it 
+         */
+        win->clear_pending_new_game();
+
+        /* return success */
+        return TRUE;
+    }
+
+    /*
+     *   Ask for the game's filename via the ImGui-native file dialog.  This
+     *   runs before event_loop() ever starts, so there's no ImGui frame in
+     *   progress yet to defer into - use the blocking entry point instead
+     *   (CTadsFileDialog::open_blocking(), which self-pumps its own local
+     *   GLFW/ImGui frame loop on the main window, same as
+     *   tadswin_message_box() does for the same "called outside any frame"
+     *   situation).  The main window's GLFW window already exists by this
+     *   point (win->create_system_window() runs earlier in WinMain(), well
+     *   before the VM calls back into this function to ask for a game
+     *   name), so this doesn't need the native GetOpenFileName() fallback
+     *   open_blocking() falls back to when no window exists yet.
+     */
+    os_load_string(IDS_CHOOSE_GAME, prompt, sizeof(prompt));
+
+    ret = CTadsFileDialog::open_blocking(
+        win != 0 ? win->get_glfw_window() : 0,
+        TADSFILEDLG_OPEN, prompt, w32_opendlg_filter,
+        CTadsApp::get_app()->get_openfile_dir(), TRUE, buf, buflen);
+
+    /* save the open file directory if that succeeded */
+    if (ret)
+        CTadsApp::get_app()->set_openfile_dir(buf);
+
+    /* return the result */
+    return ret;
+}
+
+/* ------------------------------------------------------------------------ */
+/*
+ *   simple hex-to-string converter for the exception handler, so that the
+ *   exception handler can avoid calling any heavyweight library routines
+ *   such as sprintf 
+ */
+static void hex_to_str(char *buf, DWORD hexval)
+{
+    int i;
+
+    /* build the string in reverse order */
+    for (i = 0 ; i < 8 ; ++i)
+    {
+        char cur;
+
+        /* get the current character value */
+        cur = (char)(hexval & 0xf);
+        *(buf + 7 - i) = (cur < 10 ? cur + '0' : cur + 'a' - 10);
+
+        /* shift the value to remove this character */
+        hexval >>= 4;
+    }
+
+    /* null-terminate the string */
+    *(buf + 8) = '\0';
+}
+
+/*
+ *   Top-level exception handler.  We'll use this to catch fatal errors
+ *   before the operating system kills our process entirely.  We'll print
+ *   out some extra diagnostic information so that users can send us crash
+ *   details for us to analyze in cases where the cause of the crash is
+ *   not clear from the test case (which is the case when the problem is
+ *   configuration-dependent).
+ *   
+ *   (This symbol is non-static so that it shows up in the map file, which
+ *   is important because it provides us with the adjustment bias so that
+ *   we can figure out what all of the other offsets mean.)  
+ */
+#ifdef _WIN32
+LONG WINAPI exc_handler(EXCEPTION_POINTERS *info)
+{
+    CONTEXT *ctx = info->ContextRecord;
+    DWORD *ebp;
+    int i;
+    FILE *fp;
+    char buf[128];
+
+    /*
+     *   Open an error dump file.  We'll hope the system is stable enough
+     *   that we can do this.
+     */
+    fp = fopen("tadscrsh.txt", "wb");
+    if (fp == 0)
+        return EXCEPTION_CONTINUE_SEARCH;
+
+    /* put in our own address for calculating the relative base address */
+    strcpy(buf, "exc_handler = ");
+    hex_to_str(buf + 14, (DWORD)(DWORD_PTR)exc_handler);
+    strcpy(buf + 22, "\r\n");
+    fwrite(buf, 1, 24, fp);
+
+    /* show where we are now */
+    strcpy(buf, "CS:EIP = ");
+    hex_to_str(buf + 9, ctx->SegCs);
+    *(buf + 17) = ':';
+#if _M_IX86
+    hex_to_str(buf + 18, ctx->Eip);
+#else
+    hex_to_str(buf + 18, ctx->Rip);
+#endif
+    strcpy(buf + 26, "\r\n");
+    fwrite(buf, 1, 28, fp);
+
+    /* trace back the stack */
+#if _M_IX86
+    ebp = (DWORD *)ctx->Ebp;
+#else
+    ebp = (DWORD*)ctx->Rbp;
+#endif
+    for (i = 0 ; i < 50 ; ++i)
+    {
+        DWORD retaddr;
+
+        /*
+         *   if the enclosing stack frame doesn't look valid, don't
+         *   proceed -- each enclosing stack frame should have a higher
+         *   stack address than inner ones, because the stack grows
+         *   downwards
+         */
+        if ((DWORD *)(DWORD_PTR)*ebp <= ebp)
+            break;
+
+        /* display the return address */
+        retaddr = *(ebp + 1);
+        hex_to_str(buf, retaddr);
+        strcpy(buf + 8, "\r\n");
+        fwrite(buf, 1, 10, fp);
+
+        /* move on to the enclosing frame */
+        ebp = (DWORD *)(DWORD_PTR)*ebp;
+    }
+
+    /* close the file - fclose() flushes, so the dump survives even though
+       the process is about to be torn down by the default exception
+       handling below */
+    fclose(fp);
+
+    /* use the default exception handling, which will end the process */
+    return EXCEPTION_CONTINUE_SEARCH;
+}
+#endif /* _WIN32 */
+
+
+/* ------------------------------------------------------------------------ */
+/*
+ *   Set_game_name host-application callback.  The TADS engine calls this
+ *   routine upon loading a game to tell the host application about the
+ *   game file.  We use this information to set up the resource loader,
+ *   set the window title, and add the game to the list of recently-loaded
+ *   games.  
+ */
+
+/* callback context structure */
+struct set_game_ctx_t
+{
+    /* hooked callback - next in chain */
+    void (*set_game_name)(void *appctxdat, const char *fname);
+    void *set_game_name_ctx;
+};
+
+/* set_game_name callback */
+static void set_game_name(void *ctx0, const char *fname)
+{
+    set_game_ctx_t *ctx = (set_game_ctx_t *)ctx0;
+
+    /* if we have a main window, notify it of the new game */
+    if (CHtmlSys_mainwin::get_main_win() != 0)
+        CHtmlSys_mainwin::get_main_win()->notify_load_game(fname);
+
+    /* 
+     *   call the previous callback in the chain (this is the callback
+     *   that was in effect before we hooked the callback pointer) 
+     */
+    (*ctx->set_game_name)(ctx->set_game_name_ctx, fname);
+}
+
+
+/* ------------------------------------------------------------------------ */
+/*
+ *   Runtime startup 
+ */
+
+static void run_game(int argc, char** argv,
+                     int (*tadsmain)(int, char **, appctxdef *, char *),
+                     char *before_opts, char *config_file)
+{
+    CHtmlParser *parser;
+    CHtmlFormatterInput *formatter;
+    CHtmlSys_mainwin *win;
+    RECT pos;
+    const CHtmlRect *winpos;
+    const int MAX_ARGS = 50;
+    char* new_argv[MAX_ARGS];
+    appctxdef appctx;
+    int new_argc = 1;
+    char exefile[256];
+    int debugwin_opt = FALSE;
+    CHtmlParser *dbgprs = 0;
+    CHtmlFormatter *dbgfmt = 0;
+    CHtmlSys_dbglogwin *dbgwin = 0;
+    int done;
+    int respath_arg;
+    char respathbuf[OSFNMAX];
+    int iter;
+    RECT deskrc;
+    set_game_ctx_t set_game_ctx;
+
+    /* 
+     *   clear out the application context - if any fields are added in
+     *   the future that we don't deal with, this will ensure they're
+     *   cleared out 
+     */
+    memset(&appctx, 0, sizeof(appctx));
+
+    /* set the name of the application for usage messages */
+    appctx.usage_app_name = w32_usage_app_name;
+
+#if defined(_WIN32) && !defined(TADSHTML_DEBUG)
+    /* set the top-level exception handler */
+    SetUnhandledExceptionFilter((LPTOP_LEVEL_EXCEPTION_FILTER)exc_handler);
+#endif
+
+    /* get the executable's filename and use it as argv[0] */
+    GetModuleFileName(CTadsApp::get_app()->get_instance(),
+                      exefile, sizeof(exefile));
+    new_argv[0] = exefile;
+
+    /* 
+     *   Create the parser, and start it off in literal mode.  We'll stay
+     *   in literal mode until the game tells us that it wants HTML
+     *   interpreted, so that the initial startup information (such as the
+     *   TADS runtime banner) will be displayed properly, and so that
+     *   games that don't use HTML will look okay. 
+     */
+    parser = new CHtmlParser(TRUE);
+
+    /* set up the formatter and a window for display */
+    formatter = new CHtmlFormatterInput(parser);
+    win = new CHtmlSys_mainwin(formatter, parser, w32_in_debugger);
+    winpos = win->get_prefs()->get_win_pos();
+    SetRect(&pos,
+            winpos->left < 0 ? CW_USEDEFAULT : winpos->left,
+            winpos->top < 0 ? CW_USEDEFAULT : winpos->top,
+            (winpos->right < 0 || winpos->left < 0
+             ? CW_USEDEFAULT : winpos->right),
+            (winpos->bottom < 0 || winpos->top < 0
+             ? CW_USEDEFAULT : winpos->bottom));
+
+    /* if the window is off the screen, use the default sizes */
+    GetWindowRect(GetDesktopWindow(), &deskrc);
+    if (pos.left < deskrc.left || pos.right > deskrc.right
+        || pos.top < deskrc.top || pos.bottom > deskrc.bottom
+        || pos.right < 20 || pos.bottom < 20)
+    {
+        /* the saved values look invalid; use a default position */
+        SetRect(&pos, CW_USEDEFAULT, CW_USEDEFAULT,
+                CW_USEDEFAULT, CW_USEDEFAULT);
+    }
+
+    /* 
+     *   Initialize the TADS container application context with information
+     *   relevant to the formatter's resource finder.  This lets the TADS VM
+     *   game file loader send information on any embedded resources it finds
+     *   in the gam/t3 file to the HTML resource loader.
+     */
+    formatter->get_res_finder()->init_appctx(&appctx);
+
+    /* tell the resource loader whether we're a normal terp or a debugger */
+    formatter->get_res_finder()->set_debugger_mode(w32_in_debugger);
+
+    /* set up our own callback for getting the game name */
+    appctx.get_game_name = get_game_name_cb;
+    appctx.get_game_name_ctx = win;
+
+    /* show our ImGui-native file dialog for save/restore/etc., rather than
+       the native Win32 common dialog */
+    oss_set_askfile_hook(askfile_hook);
+
+    /* no resource path yet */
+    appctx.ext_res_path = 0;
+
+    /* set up the preferences callbacks for file safety level */
+    appctx.set_io_safety_level = &CHtmlPreferences::set_io_safety_level_cb;
+    appctx.get_io_safety_level = &CHtmlPreferences::get_io_safety_level_cb;
+    appctx.io_safety_level_ctx = win->get_prefs();
+
+    /* set up the preferences callback for network safety level */
+    appctx.set_net_safety_level = &CHtmlPreferences::set_net_safety_level_cb;
+    appctx.get_net_safety_level = &CHtmlPreferences::get_net_safety_level_cb;
+    appctx.net_safety_level_ctx = win->get_prefs();
+    
+    /* hook into the call chain for the set_game_name callback */
+    set_game_ctx.set_game_name = appctx.set_game_name;
+    set_game_ctx.set_game_name_ctx = appctx.set_game_name_ctx;
+    appctx.set_game_name = &set_game_name;
+    appctx.set_game_name_ctx = &set_game_ctx;
+
+    /*
+     *   Parse the command line 
+     */
+    for (int i = 1, respath_arg = FALSE; i < argc; ++i) {
+        /*
+         *   Check for html-specific arguments.  If we see an argument
+         *   that's special to the HTML run-time, note it, then remove it
+         *   from the list, since we don't want to pass it along to the
+         *   normal run-time.  
+         */
+        if (respath_arg)
+        {
+            size_t len;
+            
+            /* 
+             *   The previous argument was "-respath", so this is the
+             *   resource path value.  Copy it to our buffer, and make
+             *   sure it ends in a path separator.  
+             */
+            strcpy(respathbuf, argv[i]);
+            if ((len = strlen(respathbuf)) != 0
+                && respathbuf[len - 1] != '\\'
+                && respathbuf[len - 1] != '/'
+                && respathbuf[len - 1] != ':')
+            {
+                respathbuf[len++] = '\\';
+                respathbuf[len] = '\0';
+            }
+
+            /* set the application context with the resource path */
+            appctx.ext_res_path = respathbuf;
+
+            /* we've now fetched the resource path argument */
+            respath_arg = FALSE;
+        }
+        else if (w32_allow_debugwin && !stricmp(argv[i], "-debugwin"))
+        {
+            /* turn on the debug window */
+            debugwin_opt = TRUE;
+        }
+        else if (!stricmp(argv[i], "-respath"))
+        {
+            /* the next argument is the resource path */
+            respath_arg = TRUE;
+        }
+        else if (!stricmp(argv[i], "-noalphablend"))
+        {
+            /* turn off alpha blending in the image subsystem */
+            CTadsImage::disable_alpha_support();
+        }
+        else
+        {
+            /* 
+             *   this isn't an HTML argument, so pass it to the normal
+             *   run-time by including it in the argument vector 
+             */
+            new_argv[new_argc] = argv[i];
+            ++new_argc;
+        }
+    }
+
+    /* run the pre-show-window routine */
+    if (!w32_pre_show_window(new_argc, new_argv))
+    {
+        /* 
+         *   they want to quit immediately - notify the main window that we
+         *   won't be opening it after all, and go finish up 
+         */
+        formatter->unset_win();
+        win->skip_create_system_window();
+        goto finish;
+    }
+
+    /* create the window */
+    win->create_system_window(0, TRUE, w32_titlebar_name, &pos);
+
+    /*
+     *   Create the "About This Game" dialog window now that our own window
+     *   (and its GLFW/OpenGL context) genuinely exists - see
+     *   CHtmlSys_mainwin::create_aboutbox_win() for why this can't happen
+     *   any earlier, e.g. from inside our own do_create().
+     */
+    win->create_aboutbox_win();
+
+    /* try loading the .exe resources */
+    win->load_exe_resources(exefile);
+
+    /*
+     *   If they asked for a debug log window, open one
+     */
+    if (debugwin_opt)
+    {
+        /* set up the HTML parser and formatter for the debug window */
+        dbgprs = new CHtmlParser(TRUE);
+        dbgfmt = new CHtmlFormatterStandalone(dbgprs);
+
+        /* create the debug window itself */
+        dbgwin = new CHtmlSys_dbglogwin(dbgprs, win->get_prefs(), 0);
+        dbgwin->init_html_panel(dbgfmt);
+
+        /* figure out where it goes and open it */
+        winpos = win->get_prefs()->get_dbgwin_pos();
+        SetRect(&pos,
+                winpos->left < 0 ? CW_USEDEFAULT : winpos->left,
+                winpos->top < 0 ? CW_USEDEFAULT : winpos->top,
+                (winpos->right < 0 || winpos->left < 0
+                 ? CW_USEDEFAULT : winpos->right),
+                (winpos->bottom < 0 || winpos->top < 0
+                 ? CW_USEDEFAULT : winpos->bottom));
+        dbgwin->create_system_window(0, TRUE, "HTML Debug Log", &pos);
+
+        /* put the debug window behind the main window */
+        SetWindowPos(dbgwin->get_handle(), win->get_handle(), 0, 0, 0, 0,
+                     SWP_NOACTIVATE | SWP_NOMOVE | SWP_NOSIZE);
+
+        /*  
+         *   Tell the main window about the debug window, so that it knows
+         *   where to put the debug messages, and add a menu for it.  
+         */
+        win->set_debug_win(dbgwin, TRUE);
+    }
+
+    /* the get-game-name callback has not yet been invoked */
+    S_get_game_cb_invoked = FALSE;
+
+    /* keep going until we quit */
+    for (iter = 0 ;; ++iter)
+    {
+        int ret;
+
+        /* run the pre-startup routine */
+        if (!w32_pre_start(iter, argc, argv))
+            break;
+
+        /* 
+         *   if there's *already* a pending new game name, it means that
+         *   the pre-start routine provided its own game to run - throw
+         *   away our arguments so that we pick up the pending new game
+         *   instead 
+         */
+        if (CHtmlSys_mainwin::get_main_win() != 0
+            && CHtmlSys_mainwin::get_main_win()->get_pending_new_game() != 0)
+            argc = 1;
+
+        /* tell the main panel we're starting a new game */
+        if (CHtmlSys_mainwin::get_main_win() != 0)
+            CHtmlSys_mainwin::get_main_win()->start_new_game();
+
+        /* delete all memory previously allocated by the TADS run-time */
+        oss_win_free_all();
+
+        /* 
+         *   if this isn't the first time through, re-initialize the
+         *   resource finder, to clear out resources from the last run
+         */
+        if (iter != 0)
+        {
+            CHtmlResFinder *rf = formatter->get_res_finder();
+            rf->reset();
+            rf->set_debugger_mode(w32_in_debugger);
+        }
+
+        /* run TADS */
+        ret = os0main2(argc, argv, tadsmain,
+                       before_opts, config_file, &appctx);
+
+        /* notify the game window that the game has ended */
+        if (CHtmlSys_mainwin::get_main_win() != 0)
+            CHtmlSys_mainwin::get_main_win()->end_current_game();
+
+        /* perform appropriate post-quit processing */
+        if (!w32_post_quit(ret))
+            break;
+
+        /*
+         *   If the get-game-name callback function was never invoked,
+         *   forget our last argument.  This is a bit tricky: if the
+         *   get-game-name callback was not invoked, it means that our
+         *   last argument is the name of a game to be played.  Because we
+         *   now want to replace that name with the new game the user has
+         *   selected, we want to forget this last argument.  If the
+         *   get-game-name callback was invoked, though, it means that the
+         *   argument list did not have a game name specified, hence
+         *   there's nothing to forget.  
+         */
+        if (argc > 1 && !S_get_game_cb_invoked)
+            --argc;
+    }
+
+    /* close the debug window, if we opened one */
+    if (dbgwin != 0)
+        dbgwin->destroy_now();
+    
+    /*
+     *   Make sure we've closed the main window.  If it's still around,
+     *   the user must have quit via a command to the game, which doesn't
+     *   get rid of the window - get rid of it now. 
+     */
+    if (CHtmlSys_mainwin::get_main_win() != 0)
+    {
+        /* destroy the main window */
+        CHtmlSys_mainwin::get_main_win()->destroy_now();
+    }
+    else
+    {
+        /* make sure we get the termination signal */
+        PostQuitMessage(0);
+    }
+
+    /* handle events until we've terminated */
+    CTadsApp::get_app()->event_loop(0);
+
+finish:
+    /* tell the formatter to forget about the parser */
+    formatter->release_parser();
+
+    /* done with the parser - delete it */
+    delete parser;
+
+    /* 
+     *   Done with the formatter - delete it.  Note that the parser
+     *   depends on the formatter, so we must delete the parser before we
+     *   delete the formatter. 
+     */
+    delete formatter;
+
+    /* if we created a debug window, delete its parser and formatter */
+    if (dbgfmt != 0)
+    {
+        dbgfmt->release_parser();
+        delete dbgprs;
+        delete dbgfmt;
+    }
+}
+
+
+
+/* ------------------------------------------------------------------------ */
+/*
+ *   Debug code - displays messages to a console window 
+ */
+
+#ifdef TADSHTML_DEBUG
+
+/*
+ *   Display a debug message to the system console
+ */
+void os_dbg_sys_msg(const textchar_t *msg)
+{
+    DWORD cnt;
+
+    /* display the message on the debug console */
+    WriteConsole(GetStdHandle(STD_OUTPUT_HANDLE), msg,
+                 get_strlen(msg), &cnt, 0);
+}
+
+#endif /* TADSHTML_DEBUG */
+
+/*
+ *   init_debug_console()/close_debug_console() (AllocConsole() and the
+ *   wait-for-a-keystroke shutdown loop) now live behind
+ *   os_init_debug_console()/os_close_debug_console() in guios.h - see
+ *   guios_w32.cpp and migration.md 5.4/M.
+ */
+
+
+/* ------------------------------------------------------------------------ */
+/*
+ *   Check the common controls DLL version.  Returns true if everything is
+ *   okay or the user explicitly tells us to continue running despite a
+ *   version problem, false if we should terminate due to a version
+ *   mismatch.  
+ */
+static int check_common_ctl_vsn(HINSTANCE inst)
+{
+    void *vsnbuf;
+    DWORD vsnsiz;
+    DWORD hdl;
+    VS_FIXEDFILEINFO *info;
+    UINT infosiz;
+    int ret;
+
+    /* presume we'll allow execution to continue */
+    ret = TRUE;
+
+    /* get the file version sized information */
+    vsnsiz = GetFileVersionInfoSize("comctl32.dll", &hdl);
+    if (vsnsiz == 0)
+        return TRUE;
+
+    /* allocate a buffer, and load the version information */
+    vsnbuf = th_malloc(vsnsiz);
+    if (!GetFileVersionInfo("comctl32.dll", 0, vsnsiz, vsnbuf))
+        goto done;
+
+    /* get the VS_FIXEDFILEINFO structure */
+    if (!VerQueryValue(vsnbuf, "\\", (void **)&info, &infosiz))
+        goto done;
+
+    /* check the information - we require 4.70 or later */
+    if (info->dwFileVersionMS < 0x00040046)
+    {
+        char msg[512];
+
+        LoadString(inst, IDS_COMCTL32_WARNING, msg, sizeof(msg));
+        switch(MessageBox(0, msg, "TADS",
+                          MB_OKCANCEL | MB_ICONEXCLAMATION | MB_TASKMODAL))
+        {
+        case IDCANCEL:
+            /* they want to cancel - good for them */
+            ret = FALSE;
+            break;
+
+        default:
+            /* allow continued running */
+            break;
+        }
+    }
+
+done:
+    /* free the version buffer */
+    th_free(vsnbuf);
+
+    /* return the result */
+    return ret;
+}
+
+/* ------------------------------------------------------------------------ */
+/*
+ *   Main entrypoint 
+ */
+int main(int argc, char** argv){
+    INITCOMMONCONTROLSEX ice;
+
+    /* initialize COM */
+    CoInitialize(0);
+
+    /* notify the oss_win layer that we're done with static initializers */
+    oss_win_static_init_done();
+
+    /*
+     *   Make sure common controls are loaded.  guit3's own UI is all ImGui
+     *   now, but tadsdlg2.cpp's (dead-but-still-compiled) property-page code
+     *   still creates real WC_TABCONTROL/WC_TREEVIEW child windows, so this
+     *   stays until those files are confirmed unreachable and dropped - see
+     *   migration.md 5.4/M.
+     */
+    ice.dwSize = sizeof(ice);
+    ice.dwICC = ICC_WIN95_CLASSES | ICC_COOL_CLASSES | ICC_STANDARD_CLASSES;
+    InitCommonControlsEx(&ice);
+
+#ifdef _WIN32
+    /* set the application instance in the TADS os layer */
+    oss_G_hinstance = GetModuleHandle(NULL);
+#endif
+
+    /* initialize the debug console */
+    os_init_debug_console();
+
+    /* initialize the global resource table */
+    CHtmlResType::add_basic_types();
+
+    /* create the main application object */
+    CTadsApp::create_app(argc, argv);
+
+    /* 
+     *   Tell the PNG reader to keep transparency information.  Also, tell
+     *   the reader to use the 24-bit RGB format for the in-memory
+     *   representation, regardless of the current video mode - we do all of
+     *   our drawing internally on an RGB DIB section, so we don't need to
+     *   worry about palettes for our in-memory graphics objects.  
+     */
+    CHtmlPng::set_options(HTMLPNG_OPT_TRANS_TO_ALPHA | HTMLPNG_OPT_RGB24);
+
+    /* ask the windows PNG and MNG code to check for alpha support */
+    CTadsPng::init_alpha_support();
+
+    /* 
+     *   tell the JPEG reader to use 24-bit RGB format regardless of video
+     *   mode (for the same reason we do this with PNG's) 
+     */
+    CHtmlJpeg::set_options(HTMLJPEG_OPT_RGB24);
+
+    /* go run the game */
+    run_game(argc, argv, w32_tadsmain, w32_beforeopts, w32_configfile);
+
+    /* done with the main application object */
+    CTadsApp::delete_app();
+
+    /* delete the global resource table */
+    CHtmlResType::delete_res_table();
+
+    /* disconnect the Web UI, if applicable */
+    w32_cleanup();
+
+    /* check memory */
+    HTML_IF_DEBUG(th_list_memory_blocks());
+    HTML_IF_DEBUG(th_list_subsys_memory_blocks());
+
+    /* close the debug console, making sure the user acknowledges it */
+    os_close_debug_console();
+
+    /* terminate COM */
+    CoUninitialize();
+
+    /* success */
+    return 0;
+}
+
+/* ------------------------------------------------------------------------ */
+/*
+ *   Process messages 
+ */
+void osnet_host_process_message(MSG *msg)
+{
+    /* send the message to the main application object */
+    CTadsApp *app;
+    if ((app = CTadsApp::get_app()) != 0)
+        app->process_message(msg);
+}
+
+
