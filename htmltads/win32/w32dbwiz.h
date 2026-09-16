@@ -46,8 +46,8 @@ public:
     int do_command(WPARAM id, HWND ctl);
 
     /* generic message handler */
-    BOOL do_dialog_msg(HWND dlg_hwnd, UINT message,
-                       WPARAM wpar, LPARAM lpar);
+    INT_PTR do_dialog_msg(HWND dlg_hwnd, UINT message,
+                          WPARAM wpar, LPARAM lpar);
 
 protected:
     /* draw our background image */

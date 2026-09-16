@@ -239,8 +239,8 @@ int CTadsDialog::run_modal(unsigned int res_id, HWND owner,
 /*
  *   Dialog procedure 
  */
-BOOL CALLBACK CTadsDialog::dialog_proc(HWND dlg_hwnd, UINT message,
-                                       WPARAM wpar, LPARAM lpar)
+INT_PTR CALLBACK CTadsDialog::dialog_proc(HWND dlg_hwnd, UINT message,
+                                          WPARAM wpar, LPARAM lpar)
 {
     CTadsDialog *dlg;
 
@@ -331,8 +331,8 @@ void CTadsDialog::init()
 /*
  *   Process a dialog event 
  */
-BOOL CTadsDialog::do_dialog_msg(HWND dlg_hwnd, UINT message,
-                                WPARAM wpar, LPARAM lpar)
+INT_PTR CTadsDialog::do_dialog_msg(HWND dlg_hwnd, UINT message,
+                                   WPARAM wpar, LPARAM lpar)
 {
     switch(message)
     {
@@ -886,8 +886,8 @@ int CTadsDialogCtlList::do_command(HWND dlg, WPARAM wpar)
 /*
  *   Property page dialog subclass 
  */
-BOOL CALLBACK CTadsDialogPropPage::dialog_proc(HWND dlg_hwnd, UINT message,
-                                               WPARAM wpar, LPARAM lpar)
+INT_PTR CALLBACK CTadsDialogPropPage::dialog_proc(HWND dlg_hwnd, UINT message,
+                                                  WPARAM wpar, LPARAM lpar)
 {
     /* if this is a WM_INITDIALOG message, set up the property page */
     if (message == WM_INITDIALOG)
@@ -944,8 +944,8 @@ void CTadsDialogPropPage::set_changed(int changed)
 /*
  *   Process a dialog event 
  */
-BOOL CTadsDialogPropPage::do_dialog_msg(HWND dlg_hwnd, UINT message,
-                                        WPARAM wpar, LPARAM lpar)
+INT_PTR CTadsDialogPropPage::do_dialog_msg(HWND dlg_hwnd, UINT message,
+                                           WPARAM wpar, LPARAM lpar)
 {
     switch(message)
     {

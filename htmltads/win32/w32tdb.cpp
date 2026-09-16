@@ -1029,7 +1029,7 @@ public:
         SetDlgItemText(handle_, IDC_TXT_LOADSTAT, buf);
     }
 
-    BOOL do_dialog_msg(HWND hwnd, UINT message, WPARAM wpar, LPARAM lpar)
+    INT_PTR do_dialog_msg(HWND hwnd, UINT message, WPARAM wpar, LPARAM lpar)
     {
         switch (message)
         {
@@ -1048,13 +1048,15 @@ public:
             SetTextColor((HDC)wpar, RGB(0x00,0x00,0x00));
             SetBkMode((HDC)wpar, TRANSPARENT);
             /*
-             *   the "real" return value for a dialog proc is the brush
-             *   handle, which is pointer-sized - hand it back via
-             *   DWLP_MSGRESULT rather than truncating it into the BOOL return
+             *   Return the "hollow" brush so the status text draws
+             *   transparently over our background image.  For WM_CTLCOLORxxx
+             *   the dialog manager uses the dialog procedure's return value
+             *   directly as the brush handle (it does not consult
+             *   DWLP_MSGRESULT for these messages), so the handle must be
+             *   returned pointer-wide and untruncated - which is why
+             *   do_dialog_msg() returns INT_PTR rather than BOOL.
              */
-            SetWindowLongPtr(handle_, DWLP_MSGRESULT,
-                             (LONG_PTR)GetStockObject(HOLLOW_BRUSH));
-            return TRUE;
+            return (INT_PTR)GetStockObject(HOLLOW_BRUSH);
 
         default:
             break;

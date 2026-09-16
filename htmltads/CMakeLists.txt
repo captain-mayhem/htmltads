@@ -393,3 +393,10 @@ install(DIRECTORY
 	DESTINATION .
 	COMPONENT Classic
 )
+
+install(FILES
+	notes/changes.htm
+	notes/compat.htm
+	DESTINATION doc
+  COMPONENT Classic
+)

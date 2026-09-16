@@ -430,12 +430,19 @@ protected:
                          unsigned int charset_id);
 
     /* message handler - main entrypoint from windows */
-    static BOOL CALLBACK dialog_proc(HWND dlg_hwnd, UINT message,
-                                     WPARAM wpar, LPARAM lpar);
+    static INT_PTR CALLBACK dialog_proc(HWND dlg_hwnd, UINT message,
+                                        WPARAM wpar, LPARAM lpar);
 
-    /* message handler - instance method */
-    virtual BOOL do_dialog_msg(HWND dlg_hwnd, UINT message, WPARAM wpar,
-                               LPARAM lpar);
+    /*
+     *   Message handler - instance method.  This returns the pointer-wide
+     *   dialog-procedure result: for most messages that's simply TRUE (the
+     *   message was handled) or FALSE (fall through to the default handling),
+     *   but for the WM_CTLCOLORxxx family and a few others the dialog manager
+     *   uses this return value directly as the result (an HBRUSH, say), so it
+     *   must not be truncated to a plain BOOL.
+     */
+    virtual INT_PTR do_dialog_msg(HWND dlg_hwnd, UINT message, WPARAM wpar,
+                                  LPARAM lpar);
 
     /* property sheet initialization callback */
     static int CALLBACK prop_page_cb(HWND hwnd, UINT id, PROPSHEETPAGE *page);
@@ -628,12 +635,12 @@ public:
 
 protected:
     /* property page dialog procedure */
-    static BOOL CALLBACK dialog_proc(HWND dlg_hwnd, UINT message,
-                                     WPARAM wpar, LPARAM lpar);
+    static INT_PTR CALLBACK dialog_proc(HWND dlg_hwnd, UINT message,
+                                        WPARAM wpar, LPARAM lpar);
 
-    /* message handler - instance method */
-    virtual BOOL do_dialog_msg(HWND dlg_hwnd, UINT message, WPARAM wpar,
-                               LPARAM lpar);
+    /* message handler - instance method (see CTadsDialog::do_dialog_msg) */
+    virtual INT_PTR do_dialog_msg(HWND dlg_hwnd, UINT message, WPARAM wpar,
+                                  LPARAM lpar);
 
     /*
      *   Handle a "query siblings" message.  This message (PSM_QUERYSIBLINGS)

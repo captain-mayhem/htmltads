@@ -545,8 +545,8 @@ HWND CTadsDialogFindRegex::run_find_modeless(
 /*
  *   handle a dialog message 
  */
-BOOL CTadsDialogFindRegex::do_dialog_msg(HWND dlg_hwnd, UINT message,
-                                         WPARAM wpar, LPARAM lpar)
+INT_PTR CTadsDialogFindRegex::do_dialog_msg(HWND dlg_hwnd, UINT message,
+                                            WPARAM wpar, LPARAM lpar)
 {
     switch (message)
     {
