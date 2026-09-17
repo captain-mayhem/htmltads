@@ -6,9 +6,16 @@ add_subdirectory(libmng)
 option(IMGUI_TADS "Build Tads based on glfw and imgui" ON)
 
 if (IMGUI_TADS)
-	set(GLFW_LIBRARY_TYPE "STATIC")
-	add_subdirectory(glfw)
-	
+	if (NOT EMSCRIPTEN)
+		# GLFW has no Emscripten backend of its own to build - under that
+		# platform, Emscripten emulates the GLFW API itself via the
+		# -sUSE_GLFW=3 link flag (set on guit3 itself, see
+		# htmltads/imgui/CMakeLists.txt), so there is no vendored library to
+		# add here.
+		set(GLFW_LIBRARY_TYPE "STATIC")
+		add_subdirectory(glfw)
+	endif()
+
 	set (BUILD_SHARED_LIBS OFF)
 	set(SKIP_INSTALL_ALL ON)
 	add_subdirectory(freetype)

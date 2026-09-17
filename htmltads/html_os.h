@@ -73,19 +73,14 @@ Modified
 #include "hos_qt.h"
 #endif
 
- /* ------------------------------------------------------------------------ */
- /*
-  *   Include definitions for Emscripten
-  */
-#ifdef __EMSCRIPTEN__
-#include "hos_emscripten.h"
-#endif
-
 /* ------------------------------------------------------------------------ */
 /*
- *   Include definitions for Imgui
+ *   Include definitions for Imgui (guit3, every platform) and for
+ *   Emscripten (both guit3-for-web and the classic htmlt3 web port) - both
+ *   need the same GUI-toolkit-agnostic hos_gui.h; see that file's header
+ *   comment for why one file covers both rather than two near-duplicates.
  */
-#ifdef IMGUI
+#if defined(IMGUI) || defined(__EMSCRIPTEN__)
 #include "hos_gui.h"
 #endif
 

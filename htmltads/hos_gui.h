@@ -1,22 +1,33 @@
 /* $Header: d:/cvsroot/tads/html/win32/hos_w32.h,v 1.2 1999/05/17 02:52:24 MJRoberts Exp $ */
 
-/* 
+/*
  *   Copyright (c) 1998 by Michael J. Roberts.  All Rights Reserved.
- *   
+ *
  *   Please see the accompanying license file, LICENSE.TXT, for information
- *   on using and copying this software.  
+ *   on using and copying this software.
  */
 /*
 Name
-  hos_w32.h - HTML OS definitions for 32-bit Windows
-Function
-  
-Notes
+  hos_gui.h - HTML OS definitions shared by every non-native-Win32-window
+  backend: guit3 (Dear ImGui/GLFW, all platforms) and the classic htmlt3
+  Emscripten web port. Both need the exact same tiny, GUI-toolkit-agnostic
+  set of hooks (char navigation, a timer, "huge pointer" macros that are
+  trivial on any 32-bit-or-larger target, and one internal command-event
+  query) - there is nothing here that depends on which windowing/rendering
+  system the caller uses, so one header serves both rather than maintaining
+  near-identical copies (this used to be duplicated as
+  htmltads/emscripten/hos_emscripten.h; merged in because the two were
+  already byte-for-byte the same declarations - see migration.md 5.6). Each
+  consumer still brings its own .cpp implementing these declarations
+  (guit3: imgui/hos_gui.cpp; classic web: emscripten/hos_emscripten.cpp),
+  same as hos_w32.h/hos_w32.cpp for real Win32.
+
   This file should be included ONLY by html_os.h, which serves as the
   switchboard for OS header inclusion.  Do not include this file directly
   from any other file.
 Modified
   01/24/98 MJRoberts  - Creation
+  11/22/2025 MJStaginski - merged in hos_emscripten.h
 */
 
 #ifndef TADSHTML_H
@@ -24,8 +35,8 @@ Modified
 #endif
 
 
-#ifndef HOS_W32_H
-#define HOS_W32_H
+#ifndef HOS_GUI_H
+#define HOS_GUI_H
 
 /* ------------------------------------------------------------------------ */
 /*
@@ -38,7 +49,7 @@ Modified
  *   internal debugging messages.  The system code can provide an empty
  *   implementation, if desired, and should not even need to include a
  *   definition when TADSHTML_DEBUG isn't defined when the system is
- *   compiled.  
+ *   compiled.
  */
 void os_dbg_sys_msg(const textchar_t *msg);
 
@@ -52,13 +63,13 @@ void os_dbg_sys_msg(const textchar_t *msg);
  *   system-specific and completely opaque to the generic code; the generic
  *   code merely stores this type of ID and passes it back to system
  *   routines.
- *   
+ *
  *   On Windows, we use a structure containing the xxx_CHARSET identifier
  *   along with the corresponding code page to select a font's character
  *   set.  Other systems may use a font ID or font family ID, code page
  *   number, script ID, or other system-specific type; the correct type to
  *   use depends on how the system chooses the character set to display when
- *   drawing text.  
+ *   drawing text.
  */
 struct oshtml_charset_id_t
 {
@@ -85,24 +96,24 @@ struct oshtml_charset_id_t
  *   Advance a character string pointer to the next character in the string.
  *   The character string is in the character set identified by 'id'.  'len'
  *   is the remaining length in *bytes* of the string after 'p'.
- *   
+ *
  *   For systems that use plain ASCII or other single-byte character sets,
  *   this can simply always return (p+1).
- *   
+ *
  *   For systems that use or can use multi-byte character sets, this must
  *   advance 'p' by the number of bytes taken up by the character to which
  *   'p' points.  On some systems, single-byte and double-byte characters can
  *   be mixed within the same character set; in such cases, this function
  *   must look at the actual character that 'p' points to and figure out how
  *   big that specific character is.
- *   
+ *
  *   Note that this function takes a 'const' pointer and returns a non-const
  *   pointer to the same string, so the pointer passed is stripped of its
  *   const-ness.  This isn't great, but (short of templates) is the only
  *   convenient way to allow both const and non-const uses of this function.
  *   Callers should take care not to misuse the const removal.  (It's not
  *   like this is a security breach or anything; the caller can always use an
- *   ordinary type-cast if they really want to remove the const-ness.)  
+ *   ordinary type-cast if they really want to remove the const-ness.)
  */
 textchar_t *os_next_char(oshtml_charset_id_t id,
                          const textchar_t *p, size_t len);
@@ -112,7 +123,7 @@ textchar_t *os_next_char(oshtml_charset_id_t id,
  *   in the string.  The character set is identified by 'id'.  'p' is the
  *   current character pointer, and 'pstart' is a pointer to the start of the
  *   string.
- *   
+ *
  *   The return value should be a pointer to the character before the
  *   character 'p' points to, but never before the start of the string.  Note
  *   that 'p' might actually point just past the end of the string, so no
@@ -120,7 +131,7 @@ textchar_t *os_next_char(oshtml_charset_id_t id,
  *   it *is* safe to assume that 'p' points to a valid character *boundary* -
  *   that is, 'p' must never be at a byte position in the middle of a
  *   multi-byte character but should always be at a byte that starts a
- *   character OR at the byte just after the end of the string.  
+ *   character OR at the byte just after the end of the string.
  */
 textchar_t *os_prev_char(oshtml_charset_id_t id,
                          const textchar_t *p, const textchar_t *pstart);
@@ -134,7 +145,7 @@ textchar_t *os_prev_char(oshtml_charset_id_t id,
  *   second, so a precision of about a tenth of a second is adequate.
  *   Since we only use the timer to measure intervals, the timer's zero
  *   point is unimportant (i.e., it doesn't need to relate to any
- *   particular time zone).  
+ *   particular time zone).
  */
 
 /* system timer datatype */
@@ -143,9 +154,9 @@ typedef unsigned long os_timer_t;
 /* get the current system time value */
 os_timer_t os_get_time();
 
-/* 
+/*
  *   Get the number of timer units per second.  For Windows, the timer
- *   indicates milliseconds, so there are 1000 units per second.  
+ *   indicates milliseconds, so there are 1000 units per second.
  */
 #define OS_TIMER_UNITS_PER_SECOND   1000
 
@@ -155,41 +166,41 @@ os_timer_t os_get_time();
  *   Huge memory block manipulation - for use with blocks of memory over
  *   64k on 16-bit machines.  For 32-bit (and larger) architectures, huge
  *   blocks are the same as normal blocks, so these macros have trivial
- *   implementations.  
+ *   implementations.
  */
 
 /*
  *   Huge pointer type.  For a given datatype, this should construct an
  *   appropriate type declaration for a huge pointer to that datatype.  On
- *   win32, this just returns a plain pointer to the type.  
+ *   win32, this just returns a plain pointer to the type.
  */
 #define OS_HUGEPTR(type) type *
 
-/* 
+/*
  *   Allocate a huge (>64k) buffer.  On win32, we can use the normal
  *   memory allocator; on 16-bit systems, this would have to make a
  *   special OS call to do the allocation.
- *   
+ *
  *   Note that we use th_malloc(), not the plain malloc().  th_malloc() is
  *   defined in the portable HTML TADS code; it provides a debug version
  *   of malloc that we can use to track memory allocations to ensure there
  *   are no memory leaks.  All 32-bit (and larger) platforms should use
- *   this same definition for os_alloc_huge().  
+ *   this same definition for os_alloc_huge().
  */
 #define os_alloc_huge(siz) th_malloc(siz)
 
 /*
  *   Increment a "huge" pointer by a given amount.  On win32, ordinary
  *   pointers are huge, so we just do the normal arithmetic.  On 16-bit
- *   systems, this may have to do some extra work.  
+ *   systems, this may have to do some extra work.
  */
 #define os_add_huge(ptr, amt) ((ptr) + (amt))
 
 /*
  *   Free a huge pointer.  On win32, we use the standard memory allocator.
- *   
+ *
  *   Note that we use th_free(), not the plain free(); see the explanation
- *   of the use of th_malloc() above.  
+ *   of the use of th_malloc() above.
  */
 #define os_free_huge(ptr) th_free(ptr)
 
@@ -197,7 +208,7 @@ os_timer_t os_get_time();
  *   Memory alignment: align a size to the worst-case alignment
  *   requirement for this system.  For most systems, 4-byte alignment is
  *   adequate, but some systems (such as 64-bit hardware) may have a
- *   larger worst-case alignment requirement.  
+ *   larger worst-case alignment requirement.
  */
 #define os_align_size(siz) (((siz) + 3) & ~3)
 
@@ -207,15 +218,15 @@ os_timer_t os_get_time();
  *   Definitions below this point are for internal use in the Windows
  *   implementation only.  These are NOT part of the generic API, so these
  *   do NOT need to be implemented on other systems.
- *   
- *   Generic code is never allowed to call any of these routines.  
+ *
+ *   Generic code is never allowed to call any of these routines.
  */
 
-/* 
+/*
  *   Get the current status of an OS_CMD_xxx command.  'typ' specifies which
- *   type we're interested in - specify this as an OSCS_xxx_ON bit.  
+ *   type we're interested in - specify this as an OSCS_xxx_ON bit.
  */
 int oss_is_cmd_event_enabled(int id, unsigned int typ);
 
 
-#endif /* HOS_W32_H */
+#endif /* HOS_GUI_H */

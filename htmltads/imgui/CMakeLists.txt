@@ -109,7 +109,7 @@ add_executable(guit3
 	tadsapp.h
 	tadsplat.h
 
-	hos_gui.h
+	../hos_gui.h
 
 	guitr.cpp
 	guitrt3.cpp
@@ -171,7 +171,12 @@ else()
 endif()
 
 # tadsfont.h's os_font_family_is_present()/os_font_data_for_name() backend:
-# GDI, fontconfig, or CoreText.  See migration.md 5.4/G.
+# GDI, fontconfig, CoreText, or (Emscripten) a placeholder - there is no
+# system font store to enumerate in a browser sandbox, so emfont.cpp always
+# reports "not found"/"no data", same as an empty system with no fonts
+# installed; CTadsFont falls back to the ImGui atlas default font in that
+# case. A real Emscripten backend would need fonts bundled as data and baked
+# into the atlas some other way - not done yet, see migration.md.
 if (WIN32)
 	target_sources(guit3 PRIVATE guifont_w32.cpp)
 elseif (APPLE)
@@ -180,6 +185,8 @@ elseif (APPLE)
 		"-framework CoreText"
 		"-framework CoreFoundation"
 	)
+elseif (EMSCRIPTEN)
+	target_sources(guit3 PRIVATE emfont.cpp)
 else()
 	find_package(Fontconfig REQUIRED)
 	target_sources(guit3 PRIVATE fcfont.cpp)
@@ -228,17 +235,46 @@ endif()
 
 target_link_libraries(guit3 PRIVATE
 	imgui
-	glfw
 )
 
-if (WIN32)
-	target_link_libraries(guit3 PRIVATE Opengl32.lib)
+if (EMSCRIPTEN)
+	# GLFW and OpenGL come from the Emscripten toolchain itself (see the
+	# link flags below), not from the vendored glfw target or a system
+	# OpenGL - there is neither under this platform.
 else()
-	find_package(OpenGL REQUIRED)
-	target_link_libraries(guit3 PRIVATE OpenGL::GL)
+	target_link_libraries(guit3 PRIVATE glfw)
+
+	if (WIN32)
+		target_link_libraries(guit3 PRIVATE Opengl32.lib)
+	else()
+		find_package(OpenGL REQUIRED)
+		target_link_libraries(guit3 PRIVATE OpenGL::GL)
+	endif()
 endif()
 
-if (UNIX AND NOT APPLE)
+if (EMSCRIPTEN)
+	target_compile_options(guit3 PRIVATE -pthread)
+
+	# First-pass link flags, unverified end-to-end (no Emscripten build of
+	# guit3 has been attempted yet - this only wires up the CMake side, see
+	# migration.md). -sUSE_GLFW=3/-sFULL_ES3=1/-sUSE_WEBGL2=1 select
+	# Emscripten's own GLFW-API-over-HTML5 and WebGL2 emulation in place of
+	# the vendored glfw/desktop-GL this target uses elsewhere.
+	# -pthread/-sPROXY_TO_PTHREAD and the socket --wrap flags mirror
+	# htmlt3's existing Emscripten LINK_FLAGS (htmltads/CMakeLists.txt) -
+	# t3htm (tads-runner/tads3/CMakeLists.txt) compiles emscripten.cpp's
+	# __wrap_* definitions and osnetemscipten.cpp for both executables now,
+	# so guit3 can rely on the same flags/symbols htmlt3 does.
+	set_target_properties(guit3 PROPERTIES LINK_FLAGS "-s ASSERTIONS=1 -s WASM=1 -s USE_GLFW=3 -s FULL_ES3=1 -s USE_WEBGL2=1 -s ASYNCIFY -s ASYNCIFY_IMPORTS=_emscripten_receive_on_main_thread_js -s PROXY_TO_PTHREAD -s FORCE_FILESYSTEM -s ALLOW_MEMORY_GROWTH=1 -s INITIAL_MEMORY=256MB -s SAFE_HEAP=1 -lwebsocket.js -pthread -sPROXY_POSIX_SOCKETS -Wl,--wrap=fgets,--wrap=fflush,--wrap=getchar,--wrap=socket,--wrap=getsockname,--wrap=getpeername")
+
+	install(FILES
+		"$<TARGET_FILE_DIR:guit3>/guit3.wasm"
+		DESTINATION .
+		COMPONENT GuiT3
+	)
+endif()
+
+if (UNIX AND NOT APPLE AND NOT EMSCRIPTEN)
 	# guit3 statically links its own copies of libpng/zlib/libjpeg/libmng
 	# (see ../../CMakeLists.txt), which by default export symbols like
 	# "png_free" into the executable's dynamic symbol table alongside its

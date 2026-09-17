@@ -27,17 +27,30 @@ target_include_directories(imgui PUBLIC
 	${CMAKE_CURRENT_SOURCE_DIR}/..
 )
 
-target_link_libraries(imgui PUBLIC glfw freetype)
-
-if (WIN32)
-	target_link_libraries(imgui PUBLIC Opengl32.lib)
+if (EMSCRIPTEN)
+	# GLFW and OpenGL are provided directly by the Emscripten toolchain
+	# (-sUSE_GLFW=3 / -sUSE_WEBGL2=1, set on guit3 itself) rather than through
+	# CMake targets - there is no vendored glfw build or system OpenGL under
+	# this platform (see the top-level CMakeLists.txt and guit3's).
+	target_link_libraries(imgui PUBLIC freetype)
 else()
-	find_package(OpenGL REQUIRED)
-	target_link_libraries(imgui PUBLIC OpenGL::GL)
+	target_link_libraries(imgui PUBLIC glfw freetype)
+
+	if (WIN32)
+		target_link_libraries(imgui PUBLIC Opengl32.lib)
+	else()
+		find_package(OpenGL REQUIRED)
+		target_link_libraries(imgui PUBLIC OpenGL::GL)
+	endif()
 endif()
 
-add_executable(imgui_test
-	main.cpp
-)
+if (NOT EMSCRIPTEN)
+	# Unrelated to guit3; a standalone demo of this vendored ImGui/GLFW
+	# build. Needs its own -sUSE_GLFW=3/-sUSE_WEBGL2=1 link flags to build
+	# for Emscripten, which it isn't worth wiring up for a demo target.
+	add_executable(imgui_test
+		main.cpp
+	)
 
-target_link_libraries(imgui_test PRIVATE imgui)
+	target_link_libraries(imgui_test PRIVATE imgui)
+endif()

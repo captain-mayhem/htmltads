@@ -111,9 +111,11 @@ set(trt3_src
 
 # The classic htmlt3/tadsweb executables below only have a Win32 (and, for
 # htmlt3, an Emscripten) OS-glue backend - html_os.h has no non-Windows,
-# non-Emscripten branch for them (guit3, built unconditionally above via
-# add_subdirectory(imgui), is the supported cross-platform GUI target - see
-# migration.md M4). Skip them entirely elsewhere.
+# non-Emscripten branch for them (guit3, added via add_subdirectory(imgui)
+# below, is the supported cross-platform GUI target - see migration.md M4).
+# Skip them entirely elsewhere. Under Emscripten this classic htmlt3 and
+# guit3 build side by side from the same configure - see migration.md 5.6
+# for how t3htm (tads3/CMakeLists.txt) serves both without forking.
 if (WIN32 OR EMSCRIPTEN)
 
 if (WIN32)

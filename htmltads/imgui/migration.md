@@ -1252,7 +1252,7 @@ calls just get deleted, because their replacements are already portable or const
 [tadsimg.cpp](tadsimg.cpp) / [tadsimg.h](tadsimg.h) / [tadsmng.cpp](tadsmng.cpp) / [tadspng.cpp](tadspng.cpp):
 
 - `CTadsImage::alloc_dib()` no longer creates a GDI DIB section against the desktop DC — it is a plain
-  `os_alloc_huge()` (already a portable `th_malloc()` alias in [hos_gui.h](hos_gui.h)) of
+  `os_alloc_huge()` (already a portable `th_malloc()` alias in [hos_gui.h](../hos_gui.h)) of
   `dword_aligned_row_bytes * height_`, `memset` to zero to match `CreateDIBSection`'s zero-fill (an
   interlaced MNG reads the canvas before every pixel is written). The buffer keeps the DIB memory layout
   the decoders' row walkers and `create_texture()` still assume (rows bottom-up, each padded to a 4-byte
@@ -2279,6 +2279,102 @@ added to a *shared* file (as opposed to a per-platform file the CMakeLists selec
 **M5 — phase two.** The four unported windows (N, if not done earlier), a portable MIDI synth (TinySoundFont
 + a bundled GM soundfont through `CTadsAudioDevice`, §3.7), the real cross-platform embedded Web UI behind
 the flag from O, and the Emscripten target as its own effort (§4).
+
+### 5.6 M5/Emscripten kickoff — CMake plumbing wired up, first real compile errors found
+
+Per §4's decision, `guit3`-for-the-web is a follow-on to the (done) native port, kept separate from
+`htmltads/emscripten/`'s existing classic web target. This pass wired up the CMake side only — getting an
+actual `emcmake` configure and build attempted at all — without touching guit3's application code beyond one
+switchboard-ordering fix (below); the goal was to find out how much of the M2–M4 portability work already
+carries over "for free" before spending effort on GLFW/GL/font/audio backends that don't exist for wasm yet.
+
+**No build-time switch needed — both web targets build from one configure.** The first version of this pass
+added an `EMSCRIPTEN_GUIT3` CMake option to pick, per configure, whether `t3htm`/`t3htm_d`
+(`tads-runner/tads3/CMakeLists.txt` — shared static libs `htmlt3` and `guit3` both link) built with classic
+`htmltads/emscripten/*` sources or with `guit3`'s. That turned out to be unnecessary: `htmltads/emscripten/`'s
+`hos_emscripten.h` and (what was) `htmltads/imgui/hos_gui.h` were already byte-for-byte the same declarations
+(both descend from the original `hos_w32.h`), and the `IMGUI` macro that picked between them turned out to
+have no other effect anywhere in the codebase (confirmed by grepping for it) — so they're now one shared file,
+`htmltads/htmltads/hos_gui.h` (moved up out of `imgui/`, since it's genuinely shared, not guit3-specific;
+`hos_emscripten.h` deleted). `html_os.h`'s switchboard now routes `defined(IMGUI) || defined(__EMSCRIPTEN__)`
+to it unconditionally; each backend still brings its own `.cpp` implementing it (`imgui/hos_gui.cpp` for
+guit3, `emscripten/hos_emscripten.cpp` for classic — unchanged, since the declarations they implement didn't
+move). The other reason `t3htm` differed was its Emscripten-specific `tads3`-level OS glue: classic needs
+`tads3/emscripten/osemscripten.cpp` (a handful of `os_*` hooks) and `emscripten.cpp` (the `--wrap=fgets` etc.
+implementations both executables' `LINK_FLAGS` reference), guit3 needs `tads3/unix/osunix.c` (same as the
+Linux build) and both need `osnetemscipten.cpp`. Checked all four files for symbol overlap — none — so `t3htm`
+now unconditionally compiles the union under `EMSCRIPTEN`, and `htmltads/htmltads/CMakeLists.txt` builds
+*both* classic `htmlt3` and `guit3` whenever `EMSCRIPTEN` is set (back to its original `if (WIN32 OR
+EMSCRIPTEN)`/unconditional `add_subdirectory(imgui)` shape, no flag). **Verified, not just reasoned through**:
+`cmake --build build/emscripten --target htmlt3 guit3` compiles every one of `htmlt3`'s source files
+(including `emscripten/hos_emscripten.cpp` against the now-shared header) and links `htmlt3.js`/`.wasm`
+successfully, from the exact same configure where `guit3` also builds (and hits its own unrelated, pre-existing
+compile errors, listed below) — no duplicate-symbol link errors, confirming the "no overlap" check held up in
+practice, not just on paper.
+
+`htmltads/CMakeLists.txt` and `htmltads/imgui/CMakeLists.txt` (the vendored Dear ImGui build) skip the
+vendored `glfw` target and `find_package(OpenGL)` under `EMSCRIPTEN` — GLFW has no Emscripten backend of its
+own to build; the toolchain emulates the GLFW/GL API itself via `-sUSE_GLFW=3`/`-sUSE_WEBGL2=1`, link flags
+set on `guit3` itself. Fonts get a new placeholder backend, `emfont.cpp` (mirrors `fcfont.cpp`/`ctfont.cpp`'s
+shape but always reports "not found" — there's no installed-font store to query in a browser sandbox; a real
+implementation needs fonts bundled as data and baked into the atlas some other way). `guit3`'s own Emscripten
+`LINK_FLAGS` are a first pass, copied from `htmlt3`'s existing ones (`-pthread`/`PROXY_TO_PTHREAD`, the socket
+`--wrap`s, since guit3 now compiles in the same `osnetemscipten.cpp` and needs `emscripten.cpp`'s `__wrap_*`
+definitions, now guaranteed present via the shared `t3htm`) plus `USE_GLFW=3`/`FULL_ES3=1`/`USE_WEBGL2=1` —
+**unverified beyond getting a compile this far**, expect to revisit once GLFW-under-Emscripten's actual
+runtime behavior can be observed.
+
+**Two build-time-tool fixes, needed for `make_t3r(guit3 ...)` to run at all.** Under Emscripten, `t3res` (the
+tool `make_t3r()` runs to generate `guit3.t3r`) is itself cross-compiled to `t3res.js`/`t3res.wasm` — it can't
+be executed directly as a build step, only through a JS runtime. `TadsFunctions.cmake`'s `make_t3r()` didn't
+account for this (unlike `build_game()` in the same file, which already prepends
+`${CMAKE_CROSSCOMPILING_EMULATOR}` before invoking `t3make` for exactly this reason) — fixed by switching its
+`COMMAND` from the old `Tads::t3res ARGS ...` form to `${CMAKE_CROSSCOMPILING_EMULATOR}
+$<TARGET_FILE:Tads::t3res> ...`, which resolves to nothing (native execution) when not cross-compiling and to
+`node t3res.js ...` under Emscripten. That alone wasn't enough: `t3res.js` ran under node successfully but
+failed with `can't create file "...guit3.t3r"` — Emscripten's default Node entry point writes through an
+in-memory virtual filesystem rather than the real one, and only `t3make`'s existing `LINK_FLAGS` had
+`-s NODERAWFS=1` (which routes filesystem calls straight to Node's real `fs`) — `t3res` didn't. Given the same
+`LINK_FLAGS`, `guit3.t3r` now generates correctly.
+
+**Result: configure is clean, and the CMake/build-system side is functionally done for a first pass.**
+`cmake --preset emscripten` (from `tads-runner`, emsdk activated first so `$env{EMSDK}` is set)
+configures without errors. `cmake --build build/emscripten --target guit3` gets through curl, zlib,
+libpng, jpeg, libmng, freetype, libogg, libvorbis, `tads2`/`tr32h`, `tads3`/`t3res`+`t3htm`, the
+`guit3.t3r` resource-generation step, and **the large majority of `guit3`'s own ~70 translation units**
+before hitting real application-code, non-CMake portability problems — i.e., most of the M2–M4 portability
+work (the `guios`/`tadssettings`/font/char-encoding hook seams, `IMGUI`-gated code paths) already carries
+over to Emscripten's Clang/libc++ toolchain unmodified. **Left as the concrete next steps for continuing M5**
+(deliberately not fixed this pass — out of scope for a CMake-plumbing pass, and each needs the same
+one-issue-at-a-time diagnosis this doc's earlier sections model):
+
+- **`tadsdlg.cpp:959`** — `SetWindowLong(handle_, DWL_MSGRESULT, ...)`: dead Win32 code that compiles on the
+  M4 Linux build but not here, so whatever guards it apparently isn't purely `_WIN32`/`T_WIN32` — find and
+  fix (or extend) that guard for Emscripten specifically.
+- **`tadsplat.h` → `tads2/unix/osunixt.h`'s `our_memcpy`-style macro renaming leaks into libc++.** Something
+  `#define`s a bare identifier (`memmove` or similar) to `our_memcpy` without scoping it, and Emscripten's
+  libc++ `<locale>` (pulled in transitively via `tadsplat.h`'s `<chrono>`/`<vector>`/`<forward_list>`/
+  `<functional>` includes) uses `std::memmove` internally — the preprocessor rewrites that use into
+  `std::our_memcpy`, which doesn't exist, producing `no member named 'our_memcpy' in namespace 'std'` in
+  `tadslicensedlg.cpp` and others. Same class of bug as any unscoped macro colliding with a system header;
+  fix by `#undef`-ing after use or renaming to something that can't collide (this exact file/macro apparently
+  never gets far enough into a system C++ header to collide with it on Linux — libc++ vs. libstdc++ header
+  internals differ enough that this is plausibly Emscripten-libc++-specific).
+- **`tadswav.cpp` (and likely other `.cpp`s not yet reached, per `-ferror-limit`) use bare `ulong`/`uint`**,
+  which glibc's headers happen to expose but Emscripten's libc doesn't — needs either including whatever
+  header the Linux build was implicitly relying on, or switching to `unsigned long`/`unsigned int` /
+  `<cstdint>` types directly.
+- **`htmlgui.cpp`'s `event_loop()` already has `#ifdef __EMSCRIPTEN__` scaffolding** using
+  `EMSCRIPTEN_MAINLOOP_BEGIN`/`EMSCRIPTEN_MAINLOOP_END` — apparently carried over from Dear ImGui's own
+  example `main.cpp` files (those macros aren't Emscripten SDK macros; the examples that use them define them
+  locally) — the file never defines them or includes `<emscripten.h>`, so this doesn't compile yet. More
+  fundamentally, `emscripten_set_main_loop()`'s callback-driven execution model doesn't fit a function
+  written as one continuous blocking loop (`event_loop()` today, and everything nested inside it like the
+  various `open_blocking()` dialogs from §3.3) without real restructuring — this is design work, not a
+  find-and-replace.
+
+None of the GLFW/OpenGL/audio/font *runtime* porting §4 anticipated has been attempted yet — this pass only
+established that the build can be asked to try, and enumerated what it hits first.
 
 **Two things worth doing out of band, whenever convenient:** source a sound-bearing `.t3`/`.gam` so the
 miniaudio path can be verified by ear (§3.7), and click-test `CTadsFileDialog`'s Game Chest-tab nesting,
