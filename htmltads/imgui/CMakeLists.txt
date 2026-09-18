@@ -255,20 +255,48 @@ endif()
 if (EMSCRIPTEN)
 	target_compile_options(guit3 PRIVATE -pthread)
 
-	# First-pass link flags, unverified end-to-end (no Emscripten build of
-	# guit3 has been attempted yet - this only wires up the CMake side, see
-	# migration.md). -sUSE_GLFW=3/-sFULL_ES3=1/-sUSE_WEBGL2=1 select
+	# Link flags verified to compile and link as of migration.md 5.7; the
+	# -sPROXY_TO_PTHREAD/-sPROXY_POSIX_SOCKETS pairing (needed - and correct
+	# - for htmlt3's blocking-socket networking) was dropped again in 5.9
+	# once real browser testing (via the guit3.html added in 5.8) showed it
+	# runs guit3's main() - and therefore glfwInit() - on a Web Worker,
+	# where `window`/`document` don't exist; Emscripten's GLFW3 emulation
+	# calls window.addEventListener() straight out of glfwInit(), so this
+	# threw "ReferenceError: window is not defined" on every load. guit3
+	# doesn't need main() proxied to a pthread (it has no equivalent
+	# blocking-socket use on the main thread to work around), so it just
+	# runs on the browser's real main thread instead, same as any other
+	# GLFW/Emscripten app. -sUSE_GLFW=3/-sFULL_ES3=1/-sUSE_WEBGL2=1 select
 	# Emscripten's own GLFW-API-over-HTML5 and WebGL2 emulation in place of
-	# the vendored glfw/desktop-GL this target uses elsewhere.
-	# -pthread/-sPROXY_TO_PTHREAD and the socket --wrap flags mirror
-	# htmlt3's existing Emscripten LINK_FLAGS (htmltads/CMakeLists.txt) -
-	# t3htm (tads-runner/tads3/CMakeLists.txt) compiles emscripten.cpp's
-	# __wrap_* definitions and osnetemscipten.cpp for both executables now,
-	# so guit3 can rely on the same flags/symbols htmlt3 does.
-	set_target_properties(guit3 PROPERTIES LINK_FLAGS "-s ASSERTIONS=1 -s WASM=1 -s USE_GLFW=3 -s FULL_ES3=1 -s USE_WEBGL2=1 -s ASYNCIFY -s ASYNCIFY_IMPORTS=_emscripten_receive_on_main_thread_js -s PROXY_TO_PTHREAD -s FORCE_FILESYSTEM -s ALLOW_MEMORY_GROWTH=1 -s INITIAL_MEMORY=256MB -s SAFE_HEAP=1 -lwebsocket.js -pthread -sPROXY_POSIX_SOCKETS -Wl,--wrap=fgets,--wrap=fflush,--wrap=getchar,--wrap=socket,--wrap=getsockname,--wrap=getpeername")
+	# the vendored glfw/desktop-GL this target uses elsewhere. -pthread and
+	# the fgets/fflush/getchar --wrap flags are kept even though guit3 itself
+	# doesn't call the wrapped functions, since it links the same t3htm
+	# static lib (compiled with those wrap targets in mind) htmlt3 does.
+	set_target_properties(guit3 PROPERTIES LINK_FLAGS "-s ASSERTIONS=1 -s WASM=1 -s USE_GLFW=3 -s FULL_ES3=1 -s USE_WEBGL2=1 -s ASYNCIFY -s ASYNCIFY_IMPORTS=_emscripten_receive_on_main_thread_js -s FORCE_FILESYSTEM -s ALLOW_MEMORY_GROWTH=1 -s INITIAL_MEMORY=256MB -s SAFE_HEAP=1 -lwebsocket.js -pthread -Wl,--wrap=fgets,--wrap=fflush,--wrap=getchar")
+
+	# Manual browser test page for guit3-under-Emscripten (migration.md 5.7
+	# left runtime behavior completely unverified). Wired up the same way
+	# tads3/CMakeLists.txt does it for t3run (copy the hand-written .html
+	# next to the build output, since we don't want emcc's own generated
+	# shell - see that file's SUFFIX ".html" comment) - but with a plain
+	# canvas shell instead of t3run's xterm.js terminal, since guit3 is a
+	# graphical ImGui app, not a console one.
+	add_custom_command(
+		TARGET guit3 POST_BUILD
+		COMMAND ${CMAKE_COMMAND} -E copy_if_different ${CMAKE_CURRENT_SOURCE_DIR}/emscripten/guit3.html $<TARGET_FILE_DIR:guit3>)
+
+	# Packages tests/ditch3.t3 (the same TADS3 test game tests/CMakeLists.txt
+	# packages for the classic t3run web build) for guit3's own Emscripten
+	# virtual filesystem. Named distinctly from that other em_package(ditch3
+	# ...) call - em_package()'s add_custom_target() name is derived from
+	# this argument, and CMake target names must be unique project-wide, not
+	# just per-directory - the packaged path (ditch3.t3, after the "@") is
+	# what guit3.html and guit3's own argv actually reference.
+	em_package(ditch3game ${CMAKE_SOURCE_DIR}/tests/ditch3.t3@ditch3.t3)
 
 	install(FILES
 		"$<TARGET_FILE_DIR:guit3>/guit3.wasm"
+		${CMAKE_CURRENT_SOURCE_DIR}/emscripten/guit3.html
 		DESTINATION .
 		COMPONENT GuiT3
 	)

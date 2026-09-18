@@ -42,7 +42,7 @@ Modified
 #include <imgui/imgui_impl_glfw.h>
 
 #ifdef __EMSCRIPTEN__
-#include "emscripten_mainloop_stub.h"
+#include <emscripten.h>
 #endif
 
 /* include TADS OS headers */
@@ -15644,11 +15644,39 @@ void CHtmlSys_mainwin::do_accel_keys()
 ImVec4 clear_color = ImVec4(0.45f, 0.55f, 0.60f, 1.00f);
 
 int CHtmlSys_mainwin::event_loop(int* flag) {
-#ifdef __EMSCRIPTEN__
-    EMSCRIPTEN_MAINLOOP_BEGIN
-#else
-    while (!glfwWindowShouldClose(m_window))
-#endif
+    /*
+     *   event_loop() is re-entered recursively as a self-pumping wait
+     *   whenever something needs to block until *flag goes nonzero - most
+     *   importantly, reading a command at the '>' prompt (see the
+     *   event_loop(&command_read_) call in the input-reading code), but
+     *   also modal dialogs (see the mainloop-stub comment removed below).
+     *
+     *   Under Emscripten this can NOT be built on emscripten_set_main_loop()
+     *   the way a top-level "run forever" loop normally would be (as an
+     *   earlier version of this function tried, via EMSCRIPTEN_MAINLOOP_
+     *   BEGIN/END): with simulateInfiniteLoop set, that call works by
+     *   throwing the JS string exception 'unwind' to unwind the C++ stack
+     *   all the way out to the top-level entry point - it is a one-way,
+     *   one-shot trick for main() to hand control to the browser's frame
+     *   pump, not a suspend/resume primitive. Calling it nested, deep in
+     *   the call stack (as reading a command does), unwinds and abandons
+     *   *all* of that stack, including the caller waiting on *flag - so
+     *   even once do_char() correctly set *flag, nothing was left to
+     *   notice: confirmed by instrumentation showing do_char('\r') ran and
+     *   set the flag, but the blocked event_loop(&command_read_) call never
+     *   returned to its caller (see migration.md 5.10).
+     *
+     *   emscripten_sleep() (Asyncify.handleSleep() under the hood) is the
+     *   real suspend/resume primitive: it genuinely pauses this exact C++
+     *   call stack and hands control to the browser, then resumes right
+     *   here once the delay elapses - which is what a nested wait actually
+     *   needs. ASYNCIFY is already enabled on this target, so a plain loop
+     *   with an emscripten_sleep(0) yield point at the end of each
+     *   iteration works uniformly for both the top-level "run forever" call
+     *   and any nested "wait for *flag" call, with no special-casing
+     *   needed in the loop body below.
+     */
+    while (!glfwWindowShouldClose(m_window) && (flag == 0 || *flag == 0))
     {
 
         // Poll and handle events (inputs, window resize, etc.)
@@ -15985,10 +16013,18 @@ int CHtmlSys_mainwin::event_loop(int* flag) {
         */
         if (flag != 0 && *flag != 0)
             return TRUE;
-    }
+
 #ifdef __EMSCRIPTEN__
-    EMSCRIPTEN_MAINLOOP_END;
+        /*
+         *   Yield to the browser between frames. This is what makes the
+         *   while-loop above cooperative instead of a hard freeze - see
+         *   this function's opening comment. 0ms still yields at least one
+         *   full event-loop turn (timers, rendering, network callbacks)
+         *   before Asyncify resumes execution right here.
+         */
+        emscripten_sleep(0);
 #endif
+    }
     return FALSE;
 }
 

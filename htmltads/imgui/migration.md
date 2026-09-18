@@ -2463,6 +2463,142 @@ once live during this pass, caught immediately by re-reading the file rather tha
 Prefer single-line anchors (no embedded newline) for edits to these two files, or a byte-level replace that
 includes the literal `\r\n`.
 
+### 5.8 M5/Emscripten — a browser test page for guit3, first real runtime signal
+
+5.7 got `guit3` compiling and linking but left "GLFW/GL/font/audio runtime behavior under Emscripten...
+completely unverified" since there was no way to load a `.wasm` build in a browser from that pass. This pass
+adds that: [emscripten/guit3.html](emscripten/guit3.html), a canvas-based test page wired into
+`imgui/CMakeLists.txt`'s `EMSCRIPTEN` branch the same way `tads3/CMakeLists.txt` wires up `t3run.html` for
+classic `t3run` (`POST_BUILD` copy next to the built `.js`/`.wasm`, plus an `install(FILES ...)` entry) - but
+with a plain status/progress/canvas shell instead of t3run's xterm.js terminal, since guit3 is a graphical
+ImGui app with no stdio console to speak of. It always loads `tests/ditch3.t3` (the same TADS3 test game
+`tests/CMakeLists.txt` already packages for classic `t3run`'s web build), packaged separately here via its own
+`em_package(ditch3game tests/ditch3.t3@ditch3.t3)` call - a second `em_package()` call for the same source file
+needs a distinct first argument from `tests/CMakeLists.txt`'s own `em_package(ditch3 ...)`, since that argument
+becomes an `add_custom_target()` name and CMake target names must be unique project-wide, not just
+per-directory (the virtual FS path after the `@`, `ditch3.t3`, is what actually matters to `guit3`'s argv and
+can stay the same in both).
+
+**Verified end-to-end for the first time**: configured `cmake --preset emscripten` and built `guit3` plus the
+new `ditch3game` data package from `tads-runner/build/emscripten` (emsdk activated via `emsdk_env.ps1`) -
+`guit3.html`/`guit3.js`/`guit3.wasm`/`ditch3game.js`/`ditch3game.data` all land next to each other as expected.
+Served that directory with Python's `http.server` and loaded `guit3.html` in headless Chrome. **Gotcha: plain
+`http.server` is not enough** - `guit3`'s Emscripten build uses `-pthread`/`PROXY_TO_PTHREAD`, which needs
+`SharedArrayBuffer`, which browsers only expose in a cross-origin-isolated context (`Cross-Origin-Opener-Policy:
+same-origin` + `Cross-Origin-Embedder-Policy: require-corp` response headers) - without them the page fails
+silently rather than with an obvious error. A `http.server` subclass overriding `end_headers()` to add both
+fixed this; any real deployment of this page needs a server configured the same way, not just static file
+hosting. With those headers present, `--dump-dom` after a `--virtual-time-budget` load showed `#status`'s text
+cleared to empty by the Emscripten runtime itself (its own convention for "startup finished, handing off to
+`main()`") with no JS exception and no `window.onerror` firing - i.e. the module downloads, instantiates, and
+starts running cleanly. A `--screenshot` of the same load came back solid black; whether that's headless
+Chrome's well-known software-WebGL quirk or `guit3`'s own incomplete GLFW/GL porting (font backend always
+reports "not found" per 5.6, `event_loop()`'s Asyncify/mainloop restructuring still undone per 5.7) is not yet
+distinguished - **actual on-screen rendering is still unverified**; only "the module boots without crashing"
+is confirmed by this pass. Next step for whoever picks this up: reproduce in a real (non-headless) browser
+window, since that removes the headless-software-GL variable in one shot.
+
+### 5.9 M5/Emscripten — real-browser test surfaces (and fixes) a `window is not defined` crash; guit3 actually renders
+
+The user tried `guit3.html` (5.8) in real Firefox and hit an immediate crash: `glfwInit` throwing, unwound
+through `instrumentWasmImports`, with the browser separately reporting `worker: onmessage() captured an
+uncaught exception: ReferenceError: window is not defined`. That second detail was the key: `window` (and
+`document`) only exist on a page's main thread, not inside a Web Worker - and Emscripten's `-s
+PROXY_TO_PTHREAD` (inherited from `htmlt3`'s LINK_FLAGS unchanged since 5.6/5.7, see that section's own
+"unverified beyond getting a compile this far" caveat) runs `main()` itself on a worker. Confirmed by reading
+Emscripten's own `src/lib/libglfw.js`: `glfwInit()` unconditionally calls
+`window.addEventListener('gamepadconnected', ...)` etc. - it assumes it's running on the main thread, which
+`PROXY_TO_PTHREAD` violates for any GLFW-based app. `htmlt3` never hit this because it doesn't use GLFW at all;
+`guit3` inherited the flag from copying `htmlt3`'s LINK_FLAGS wholesale in 5.6 without re-examining whether
+each flag still made sense for a GLFW app specifically.
+
+**Fix**: dropped `-s PROXY_TO_PTHREAD` and its dependent `-s PROXY_POSIX_SOCKETS` plus the
+`--wrap=socket,--wrap=getsockname,--wrap=getpeername` flags from `guit3`'s own `LINK_FLAGS` in
+`imgui/CMakeLists.txt` (`htmlt3`'s own flags are untouched - this only affects `guit3`, and the two targets
+already have independent `LINK_FLAGS`, only *sharing* the underlying `t3htm`/`tr32h` static libs per 5.7).
+`guit3` has no equivalent need to proxy blocking socket calls off the main thread the way classic `htmlt3`'s
+networking does, so `main()` (and `glfwInit()`) now just runs on the browser's real main thread, same as any
+other Emscripten/GLFW app - `-pthread` itself and the `fgets`/`fflush`/`getchar` wraps are kept, since `guit3`
+still links the same `t3htm` archive `htmlt3` does and those wraps are harmless if unused.
+
+**This exposed the real fix needed for 5.8's own open question**: rebuilt and re-tested with real console
+capture this time (`--enable-logging=stderr --v=1`, which 5.8's plain `--dump-dom`/`window.onerror` check
+couldn't have caught anyway - a worker's uncaught exception doesn't reach the *page's* `window.onerror` at
+all, so 5.8's "boots cleanly" conclusion was a false negative on exactly this bug, not a real all-clear).
+Confirmed clean: only two harmless warnings now (`emscripten_set_main_loop_timing: ... main loop does not exist
+yet` - an ordering warning, not fatal; `WebGL: INVALID_ENUM: texParameter: invalid parameter` ×2, presumably
+Dear ImGui's font-atlas texture setup hitting a GLES-unsupported enum, cosmetic so far). **The screenshot now
+shows the actual `guit3` UI rendering correctly** - menu bar, toolbar, and `tests/ditch3.t3`'s ("Return to
+Ditch Day") title-screen banner image and text, all in place - the first real visual confirmation that
+`guit3`'s GLFW/GL/ImGui port works under Emscripten at all. Not yet tested: keyboard/mouse interaction (typing
+at the `>` prompt), which needs a live browser session rather than a one-shot headless screenshot.
+
+### 5.10 M5/Emscripten — Enter never submitted a command: `event_loop()`'s nested wait was built on the wrong Emscripten primitive
+
+The user tried typing at the `>` prompt in real Firefox: ordinary characters and Backspace worked, but Enter
+did nothing - the typed command just sat there, unsubmitted, forever (reproduced identically and more
+conveniently via headless Chrome + real synthetic keyboard events over the DevTools protocol - see this
+section's own working notes in §6 for that recipe). Because `ImGui::IsKeyPressed(ImGuiKey_Backspace)` and
+`ImGui::IsKeyPressed(ImGuiKey_Enter)` are the exact same mechanism (`event_loop()`'s manual per-key-code polling
+above the char loop, added because GLFW's char callback never delivers control characters - see §6's "Reusable
+ImGui-dialog lessons"), Backspace working ruled out any general GLFW/ImGui key-handling breakage and pointed at
+something specific to what Enter *does* once detected.
+
+Temporary `fprintf(stderr, ...)` instrumentation (visible in the browser console the same way the WebGL/
+main-loop-timing warnings in 5.9 were) confirmed `ImGui::IsKeyPressed(ImGuiKey_Enter)` correctly fired,
+`do_char('\r', 0)` correctly ran and returned true, and `process_input_edit_event()`'s `case 13:`/`case 10:`
+correctly set `command_read_ = TRUE` - the entire input-detection chain 5.9's own instrumentation-friendly setup
+made easy to verify was completely correct. The bug was one level up: `command_read_` is a `CHtmlSysWin_win32_
+Input` member that a **separate, nested call to `CHtmlSys_mainwin::event_loop(&command_read_)`** (from the
+input-reading code, run once per `os_get_event()`/read-a-command call) is blocked waiting on. That nested call
+never returned, even after the flag it was waiting on went true.
+
+**Root cause: `event_loop()`'s Emscripten path (`EMSCRIPTEN_MAINLOOP_BEGIN`/`END`, added in 5.7 purely to get
+the *top-level* "run forever" loop to compile) is architecturally incompatible with being called nested.**
+`emscripten_set_main_loop(func, fps, simulateInfiniteLoop=1)` does not suspend and later resume the calling C++
+stack - reading Emscripten's own `src/lib/libeventloop.js` shows `setMainLoop()` unconditionally does `throw
+'unwind'` once `func` is registered. That's a **one-way** JS exception, meant to unwind the stack exactly once,
+all the way from `main()`'s single top-level call out to the JS runtime's `callMain()`/`doRun()` wrapper (which
+specifically catches the string `'unwind'` to mean "intentionally continuing via a registered callback, not a
+crash"). Calling this nested - nowhere near `main()`, deep inside a `do_char()` → VM → `os_get_event()` →
+`event_loop(&command_read_)` call chain - throws that same exception, which propagates up and unwinds
+*everything* in between, abandoning the entire waiting call stack for good. `EMSCRIPTEN_MAINLOOP_BEGIN`'s
+per-frame lambda genuinely keeps running afterward (driven by the browser's `requestAnimationFrame`, which is
+why the game kept rendering and accepting keystrokes into the command buffer throughout), but the original
+`CHtmlSysWin_win32_Input` code that was waiting for `command_read_` to go true was already gone - there was
+nothing left to resume, so the completed command was never noticed. (5.8's `emscripten_cancel_main_loop()`
+attempt, tried first, was based on the mistaken assumption that ASYNCIFY made this pairing suspend/resume like a
+coroutine; instrumentation showed `emscripten_cancel_main_loop()` returns normally without unwinding anything,
+confirming it doesn't.)
+
+**Fix: replaced `EMSCRIPTEN_MAINLOOP_BEGIN`/`END` with a plain `while` loop plus `emscripten_sleep(0)`.**
+`emscripten_sleep()` (`Asyncify.handleSleep()` under the hood, per `src/lib/libasync.js`) is Emscripten's actual
+suspend/resume primitive - unlike `emscripten_set_main_loop()`, it genuinely pauses the exact C++ call stack
+it's called from and resumes it later, right where it left off, which is exactly what a nested wait needs.
+`event_loop()`'s loop condition is now `while (!glfwWindowShouldClose(m_window) && (flag == 0 || *flag == 0))`
+for both platforms uniformly, with `emscripten_sleep(0)` as a per-iteration yield point under Emscripten only;
+the loop body itself (rendering, input handling, dialog/timer pumping) is completely unchanged, and the
+`*flag`-satisfied and `GLFW_ICONIFIED` early-`return TRUE;` paths that had grown Emscripten-specific
+lambda-return-type workarounds went back to their original, platform-uniform form now that this is a real loop
+again on both platforms. `emscripten_mainloop_stub.h` (the `EMSCRIPTEN_MAINLOOP_BEGIN`/`END` macros added in
+5.7) is now unused anywhere in `guit3` and was deleted; `htmlgui.cpp` now just includes `<emscripten.h>`
+directly for `emscripten_sleep()`. **This is a one-line-conceptually but load-bearing fix**: every single game
+turn goes through this exact nested-`event_loop()` pattern to read a command, so this bug meant *no* TADS3 game
+could ever get past its very first input prompt under Emscripten, not just an Enter-key quirk.
+
+**Verified working end-to-end**: rebuilt, re-ran the same headless-Chrome-plus-real-keyboard-events recipe (§6)
+typing `look` then Enter at `tests/ditch3.t3`'s title-screen prompt (which, it turns out, is already a live
+`>` prompt, not a gate needing its own keystroke - the "press the Enter key to begin" line is just flavor text)
+- the screenshot after Enter now shows the game's real response text and a fresh prompt, not the same unsubmitted
+buffer. Also re-verified the native Windows build (`cmake --build build/default --target guit3`) still compiles
+clean after this shared-code change, since `event_loop()` is not `#ifdef`-forked per platform anymore except for
+the loop condition and the `emscripten_sleep(0)` call.
+
+**Left for a future pass**: `open_blocking()`/`tadswin_message_box()`'s own nested `event_loop()` calls (§3.3,
+5.7) get this same fix "for free" now (same function, same loop), but haven't been separately click-tested
+under Emscripten - worth confirming modal dialogs (Options, Find, Save/Restore) actually work end-to-end too,
+not just the base command prompt.
+
 ## 6. Working notes for a fresh session
 
 ### Building and running
@@ -2548,6 +2684,44 @@ Run it with a test game from `tads-runner/tests/`, with the working directory se
 - **Once a native dialog is replaced by an in-app one, stop checking for its window class.** A test that
   looked for `#32770` as a proxy for "warning shown" was written *after* the conversion, so it could never
   fire again and was silently testing nothing. Check rendered content instead.
+
+### Verifying the Emscripten build (guit3.html) in a browser — real keyboard events, not just screenshots
+
+`guit3`'s Emscripten build (`cmake --preset emscripten`, emsdk activated first, then `cmake --build
+build/emscripten --target guit3`) produces `guit3.js`/`.wasm` plus the test page `imgui/emscripten/guit3.html`
+(copied next to them by a `POST_BUILD` step) and a packaged `tests/ditch3.t3` (`em_package(ditch3game ...)` in
+`imgui/CMakeLists.txt` — a distinct name from `tests/CMakeLists.txt`'s own `em_package(ditch3 ...)` for classic
+`t3run`, since `em_package()`'s `add_custom_target()` name must be unique project-wide).
+
+- **This build needs `Cross-Origin-Opener-Policy: same-origin` / `Cross-Origin-Embedder-Policy: require-corp`
+  response headers** (it uses `-pthread`, which needs `SharedArrayBuffer`, which browsers gate behind
+  cross-origin isolation) — plain static file serving (`python -m http.server`) fails silently. Serve it with a
+  tiny `http.server` subclass overriding `end_headers()` to add both headers instead.
+- **A headless-Chrome screenshot alone only proves the module didn't crash *on the main thread*.** An uncaught
+  exception inside a `-pthread`-proxied Web Worker never reaches the page's own `window.onerror`, so a clean
+  `--dump-dom` after load is not proof of a working build — it's exactly the false negative that let the
+  `window is not defined` bug (5.9) go unnoticed until the user tried real Firefox. Capture the actual browser
+  console instead: `chrome --headless=new --disable-gpu --no-sandbox --enable-logging=stderr --v=1 ...` with
+  stderr redirected to a file surfaces `INFO:CONSOLE:...` lines for *any* thread's `console.log`/`console.error`
+  (including uncaught exceptions and `fprintf(stderr, ...)`-based `printf`-style debugging, which the page's
+  `Module.printErr` routes to `console.error`) — grep that file, don't trust a quiet DOM.
+- **`--screenshot`/`--dump-dom` alone can't simulate typing** — there's no interactive session to send OS-level
+  input to. `SendInput()` (the native-Windows recipe earlier in this section) doesn't help here either, and in
+  this project's actual dev environment turned out to be unreliable for *any* target (native or browser) when
+  driven from a non-interactive automation session — real focus/interactive-desktop access matters and may not
+  be available. **Use Chrome's DevTools Protocol (CDP) directly instead**, which works from a plain
+  script with no interactive desktop needed: launch headless Chrome with `--remote-debugging-port=<port>`, list
+  targets at `http://localhost:<port>/json`, find the page by URL, connect a WebSocket to its
+  `webSocketDebuggerUrl`, and send `Input.dispatchKeyEvent` (`type: "rawKeyDown"`/`"char"`/`"keyUp"`, with
+  `windowsVirtualKeyCode`/`nativeVirtualKeyCode`/`key`/`code` set for the real key) followed by
+  `Page.captureScreenshot`. This dispatches genuine input at the browser's real input pipeline (not a JS-level
+  `dispatchEvent` on the DOM), so it exercises exactly the same code path a real keypress would. PowerShell's
+  `System.Net.WebSockets.ClientWebSocket` is enough to drive this with no extra dependencies (no `pip install
+  websocket-client`/Selenium/Playwright needed) — the one gotcha: `ReceiveAsync()` returns one WebSocket frame
+  at a time, and a screenshot response is large enough to span several frames, so accumulate into a buffer
+  until `EndOfMessage` is true before `ConvertFrom-Json`, or large responses silently fail to parse.
+- This exact recipe (type text, press a real Enter via CDP, screenshot before/after, diff by eye) is what
+  isolated 5.10's bug to Enter specifically (Backspace, driven the same way, worked) and then confirmed the fix.
 
 ### Debugging techniques that actually worked
 
