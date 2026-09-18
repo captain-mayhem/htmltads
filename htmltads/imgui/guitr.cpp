@@ -234,7 +234,15 @@ void w32_msgbox(const char *msg, const char *url)
  *   box. inputDialog() is a rarely-used TADS feature; revisit if a real
  *   game turns out to need the missing cases.
  */
-#ifndef _WIN32
+/*
+ *   Under Emscripten, tads3/emscripten/osemscripten.cpp is also
+ *   unconditionally compiled into the shared htmlt3/guit3 web build (one
+ *   t3htm archive serves both executables - see migration.md 5.6) and
+ *   already supplies this symbol for classic htmlt3; defining it again here
+ *   would be a duplicate-symbol link error, so fall back to that default
+ *   there instead of this richer version.
+ */
+#if !defined(_WIN32) && !defined(__EMSCRIPTEN__)
 int os_input_dialog(int icon_id, const char *prompt, int standard_button_set,
                     const char **buttons, int button_count,
                     int default_index, int cancel_index)
@@ -263,4 +271,4 @@ int os_input_dialog(int icon_id, const char *prompt, int standard_button_set,
         return 1;
     }
 }
-#endif /* !_WIN32 */
+#endif /* !_WIN32 && !__EMSCRIPTEN__ */

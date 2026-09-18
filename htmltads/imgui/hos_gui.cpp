@@ -227,11 +227,20 @@ int os_get_sysinfo(int code, void * /*param*/, long *result)
 /* ------------------------------------------------------------------------ */
 /*
  *   Receive notification that a character mapping file has been loaded.
+ *
+ *   Under Emscripten, unix/osunixt.c (out of tr32h, same as everywhere else
+ *   off Windows) is also unconditionally compiled into the shared
+ *   htmlt3/guit3 web build (see migration.md 5.6 - there's no per-consumer
+ *   IMGUI define on a single archive shared by both executables), so it
+ *   already supplies this and os_term() below; defining them again here
+ *   would be a duplicate-symbol link error. Skip guit3's own richer version
+ *   there and fall back to osunixt.c's default, same as classic htmlt3.
  */
+#ifndef __EMSCRIPTEN__
 void os_advise_load_charmap(char *id, char *ldesc, char *sysinfo)
 {
     CHtmlSys_mainwin *mainwin;
-    
+
     /* get the main window, and tell it about the change */
     mainwin = (CHtmlSys_mainwin *)CHtmlSysFrame::get_frame_obj();
     if (mainwin != 0)
@@ -241,13 +250,14 @@ void os_advise_load_charmap(char *id, char *ldesc, char *sysinfo)
 
 /* ------------------------------------------------------------------------ */
 /*
- *   Terminate the program 
+ *   Terminate the program
  */
 void os_term(int exit_code)
 {
     /* post a quit message */
     PostMessage(0, WM_QUIT, exit_code, 0);
 }
+#endif /* !__EMSCRIPTEN__ */
 
 
 /* ------------------------------------------------------------------------ */

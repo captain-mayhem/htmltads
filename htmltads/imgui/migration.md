@@ -2380,6 +2380,89 @@ established that the build can be asked to try, and enumerated what it hits firs
 miniaudio path can be verified by ear (§3.7), and click-test `CTadsFileDialog`'s Game Chest-tab nesting,
 which has the latent nested-popup bug described in §3.3.
 
+### 5.7 M5/Emscripten - `guit3` now compiles and links
+
+Picked up where 5.6 left off: fixed each of the four compile problems it enumerated, then chased the link
+errors that followed. **Verified**: `cmake --build build/emscripten --target htmlt3 guit3` (from
+`tads-runner`, emsdk activated) builds both `htmlt3.js`/`.wasm` and `guit3.js`/`.wasm` cleanly from one
+configure, confirming the shared-file fixes below didn't regress classic `htmlt3`. No runtime testing done
+yet (there's no way to run a `.wasm` build from this pass's environment) - GLFW/GL/font/audio runtime
+behavior under Emscripten is still completely unverified, per 5.6.
+
+**Compile fixes, all in [tads2/unix/osunixt.h](../../../../tads-runner/tads2/unix/osunixt.h):**
+
+- **Bare `uint`/`ulong`/`ushort` (htmlgui.cpp's `osrp2`/`osrp4` macros, tadswav.cpp, ...).** 5.6 guessed this
+  was glibc-vs-Emscripten-libc; confirmed: `guit3`'s own translation units compile with `-DUNIX` but never
+  `-DLINUX_386` (only `tads2`'s own `tr32h`/`trd32h` targets get that from `tads2/CMakeLists.txt`'s
+  `if(EMSCRIPTEN)` branch), so the `OS_UINT_DEFINED`-style "the system already provides these" guards in
+  `lib.h`/`t3std.h` never fire for `guit3` on *any* platform - on real Linux it silently works anyway because
+  glibc's `<sys/types.h>` exposes these BSD-style names for free (transitively, via something GLFW/GL headers
+  pull in); Emscripten's libc doesn't. Fixed by adding a direct `#if defined(__EMSCRIPTEN__)` typedef block
+  in `osunixt.h` itself (always included via `os.h`'s `#ifdef UNIX` branch, so it reaches every consumer,
+  not just `tr32h`), defining `uint`/`ulong`/`ushort` and setting `OS_USHORT_DEFINED`/`OS_UINT_DEFINED`/
+  `OS_ULONG_DEFINED` so `lib.h`/`t3std.h` don't redeclare them.
+- **`memmove`/`memcpy` → `our_memcpy` macro leaking into libc++.** `osunixt.h` unconditionally `#define`s the
+  bare identifiers `memcpy`/`memmove` to `our_memcpy` (a pre-C89-portability shim). The preprocessor doesn't
+  know about C++ scoping, so once any C++ translation unit later pulls in `<locale>` (via `<chrono>`/
+  `<vector>`/`<forward_list>`/`<functional>`, all reached from `tadsplat.h`), its internal `std::memmove(...)`
+  calls get rewritten to the nonexistent `std::our_memcpy`. Fixed by skipping the redefinition under
+  `__EMSCRIPTEN__` - safe, not just expedient: Emscripten's libc `memcpy`/`memmove` are both standard-compliant
+  (unlike whatever machines this shim originally targeted), so removing the override there just means the
+  real library functions get used instead, which is strictly correct, not a behavior downgrade.
+
+**`_M_IX86` is not an MSVC-only macro in this codebase - [tads2/os.h](../../../../tads-runner/tads2/os.h):82
+defines it as the generic "32-bit little-endian, not ppc/x86_64/aarch64" fallback**, which fires for wasm32
+too. [tadsdlg.cpp](tadsdlg.cpp)'s dead `CTadsDialogPropPage::do_dialog_msg()` read `#ifdef _M_IX86` to mean
+"real Windows x86" (choosing `DWL_MSGRESULT`, never defined off Windows) instead of "real Windows x64"
+(`DWLP_MSGRESULT`, which `tadsplat.h` does define for the portable build) - exactly the "whatever guards it
+isn't purely `_WIN32`/`T_WIN32`" gap 5.6 flagged. Fixed by adding `&& defined(_WIN32)` to that `#ifdef`.
+
+**`EMSCRIPTEN_MAINLOOP_BEGIN`/`END` implemented** as a new [emscripten_mainloop_stub.h](emscripten_mainloop_stub.h),
+the same stub Dear ImGui's own Emscripten examples use - turns `event_loop()`'s outer `while` into a lambda
+`emscripten_set_main_loop()` drives once per `requestAnimationFrame`. **Explicitly scoped to compiling, not
+correctness**: `event_loop()` is also re-entered recursively as a self-pumping blocking loop for modal dialogs
+(`open_blocking()`, `tadswin_message_box()` - §3.3), and `emscripten_set_main_loop()` is one global
+registration - a nested call's lambda still runs synchronously to completion inside the outer callback rather
+than yielding to the browser each frame. Real support needs either Asyncify or restructuring those call sites
+into genuine continuations; out of scope here, same as 5.6's own framing.
+
+**Link fixes - one static-archive-sharing problem, hit four times.** `guit3` links `tads3/libt3htm.a` and
+`tads2/libtr32h.a`, both **shared with classic `htmlt3`** under Emscripten (5.6's own "no build-time switch"
+decision). Off Emscripten, `guit3` avoids duplicate symbols against these archives' Unix defaults via the
+`#ifndef IMGUI` guards already in [osunixt.c](../../../../tads-runner/tads2/unix/osunixt.c) (`os_term`,
+`os_advise_load_charmap`) and `#ifndef _WIN32` guards in its own files - but nothing defines `IMGUI` for
+either target under Emscripten (it can't: one archive, two consumers, and only `guit3` wants `IMGUI`
+behavior), and `tads3/emscripten/osemscripten.cpp` (needed by classic `htmlt3`, unconditionally compiled into
+`t3htm` per 5.6) supplies its own `os_input_dialog`/`os_init_ui_after_load`. Since archive members are pulled
+in whole, not per-symbol, and `guit3` also independently defines all four functions
+(`guitr.cpp`, `t3main.cpp`, `hos_gui.cpp`), the link failed with `wasm-ld: error: duplicate symbol` for each.
+**Fixed by wrapping `guit3`'s own versions in `#ifndef __EMSCRIPTEN__`** (`os_input_dialog` in
+[guitr.cpp](guitr.cpp), `os_init_ui_after_load` in [t3main.cpp](t3main.cpp), `os_term`/`os_advise_load_charmap`
+in [hos_gui.cpp](hos_gui.cpp)) so the Emscripten build falls back to the same shared defaults classic `htmlt3`
+already uses. Same tradeoff as the mainloop stub above: compiles and links, but those four features get
+`htmlt3`'s plainer behavior under Emscripten specifically, not `guit3`'s richer native one, until someone
+gives this a real per-executable seam instead of a shared archive.
+
+**`wasm-ld: error: --shared-memory is disallowed by <obj> because it was not compiled with 'atomics' or
+'bulk-memory' features.`** `guit3`/`htmlt3` both link with `-pthread`/`PROXY_TO_PTHREAD`, which requires
+`--shared-memory`, which requires *every* object folded into the link to be compiled with matching
+atomics/bulk-memory codegen - one exception anywhere is a hard link error, not a warning. `zlib`/`libpng`/
+`libmng` already had `if (EMSCRIPTEN) target_compile_options(... -pthread)` for this exact reason;
+`freetype` ([htmltads/freetype/CMakeLists.txt](../../../freetype/CMakeLists.txt)) and `tr32h`
+([tads-runner/tads2/CMakeLists.txt](../../../../tads-runner/tads2/CMakeLists.txt)) didn't yet, so they were
+the first two hit (wasm-ld only reports one offending object per link attempt, so there could in principle be
+more - none surfaced after fixing these two, but jpeg/libvorbis/libogg/curl/the vendored Dear ImGui `imgui`
+target were never individually confirmed one way or the other; re-check this exact error class first if a
+future Emscripten link regresses after touching any vendored library's CMakeLists).
+
+**Gotcha for future edits to `tads2/CMakeLists.txt`/`tads3/CMakeLists.txt` specifically: these files have
+CRLF line endings.** A multi-line `old_string` replace that types plain `\n` between lines won't match and,
+if forced through as several smaller edits, can silently reassemble the surrounding `target_compile_*(...)`
+call wrong (e.g. splitting one call into two malformed ones with an orphaned `PUBLIC ... )` tail) - happened
+once live during this pass, caught immediately by re-reading the file rather than trusting the edit succeeded.
+Prefer single-line anchors (no embedded newline) for edits to these two files, or a byte-level replace that
+includes the literal `\r\n`.
+
 ## 6. Working notes for a fresh session
 
 ### Building and running

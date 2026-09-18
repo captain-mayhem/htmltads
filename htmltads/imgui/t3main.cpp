@@ -481,12 +481,21 @@ int t3main(int argc, char **argv, struct appctxdef *appctx, char *)
  *   Post-load UI initialization.  The T3 VM calls this after loading the
  *   *.t3 image file, but before starting execution, to give us a chance to
  *   customize the UI based on the type of game loaded.
- *   
+ *
  *   We check to see if the loaded program links the network function set.
  *   If so, we assume it's a Web UI program, and hide the regular HTML TADS
  *   window to avoid clutter.  If the program ends up displaying anything to
- *   the HTML TADS window, the window will automatically unhide itself.  
+ *   the HTML TADS window, the window will automatically unhide itself.
+ *
+ *   Under Emscripten, tads3/emscripten/osemscripten.cpp is also
+ *   unconditionally compiled into the shared htmlt3/guit3 web build (one
+ *   t3htm archive serves both executables - see migration.md 5.6) and
+ *   already supplies this symbol for classic htmlt3; defining it again here
+ *   would be a duplicate-symbol link error, so fall back to that default
+ *   there instead (guit3's Web UI support is Windows-only anyway - see
+ *   TADS_WEBUI_ENABLED in imgui/CMakeLists.txt).
  */
+#ifndef __EMSCRIPTEN__
 void os_init_ui_after_load(class CVmBifTable *bif, class CVmMetaTable *)
 {
     /* 
@@ -504,3 +513,4 @@ void os_init_ui_after_load(class CVmBifTable *bif, class CVmMetaTable *)
         }
     }
 }
+#endif /* !__EMSCRIPTEN__ */

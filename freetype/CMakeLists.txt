@@ -505,6 +505,17 @@ else ()
     C_VISIBILITY_PRESET hidden)
 endif ()
 
+if (EMSCRIPTEN)
+  # guit3/htmlt3 link with -pthread (PROXY_TO_PTHREAD), which requires
+  # --shared-memory; every object linked into them must be compiled with
+  # matching atomics/bulk-memory features or wasm-ld refuses to link - same
+  # fix already applied to zlib/libpng/libmng for the same reason.
+  target_compile_options(
+    freetype PRIVATE
+    -pthread
+  )
+endif ()
+
 if (BUILD_SHARED_LIBS)
   set_target_properties(freetype PROPERTIES
     VERSION ${LIBRARY_VERSION}

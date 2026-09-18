@@ -41,6 +41,10 @@ Modified
 #include <imgui/imgui_impl_opengl3.h>
 #include <imgui/imgui_impl_glfw.h>
 
+#ifdef __EMSCRIPTEN__
+#include "emscripten_mainloop_stub.h"
+#endif
+
 /* include TADS OS headers */
 #include <os.h>
 #include <osifcext.h>

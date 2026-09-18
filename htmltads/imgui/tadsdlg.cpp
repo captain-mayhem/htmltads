@@ -955,7 +955,7 @@ BOOL CTadsDialogPropPage::do_dialog_msg(HWND dlg_hwnd, UINT message,
          *   Note that we must return the value through our window long value
          *   at DWL_MSGRESULT.  
          */
-#ifdef _M_IX86
+#if defined(_M_IX86) && defined(_WIN32)
         SetWindowLong(handle_, DWL_MSGRESULT, query_siblings(wpar, lpar));
 #else
         SetWindowLong(handle_, DWLP_MSGRESULT, query_siblings(wpar, lpar));
