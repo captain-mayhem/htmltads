@@ -2768,6 +2768,14 @@ public:
      */
     void render_statusbar_context_menu();
 
+    /*
+     *   Paint the bevel border reserved around the main panel by
+     *   recalc_banner_layout() - see that function's comment and this
+     *   method's own comment in htmlgui.cpp for why it's needed on this
+     *   port (the equivalent GDI border painting is dead code here).
+     */
+    void render_panel_bevel();
+
     /* is (x, y), in the same absolute coordinates event_loop() passes to
      * do_rightbtn_down()/_up(), over the status bar's current on-screen
      * rect?  Shared by both of those below. */

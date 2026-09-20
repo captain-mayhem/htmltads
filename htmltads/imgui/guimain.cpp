@@ -106,21 +106,16 @@ extern "C" { HINSTANCE oss_G_hinstance; }
 
 #ifndef _WIN32
 /*
- *   oss_set_askfile_hook()/oss_win_free_all()/oss_win_static_init_done() are
- *   declared in tads2/msdos/oswin.h and implemented in tads2/msdos/oswin.c,
- *   which the non-Windows build of Tads::tr32h doesn't compile (it builds
- *   unix/osunixt.c instead - migration.md 5.1). The Unix os_askfile()
- *   (unix/osunixt.c) is itself compiled out under USE_STDIO (which this
- *   build defines), so a text-prompt fallback (askf_tx.c) handles
- *   File > Open/Save/Restore off Windows for now rather than
- *   CTadsFileDialog - wiring the hook into a real non-Windows os_askfile()
- *   is follow-up work, not needed to get guit3 compiling. These three are
- *   harmless no-ops in the meantime so guimain.cpp links.
+ *   oss_win_free_all()/oss_win_static_init_done() are declared in
+ *   tads2/msdos/oswin.h and implemented in tads2/msdos/oswin.c, which the
+ *   non-Windows build of Tads::tr32h doesn't compile (it builds
+ *   unix/osunixt.c instead - migration.md 5.1). They're genuinely
+ *   Windows-only bookkeeping (static-data cleanup for oswin.c's own
+ *   globals), so these are harmless no-ops here.  oss_set_askfile_hook()
+ *   used to be stubbed out here too, but unix/osunixt.h/.c now implement it
+ *   for real (migration.md 5.12), so it's declared there and included via
+ *   os.h instead of being redeclared as a no-op.
  */
-typedef int (*os_askfile_hook_t)(const char *prompt, const char *filter,
-                                 const char *initial_dir, char *fname_buf,
-                                 int fname_buf_len, int is_save);
-inline void oss_set_askfile_hook(os_askfile_hook_t) { }
 inline void oss_win_free_all() { }
 inline void oss_win_static_init_done() { }
 #endif

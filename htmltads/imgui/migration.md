@@ -2655,6 +2655,127 @@ symptom ever resurfaces elsewhere in the Emscripten build, a stuck `tracking_mou
 a missed browser-side up/release event is now a confirmed real failure mode for this codebase under
 Emscripten, worth checking first.
 
+### 5.12 M5/Emscripten — Save/Restore fell back to a bare text prompt, and fixing that surfaced a real modal-dialog freeze
+
+**Symptom (reported by the user)**: File > Save/Restore (and the in-game `save`/`restore` commands) showed a
+plain "Enter filename >" text prompt in the Emscripten build instead of `CTadsFileDialog`, the ImGui-native
+file browser guit3 already has and Windows already uses.
+
+**Root cause**: `os_askfile()` (the shared TADS2/TADS3 OS-layer entry point both `tio_askfile()`/
+`CVmConsole::askfile()` funnel into) already supports a runtime hook to substitute a custom dialog for its
+native one - `oss_set_askfile_hook()` - but that hook only existed on Windows (`tads2/msdos/oswin.h`/`oswin.c`).
+`guimain.cpp`'s non-Windows branch stubbed `oss_set_askfile_hook()` out as a no-op specifically because
+`tads2/unix/osunixt.c`'s own `os_askfile()` (compiled into `Tads::tr32h`, which `guit3` links on every
+platform) never had a hook to call - it's a bare `os_printz()`/`os_gets()` text prompt, unconditionally, with
+no way to override it. (The comment at that no-op stub blamed `USE_STDIO`, claiming it was defined for this
+build and compiled the real Unix `os_askfile()` out entirely - checking the actual Ninja build (`build.ninja`'s
+`DEFINES =` line for `tr32h`'s `osunixt.c.o`) showed that was stale/wrong: `USE_STDIO` is never defined for
+`tr32h`, so the Unix `os_askfile()` **was** being compiled and linked all along, just with no hook support -
+the real gap was narrower than the old comment suggested.)
+
+**Fix**: gave `tads2/unix/osunixt.h`/`osunixt.c` the same `os_askfile_hook_t`/`oss_set_askfile_hook()` shape as
+`msdos/oswin.h`/`oswin.c`, and taught `osunixt.c`'s `os_askfile()` to call the hook when one's registered
+(building the same Win32-style multi-string filter and default save filename `oswin.c` builds for the native
+dialog, since `CTadsFileDialog` parses that exact format - see `tadsfiledlg.cpp`'s `parse_filters()`), falling
+back to the old text prompt otherwise. Removed the now-redundant no-op stub and its local
+`os_askfile_hook_t` typedef from `guimain.cpp`'s non-Windows block (the real declarations reach it via
+`os.h` → `osunixt.h` on Unix, same as `os.h` → `oswin.h` already does on Windows) - `guimain.cpp`'s existing,
+unconditional `oss_set_askfile_hook(askfile_hook);` call now actually takes effect on Unix/Emscripten too, with
+no guimain.cpp changes needed beyond deleting the stub.
+
+**Second bug found immediately by exercising this for the first time under Emscripten**: with the hook wired
+up, typing `restore` in a real headless-Chrome/CDP session **hard-froze the tab** - not just the game, the
+entire page stopped responding to *any* further CDP command, including `Page.captureScreenshot` from a brand
+new WebSocket connection, which is what distinguished this from an ordinary game-logic hang. Root cause:
+`CTadsFileDialog::open_blocking()` (`tadsfiledlg.cpp`) runs its own `while (!done && !glfwWindowShouldClose())`
+loop calling `glfwPollEvents()`/`ImGui::NewFrame()`/`glfwSwapBuffers()` each iteration - a plain busy loop with
+no `emscripten_sleep(0)` yield anywhere in it. This is the *exact* class of bug §5.10 already fixed for the
+top-level `event_loop()`: under Emscripten there is only one JS thread, and a native busy loop that never
+returns control to it blocks not just rendering but the browser's entire event/message pipeline, including the
+DevTools protocol connection itself. `tadswin_message_box()` (`tadswin.cpp`, the ImGui-native `MessageBox()`
+replacement used for Yes/No/OK prompts like "quit game?") has an identical hand-rolled loop with the same gap -
+fixed it the same way pre-emptively, since it was flagged back in §5.10/§5.11's "left for a future pass" notes
+as "haven't been separately click-tested under Emscripten" and would have hit the exact same freeze the first
+time anything triggered it. **Fix**: added `#include <emscripten.h>` plus `emscripten_sleep(0)` right after each
+loop's `glfwSwapBuffers()` call, under `#ifdef __EMSCRIPTEN__`, mirroring `event_loop()`'s own fix exactly.
+
+**Lesson for this class of bug**: any hand-rolled `while (...) { glfwPollEvents(); ...; glfwSwapBuffers(); }`
+loop added to this codebase for a modal UI flow (a dialog, a message box, anything that blocks pending user
+input outside the main `event_loop()`) needs its own `emscripten_sleep(0)` under Emscripten - it does not
+inherit one from being "called from inside `event_loop()`'s call chain" the way `open_blocking()`'s doc comment
+in `guimain.cpp` might suggest; each independent blocking loop needs the yield written into its own loop body.
+Before this pass, no code path exercised any of these loops under Emscripten at all (native Windows doesn't
+need the yield and never exposed the gap), so this had been silently latent since the loops were first written.
+
+**Verified**: clean native and Emscripten builds, no new warnings. Live-tested in headless Chrome via CDP (per
+§6's recipe): `restore` now pops up a real `CTadsFileDialog` window - directory listing, "Files of type: Saved
+Game Positions" filter dropdown (confirming the ported filter-building logic works, not just that a dialog
+appears at all), File name field, Open/Cancel buttons - and pressing Escape cancels it cleanly, printing
+"Canceled." and returning to a live, responsive prompt, with no freeze. Native Windows Save/Restore is
+untouched (still goes through `oswin.c`'s own hook wiring) and still builds clean.
+
+### 5.13 M5/Emscripten — status line timer was invisible off Windows, and the first fix crashed the game
+
+**Symptom**: the elapsed-play-time readout that's supposed to appear at the right edge of the status line
+(`Show Timer` preference, on by default) never showed up under Emscripten.
+
+**Root cause**: `CHtmlSys_mainwin::adjust_statusbar_layout()` (`htmlgui.cpp`) computes how much of the status
+line's width to reserve for the timer panel by measuring the placeholder string `"  00:00:00  "` - via the
+native GDI `GetTextExtentPoint32()` (through `ht_GetTextExtentPoint32()`), using `GetDC(NULL)` and
+`GetStockObject(DEFAULT_GUI_FONT)` for the device context and font. All four of those are real Win32 calls on
+Windows, but off Windows they're `tadsplat.h` no-op stubs that always report a `0x0` extent (same
+class of "silently degrades instead of failing to compile" gap as §5.1's `oss_set_open_file_dir()` and §5.12's
+`os_askfile()` hook). With the measured width at 0, the layout math (`widths[0] = cli_rc.right - txtsiz.cx`)
+gave the *first* status-line part the entire client width and left the timer's own part with nothing - so
+`do_timer()` (which fires every second and is unaffected by any of this) was correctly calling
+`statusline_->set_part_text(1, buf)` with the right elapsed-time text the whole time, just into a panel with
+zero screen width to draw into.
+
+**First fix attempt introduced a real crash.** The natural-looking portable replacement -
+`ImGui::CalcTextSize("  00:00:00  ")` plus `ImGui::GetStyle().ScrollbarSize` for the reserved margin - compiled
+clean on both platforms, but crashed with a segfault (Emscripten) / would have on Windows too, the instant a
+banner appeared (i.e. the moment the game actually starts and a room-status banner is first created).
+`ImGui::CalcTextSize()` reads `GImGui->Font`/`FontSize`, which are only valid *between* `NewFrame()` and
+`Render()` - `NewFrame()` pushes the current font, `Render()`/`EndFrame()` pops it back to null.
+`adjust_statusbar_layout()` is reached from banner-recalc processing that `event_loop()` runs via
+`run_pending_deferred_all()`, which happens *before* that iteration's `ImGui::NewFrame()` call (see the loop
+body's own ordering, §5.10) - so `GImGui->Font` is null at this exact call site. Confirmed directly with
+temporary instrumentation: `ImGui::GetFont()` printed `0` right before the crash. This is exactly *why* the
+original code used GDI instead of ImGui here in the first place - not an oversight, but a real constraint this
+fix initially missed.
+
+**Actual fix**: read the font atlas's base font directly - `ImGui::GetIO().Fonts->Fonts[0]` - and measure with
+it via `ImFont::CalcTextSizeA(font->LegacySize, FLT_MAX, 0.0f, "  00:00:00  ")` rather than going through
+`ImGui::CalcTextSize()`. `CalcTextSizeA()` is a plain `const` query against already-built glyph data with no
+dependency on any current-frame push/pop state, so it's safe to call at any time once the atlas has been built
+(which happens once, very early in startup, long before any window or banner exists) - falls back to a
+hardcoded `100.0f` width in the (should-never-happen) case the atlas has no fonts yet. **Second ImGui-1.92 API
+gotcha hit while fixing this**: `ImFont` no longer has a plain `FontSize` member in this vendored ImGui version
+(1.92.6, which reworked font handling around per-size "baked" fonts) - the size to pass for old
+call-sites-expecting-one-size code is `font->LegacySize` ("Font size passed to `AddFont()`... use for old code
+calling `PushFont()` expecting to use that size", per `imgui.h`'s own comment), not `FontSize`. Also replaced
+`GetSystemMetrics(SM_CXVSCROLL)` (another stub returning 0 off Windows) with `ImGui::GetStyle().ScrollbarSize` -
+`GetStyle()` itself has no font/current-frame dependency (it's a plain struct on the context), so that half of
+the original fix was fine as-is.
+
+**Verified**: clean native and Emscripten builds. Live-tested in headless Chrome: starting the game (creating
+the first room banner - exactly the call path that crashed with the first fix attempt) no longer crashes, and
+the status line's bottom-right corner now shows a real, ticking timer (`0:00:20`, then `0:00:33` a screenshot
+later). Also re-verified on native Windows (launched `guit3.exe` directly, pressed Enter via `SendKeys`,
+screenshotted the real window) - timer shows there too (`0:00:24`), confirming the ImGui-based measurement
+didn't regress the platform that used to have working GDI measurement.
+
+**Lesson for this class of bug**: any Win32 GDI call reached from *portable*, unconditionally-compiled code in
+this port (no `#ifdef _WIN32` in sight) is suspect - `tadsplat.h`'s stubs make it compile and often "mostly
+work" off Windows (returning zeroed-out structures rather than failing), silently degrading a specific visual
+feature rather than crashing or erroring, which is exactly why these have surfaced one at a time across
+several sessions instead of all at once. But the reflex fix - swap the GDI call for the obvious `ImGui::`
+equivalent - is not automatically safe either: `ImGui::CalcTextSize()`/`GetFont()`/`GetFontSize()` specifically
+depend on being called between `NewFrame()` and `Render()`, which plenty of layout code in this event-driven,
+callback-heavy port is not guaranteed to be. Prefer the font atlas's own `ImFont::CalcTextSizeA()` (or other
+plain `const` queries against already-built ImGui data) for measurement code whose call timing relative to the
+frame isn't certain.
+
 ## 6. Working notes for a fresh session
 
 ### Building and running

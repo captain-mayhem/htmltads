@@ -11600,6 +11600,9 @@ int CHtmlSys_mainwin::do_render() {
     ImGui::SetNextWindowSize(viewport->WorkSize);
     int ret = CTadsWin::do_render();
 
+    /* paint the bevel border reserved around the main panel */
+    render_panel_bevel();
+
     /* draw the status line, anchored to the bottom of the work area */
     if (statusline_ != 0)
     {
@@ -11971,6 +11974,52 @@ bool CHtmlSys_mainwin::over_statusbar(int x, int y) const
     float top = vp->WorkPos.y + vp->WorkSize.y - stat_ht;
     return x >= vp->WorkPos.x && x < vp->WorkPos.x + vp->WorkSize.x
         && y >= top && y < vp->WorkPos.y + vp->WorkSize.y;
+}
+
+/*
+ *   Paint the bevel border that recalc_banner_layout() reserves around the
+ *   main panel (see its comment above: 1px black top/left border, 2px gray/
+ *   white margin on the right, 3px gray separator above the status bar).
+ *   This is the ImGui foreground-draw-list replacement for the equivalent
+ *   GDI border the old Win32 code painted in do_paint_content() above -
+ *   that function's FillRect()/LineTo()/MoveToEx() calls are all no-ops on
+ *   this port (see tadsplat.h), so it never actually painted anything, and
+ *   the reserved-but-unpainted strip just showed through as a stray black
+ *   line along the right edge and just above the status bar.
+ *
+ *   Drawn via ImGui::GetForegroundDrawList(), the same technique
+ *   CTadsStatusline::render() uses, so it always composites on top of the
+ *   panel/banner windows regardless of z-order - and confined strictly to
+ *   the reserved margin (never the panel's own interior), so it can't paint
+ *   over any game text.
+ */
+void CHtmlSys_mainwin::render_panel_bevel()
+{
+    if (statusline_ == 0)
+        return;
+
+    const ImGuiViewport *vp = ImGui::GetMainViewport();
+    float left = vp->WorkPos.x;
+    float top = vp->WorkPos.y + main_panel_yoffset_;
+    float right = vp->WorkPos.x + m_size.x;
+    float bottom = vp->WorkPos.y + m_size.y - statusline_->get_height();
+
+    ImDrawList *dl = ImGui::GetForegroundDrawList();
+
+    const ImU32 black = IM_COL32(0, 0, 0, 255);
+    const ImU32 white = IM_COL32(255, 255, 255, 255);
+    const ImU32 ltgray = IM_COL32(212, 212, 212, 255);
+
+    /* black line along the top edge, and down the left edge */
+    dl->AddLine(ImVec2(left, top), ImVec2(right, top), black);
+    dl->AddLine(ImVec2(left, top), ImVec2(left, bottom), black);
+
+    /* sunken 2px margin down the right edge: gray, then white */
+    dl->AddLine(ImVec2(right - 2.0f, top), ImVec2(right - 2.0f, bottom), ltgray);
+    dl->AddLine(ImVec2(right - 1.0f, top), ImVec2(right - 1.0f, bottom), white);
+
+    /* 3px gray separator strip between the panel and the status bar */
+    dl->AddRectFilled(ImVec2(left, bottom - 3.0f), ImVec2(right, bottom), ltgray);
 }
 
 /*
@@ -13565,6 +13614,13 @@ void CHtmlSys_mainwin::recalc_banner_layout()
      *   at the right edge and three at the bottom edge for additional
      *   highlighting, and we also need to remove the area taken up by the
      *   status line.
+     *
+     *   This margin used to be painted by GDI calls in the now-dead
+     *   CHtmlSys_mainwin::do_paint_content() above; those are no-ops on
+     *   this port (see tadsplat.h), so the reserved strip is now instead
+     *   painted every frame by render_panel_bevel(), via the same
+     *   foreground-draw-list technique CTadsStatusline::render() uses.
+     *   Keep that function's geometry in sync with this reservation.
      */
     int statusline_ht = (statusline_ != 0 ? (int)statusline_->get_height() : 0);
     get_client_rect(&rc);
@@ -13614,9 +13670,6 @@ void CHtmlSys_mainwin::adjust_statusbar_layout()
         if (prefs_->get_show_timer())
         {
             RECT cli_rc;
-            HGDIOBJ oldfont;
-            SIZE txtsiz;
-            HDC dc;
 
             /* count the timer in the parts list */
             ++parts;
@@ -13624,26 +13677,58 @@ void CHtmlSys_mainwin::adjust_statusbar_layout()
             /* get the available area */
             get_client_rect(&cli_rc);
 
-            /* get the desktop dc */
-            dc = GetDC(NULL);
-
-            /* calculate the width we need for the time panel */
-            oldfont = SelectObject(dc, GetStockObject(DEFAULT_GUI_FONT));
-            ht_GetTextExtentPoint32(dc, "  00:00:00  ", 12, &txtsiz);
+            /*
+             *   Calculate the width we need for the time panel.  This used
+             *   to measure "  00:00:00  " via the native GDI
+             *   GetTextExtentPoint32() (through ht_GetTextExtentPoint32())
+             *   with the desktop DC's default GUI font - on this port,
+             *   CTadsStatusline::render() (tadsstat.cpp) actually draws the
+             *   status line text with ImGui's own font via its foreground
+             *   draw list, not GDI, so measuring with ImGui's font matches
+             *   what's actually rendered (and works identically on every
+             *   platform this port targets, rather than relying on GDI
+             *   calls that are real on Windows but no-op stubs elsewhere -
+             *   see tadsplat.h's GetDC()/GetStockObject()/
+             *   GetTextExtentPoint32()/GetSystemMetrics() - which silently
+             *   collapsed this panel to zero width off Windows, making the
+             *   timer text set_part_text(1, ...) correctly set effectively
+             *   invisible).
+             *
+             *   ImGui::CalcTextSize() is NOT safe to call here: it reads
+             *   GImGui->Font/FontSize, which are only valid *between*
+             *   NewFrame() and Render() (NewFrame() pushes the current
+             *   font, Render()/EndFrame() pops it back to null).  This
+             *   function is reached from banner-recalc processing that
+             *   runs from event_loop()'s run_pending_deferred_all(),
+             *   *before* that iteration's ImGui::NewFrame() call - so
+             *   GImGui->Font is null here and CalcTextSize() segfaults
+             *   dereferencing it (confirmed with temporary
+             *   ImGui::GetFont()/GetFontSize() instrumentation: font=0
+             *   right before the crash).  Read the font atlas's base font
+             *   directly instead and measure with it via
+             *   ImFont::CalcTextSizeA() - a plain const query against
+             *   already-built glyph data, with no dependency on any
+             *   current-frame push/pop state, so it's safe to call at any
+             *   time once the atlas has been built (which happens once,
+             *   very early in startup, long before any window exists).
+             */
+            ImFontAtlas *atlas = ImGui::GetIO().Fonts;
+            ImFont *font = (atlas != 0 && atlas->Fonts.Size > 0)
+                ? atlas->Fonts[0] : 0;
+            ImVec2 txtsiz = font != 0
+                ? font->CalcTextSizeA(font->LegacySize, FLT_MAX, 0.0f,
+                                       "  00:00:00  ")
+                : ImVec2(100.0f, 0.0f);
 
             /* include the scrollbar size */
-            txtsiz.cx += GetSystemMetrics(SM_CXVSCROLL);
+            txtsiz.x += ImGui::GetStyle().ScrollbarSize;
 
-            /* restore drawing context */
-            SelectObject(dc, oldfont);
-            ReleaseDC(NULL, dc);
-
-            /* 
+            /*
              *   add the timer to the widths - give the timer a fixed
              *   portion at the right large enough to show the time, and
-             *   give everything else to the preceding parts 
+             *   give everything else to the preceding parts
              */
-            widths[0] = cli_rc.right - txtsiz.cx;
+            widths[0] = cli_rc.right - (int)txtsiz.x;
             widths[1] = -1;
         }
 

@@ -19,6 +19,10 @@
 #include <imgui/imgui_impl_glfw.h>
 #include <imgui/imgui_impl_opengl3.h>
 
+#ifdef __EMSCRIPTEN__
+#include <emscripten.h>
+#endif
+
 #include "tadsfiledlg.h"
 #include "tadsapp.h"
 #include "tadsfont.h"        /* CTadsFont::get_dpi_scale() - see migration.md 3.5a */
@@ -672,6 +676,20 @@ bool CTadsFileDialog::open_blocking(GLFWwindow *window, TadsFileDlgMode mode,
         ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
 
         glfwSwapBuffers(window);
+
+#ifdef __EMSCRIPTEN__
+        /*
+         *   Yield to the browser between frames, exactly like
+         *   CHtmlSys_mainwin::event_loop()'s own Emscripten path (see
+         *   migration.md 5.10) - without this, this loop is a plain busy
+         *   loop that never returns control to the browser's JS event
+         *   loop, hard-freezing the tab for as long as the dialog is
+         *   open (discovered wiring up a real os_askfile() hook for Unix,
+         *   migration.md 5.12 - this modal loop had never been
+         *   click-tested under Emscripten before).
+         */
+        emscripten_sleep(0);
+#endif
     }
 
     if (got_result)

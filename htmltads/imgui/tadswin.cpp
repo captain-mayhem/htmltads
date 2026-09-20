@@ -36,6 +36,10 @@ Modified
 #include <imgui/imgui_impl_glfw.h>
 #include <imgui/imgui_impl_opengl3.h>
 
+#ifdef __EMSCRIPTEN__
+#include <emscripten.h>
+#endif
+
 #ifndef HTMLRES_H
 #include "htmlres.h"
 #endif
@@ -216,6 +220,17 @@ int tadswin_message_box(GLFWwindow *window, const textchar_t *msg,
         ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
 
         glfwSwapBuffers(window);
+
+#ifdef __EMSCRIPTEN__
+        /*
+         *   Yield to the browser between frames - see the identical fix
+         *   (and its rationale) in CTadsFileDialog::open_blocking()
+         *   (tadsfiledlg.cpp, migration.md 5.12). Without this, this is a
+         *   plain busy loop that hard-freezes the tab for as long as the
+         *   message box is open.
+         */
+        emscripten_sleep(0);
+#endif
     }
 
     /* if the user closed the window itself, treat it like Cancel/No */
