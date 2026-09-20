@@ -1854,6 +1854,24 @@ int CHtmlSysWin_win32::do_leftbtn_down(int keys, int x, int y, int clicks)
     if (!pt_in_screen_rect(x, y))
         return FALSE;
 
+    /*
+     *   If we're still tracking a previous click, its button-up was never
+     *   delivered to us - most likely because it happened outside our
+     *   input area (easy to hit under a browser/Emscripten build, where a
+     *   canvas-only mouseup listener can miss a release that lands even a
+     *   pixel outside the canvas).  A genuine still-held button can't
+     *   produce a fresh button-down event, so getting here while
+     *   tracking_mouse_ is still set means the prior click's up is simply
+     *   lost.  Finish that click now (activating its link if it was still
+     *   hovered) before starting to track this new one, so the abandoned
+     *   click's effect isn't silently dropped - without this, the new
+     *   down here just overwrites track_link_/tracking state, and the
+     *   click that actually got its button-up delivered looks like it
+     *   took a "double click" to register.
+     */
+    if (tracking_mouse_)
+        end_mouse_tracking(HTML_TRACK_LEFT);
+
     x = x - screen_pos.x;
     y = y - screen_pos.y;
 

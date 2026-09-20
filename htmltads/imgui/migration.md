@@ -2599,6 +2599,62 @@ the loop condition and the `emscripten_sleep(0)` call.
 under Emscripten - worth confirming modal dialogs (Options, Find, Save/Restore) actually work end-to-end too,
 not just the base command prompt.
 
+### 5.11 M5/Emscripten — in-game hyperlinks needed a double-click most of the time
+
+**Symptom (reported by the user, not independently reproduced)**: clicking an in-game hyperlink (`ABOUT`,
+`COPYRIGHT`, room-exit links, etc.) in the Emscripten build usually did nothing on the first click and only
+took effect on a second click - unreliable, but common enough to be the normal experience rather than a rare
+glitch.
+
+**Investigation**: built `guit3` for Emscripten (`cmake --preset emscripten` after activating `emsdk_env.sh`,
+then `cmake --build build/emscripten --target guit3` from the `tads-runner` superproject - see `emsdk` at
+`C:\Projects\emsdk` in this environment) and drove `guit3.html` with the §6 CDP recipe, extended here to mouse
+input: `Input.dispatchMouseEvent` with `type: "mousePressed"`/`"mouseReleased"` (plus `"mouseMoved"`) at pixel
+coordinates read off a `Page.captureScreenshot`. **New gotcha for this recipe**: `Page.captureScreenshot`
+returns the image at *physical* pixel dimensions when `--force-device-scale-factor` isn't 1, but
+`Input.dispatchMouseEvent`'s `x`/`y` are always in *CSS* pixels - dividing screenshot-derived coordinates by
+the scale factor before dispatching is required, or every click silently lands on the wrong spot (this looked
+exactly like a real click-reliability bug at first, before it was traced back to the test harness, not the
+app). A single clean `mousePressed`+`mouseReleased` on a real hyperlink's coordinates, correctly scaled,
+**worked on the first attempt every time it was tried** - at both a 1.0 and a 1.5 device scale factor, and
+after adding a few pixels of mouse jitter between press and release to imitate hand tremor. Direct
+reproduction of the user's reported symptom via CDP was not achieved.
+
+**Fix applied on suspicion, not confirmed root cause**: `CHtmlSysWin_win32::do_leftbtn_down()` (`htmlgui.cpp`)
+never checked whether it was already mid-tracking a previous click before starting to track a new one. Mouse
+capture and the pending link (`track_link_`) are only ever cleared by the matching button-up
+(`end_mouse_tracking()`, called from `do_leftbtn_up()`). If that button-up is ever not delivered - plausible
+under a browser build, where a canvas-scoped `mouseup` listener can miss a release that resolves even a pixel
+outside the canvas (`guit3.html`'s own CSS comment already warns the canvas needs zero border/padding "or
+mouse coords will be wrong", i.e. this input path has had coordinate-precision issues before) - the window is
+left stuck "still tracking," and the *next* real click's button-down silently overwrote `track_link_` and
+re-captured the mouse without ever processing the abandoned click. From the user's perspective this reads as
+exactly "click does nothing, second click works": the first click's effect is thrown away, and only the
+second click's own (successfully delivered) button-up produces a visible result. `do_rightbtn_up()` already
+defends against the mirror-image case unconditionally (`end_mouse_tracking(HTML_TRACK_RIGHT)` before running
+its own popup), and `do_rightbtn_down()` is just `do_leftbtn_down()` under another name - so left-click was the
+one path missing this guard. Fix: at the top of `do_leftbtn_down()`, if `tracking_mouse_` is already true,
+call `end_mouse_tracking(HTML_TRACK_LEFT)` first - finishing (and if still hovered, activating) the abandoned
+click - before starting to track the new one. No-op in the ordinary case (`tracking_mouse_` is false for every
+well-formed click), so no regression risk for native Windows or normal Emscripten clicking.
+
+**Verified**: clean native build (`cmake --build build/default --target guit3`) and clean Emscripten build,
+`0 new warnings`. Re-ran the CDP single-click recipe post-fix (both device scale factors) with no regression -
+first-click activation still worked every time. Attempted to synthesize the exact "lost button-up" scenario via
+CDP (press on one link, never release, then press+release on a second link) to positively confirm the fix
+fires the abandoned click - **inconclusive**: Chrome's `Input.dispatchMouseEvent` doesn't behave like real
+hardware once a button is already marked down in its internal state (a `mousemove` before the second press
+was interpreted as a drag, correctly canceling the first link per the existing drag-off logic; skipping that
+`mousemove` instead produced no events reaching the app at all) - CDP was not a reliable tool for staging this
+particular precondition. **This fix was a reasoned hardening of a real gap, not a confirmed-by-repro root
+cause at the time it was written** - the CDP testing above could only rule out regressions, not confirm the
+actual fix. **Update: the user confirmed in a real (non-headless) browser, with real mouse hardware, that
+hyperlink clicks are now reliable** - so the stuck-tracking/lost-button-up theory above was the real cause
+after all, not just a plausible-sounding hardening. If a similar "first interaction is silently dropped"
+symptom ever resurfaces elsewhere in the Emscripten build, a stuck `tracking_mouse_`/mouse-capture state from
+a missed browser-side up/release event is now a confirmed real failure mode for this codebase under
+Emscripten, worth checking first.
+
 ## 6. Working notes for a fresh session
 
 ### Building and running
