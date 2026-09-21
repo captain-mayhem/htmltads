@@ -84,7 +84,10 @@
     // This page always loads tests/ditch3.t3, packaged by
     // htmltads/htmltads/imgui/CMakeLists.txt's em_package(ditch3game ...)
     // call as ditch3game.data/.js (mapped to the virtual path ditch3.t3
-    // guit3's own argv references below).
+    // guit3's own argv references below). It also loads guit3fonts.data/.js,
+    // that same CMakeLists.txt's em_package(guit3fonts ...) packaging of
+    // ../../imgui/misc/fonts (mapped to the virtual path "fonts" emfont.cpp
+    // scans for the Customize Theme dialog's font lists).
     var statusElement = document.getElementById('status');
     var progressElement = document.getElementById('progress');
     var spinnerElement = document.getElementById('spinner');
@@ -145,6 +148,7 @@
     };
   </script>
   <script src="ditch3game.js"></script>
+  <script src="guit3fonts.js"></script>
   <script async src="guit3.js"></script>
 </body>
 

@@ -170,13 +170,16 @@ else()
 	target_sources(guit3 PRIVATE tadssettings_portable.cpp)
 endif()
 
-# tadsfont.h's os_font_family_is_present()/os_font_data_for_name() backend:
-# GDI, fontconfig, CoreText, or (Emscripten) a placeholder - there is no
-# system font store to enumerate in a browser sandbox, so emfont.cpp always
-# reports "not found"/"no data", same as an empty system with no fonts
-# installed; CTadsFont falls back to the ImGui atlas default font in that
-# case. A real Emscripten backend would need fonts bundled as data and baked
-# into the atlas some other way - not done yet, see migration.md.
+# tadsfont.h's os_font_family_is_present()/os_font_data_for_name()/
+# os_enum_font_families() backend: GDI, fontconfig, CoreText, or
+# (Emscripten) a small bundled font set - there is no real system font store
+# to enumerate inside a browser sandbox, so emfont.cpp instead scans a
+# handful of font files (the standard Dear ImGui sample fonts - see
+# ../../imgui/misc/fonts/README.txt) packaged into the Emscripten build's
+# virtual filesystem below, at the "fonts" virtual path emfont.cpp reads
+# from. CTadsFont falls back to the ImGui atlas default font for any name
+# that isn't among them, same as it would for a real system with no
+# matching font installed.
 if (WIN32)
 	target_sources(guit3 PRIVATE guifont_w32.cpp)
 elseif (APPLE)
@@ -293,6 +296,23 @@ if (EMSCRIPTEN)
 	# just per-directory - the packaged path (ditch3.t3, after the "@") is
 	# what guit3.html and guit3's own argv actually reference.
 	em_package(ditch3game ${CMAKE_SOURCE_DIR}/tests/ditch3.t3@ditch3.t3)
+
+	# Packages the standard Dear ImGui sample fonts (../../imgui/misc/fonts -
+	# see that directory's README.txt for the list and licenses) into their
+	# own virtual filesystem entry, mapped to the "fonts" virtual directory
+	# emfont.cpp's os_font_family_is_present()/os_font_data_for_name()/
+	# os_enum_font_families() scan at runtime (see the font-backend selection
+	# above and emfont.cpp itself). A separate em_package() call, same
+	# reasoning as ditch3game above - distinct target name, own .data/.js
+	# pair guit3.html loads alongside ditch3game's.
+	em_package(guit3fonts ${CMAKE_CURRENT_SOURCE_DIR}/../../imgui/misc/fonts@fonts)
+
+	# Unlike ditch3game above (a test-only asset nobody minds having to
+	# build separately), the font package is load-bearing for guit3 itself
+	# (emfont.cpp has nothing to enumerate without it) - em_package()'s
+	# custom target is only added to the default "all" target, not to
+	# guit3's own dependency graph, so make that explicit.
+	add_dependencies(guit3 build_guit3fonts.data)
 
 	install(FILES
 		"$<TARGET_FILE_DIR:guit3>/guit3.wasm"

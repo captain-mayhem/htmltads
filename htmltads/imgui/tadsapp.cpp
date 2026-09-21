@@ -114,6 +114,24 @@ struct imh_listele
 
 static void glfw_error_callback(int error, const char* description)
 {
+    /*
+     *   GLFW_FORMAT_UNAVAILABLE (65545) is GLFW's documented, expected
+     *   response to glfwGetClipboardString() when the clipboard is empty or
+     *   holds something that isn't text - glfw3.h says outright "ignore the
+     *   error ... as appropriate" for exactly this case, as opposed to the
+     *   (much rarer) window-creation-time meaning of the same code, a hard
+     *   pixel-format constraint nothing could satisfy. guios_portable.cpp's
+     *   os_clipboard_has_text() calls glfwGetClipboardString() every single
+     *   frame (the toolbar's paste-button state), so on a platform whose
+     *   GLFW backend reports this through the error callback (seen on
+     *   Wayland; X11 stays silent for the same empty-clipboard case) this
+     *   would otherwise spam stderr with a spurious "GLFW Error" on every
+     *   frame from the moment the window opens, for as long as nothing
+     *   text-shaped has been copied - not a real problem, just noise.
+     */
+    if (error == GLFW_FORMAT_UNAVAILABLE)
+        return;
+
     fprintf(stderr, "GLFW Error %d: %s\n", error, description);
 }
 

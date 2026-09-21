@@ -1,7 +1,7 @@
 /*
  *   guifont_w32.cpp - Win32 backend for the guit3 font platform hooks
  *   declared in tadsfont.h (os_font_family_is_present() /
- *   os_font_data_for_name()).
+ *   os_font_data_for_name() / os_enum_font_families()).
  *
  *   Split out of guifont.cpp so that file can stay windows.h-free and
  *   compile on every platform (it has CHtmlSysFont_win32's method bodies,
@@ -158,4 +158,29 @@ unsigned char *os_font_data_for_name(const char *name, int weight, int italic,
     DeleteObject(font);
 
     return buffer;
+}
+
+
+/* ------------------------------------------------------------------------ */
+/*
+ *   Win32 implementation of the os_enum_font_families() platform hook
+ *   declared in tadsfont.h.  A thin forward to EnumFontFamiliesEx() - GDI
+ *   already reports each family with the ENUMLOGFONTEX/NEWTEXTMETRIC pair
+ *   the caller wants, classified into the FF_ROMAN/FF_SWISS/FF_SCRIPT/
+ *   FF_MODERN family nibble and TMPF_FIXED_PITCH bit that
+ *   CHtmlPreferences::cust_refresh_font_lists() (htmlpref.cpp) sorts on, so
+ *   there's nothing to translate here (unlike fcfont.cpp/ctfont.cpp, which
+ *   have to derive those fields themselves).
+ */
+void os_enum_font_families(unsigned int charset_id, FONTENUMPROC callback,
+                           LPARAM lparam)
+{
+    LOGFONT lf;
+    memset(&lf, 0, sizeof(lf));
+    lf.lfCharSet = (BYTE)charset_id;
+    lf.lfPitchAndFamily = 0;
+
+    HDC deskdc = GetDC(GetDesktopWindow());
+    EnumFontFamiliesEx(deskdc, &lf, callback, lparam, 0);
+    ReleaseDC(GetDesktopWindow(), deskdc);
 }

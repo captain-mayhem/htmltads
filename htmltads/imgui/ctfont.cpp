@@ -174,3 +174,136 @@ unsigned char *os_font_data_for_name(const char *name, int weight, int italic,
     CFRelease(styled);
     return buffer;
 }
+
+
+/* ------------------------------------------------------------------------ */
+/*
+ *   os_enum_font_families() - report every installed family once, in the
+ *   ENUMLOGFONTEX/NEWTEXTMETRIC shape Win32's EnumFontFamiliesEx() uses, so
+ *   CHtmlPreferences::cust_refresh_font_lists() (htmlpref.cpp) can sort
+ *   families into its serif/sans/script/typewriter buckets the same way on
+ *   every platform - see fcfont.cpp's own os_enum_font_families() for the
+ *   full rationale (that comment applies here too, CoreText APIs standing
+ *   in for fontconfig/FreeType).
+ *
+ *   CTFontManagerCopyAvailableFontFamilyNames() gives the family list
+ *   directly (same call os_font_family_is_present() above already uses).
+ *   For each family, kCTFontSymbolicTrait on a throwaway CTFontDescriptor
+ *   gives both fields in one shot: kCTFontTraitMonoSpace maps straight to
+ *   FF_MODERN, matching fcfont.cpp treating any monospaced family as
+ *   "typewriter" outright; failing that, the trait's stylistic-class nibble
+ *   (kCTFontTraitClassMask, i.e. bits 28-31) is CoreText's own copy of the
+ *   OS/2 table's sFamilyClass high byte, classified with the same mapping
+ *   fcfont.cpp falls back to.
+ *
+ *   CAVEAT (untested on real macOS fonts): fcfont.cpp's own testing against
+ *   this repo's actual Linux font set found sFamilyClass left unset (0) by
+ *   nearly every real TrueType/OpenType family, and had to add a PANOSE-
+ *   based classification (also read from the OS/2 table, but a different
+ *   field - see fcfont.cpp's os_enum_font_families() comment) to get
+ *   useful coverage. CoreText doesn't expose PANOSE through a public
+ *   symbolic-trait API the way it does the class nibble, so this backend
+ *   only has the weaker signal; if a real Mac build (§5.4/G) shows most
+ *   families coming back FF_DONTCARE the way fcfont.cpp's did before that
+ *   fix, the same PANOSE bytes are reachable here too via
+ *   CTFontCopyTable(kCTFontTableOS2) - parse the raw OS/2 table the same
+ *   way FT_Get_Sfnt_Table()'s TT_OS2 struct does.
+ */
+namespace {
+
+int ct_traits_to_family(CTFontDescriptorRef desc)
+{
+    CFDictionaryRef traits = (CFDictionaryRef)CTFontDescriptorCopyAttribute(
+        desc, kCTFontTraitsAttribute);
+    if (traits == 0)
+        return 0;
+
+    int family = 0;
+    CFNumberRef symNum = (CFNumberRef)CFDictionaryGetValue(
+        traits, kCTFontSymbolicTrait);
+    uint32_t sym = 0;
+    if (symNum != 0 && CFNumberGetValue(symNum, kCFNumberSInt32Type, &sym))
+    {
+        if (sym & kCTFontTraitMonoSpace)
+        {
+            family = FF_MODERN;
+        }
+        else
+        {
+            switch (sym & kCTFontTraitClassMask)
+            {
+            case kCTFontClassOldStyleSerifs:
+            case kCTFontClassTransitionalSerifs:
+            case kCTFontClassModernSerifs:
+            case kCTFontClassClarendonSerifs:
+            case kCTFontClassSlabSerifs:
+            case kCTFontClassFreeformSerifs:
+                family = FF_ROMAN;
+                break;
+
+            case kCTFontClassSansSerif:
+                family = FF_SWISS;
+                break;
+
+            case kCTFontClassOrnamentals:
+                family = FF_DECORATIVE;
+                break;
+
+            case kCTFontClassScripts:
+                family = FF_SCRIPT;
+                break;
+
+            default:
+                family = 0;
+                break;
+            }
+        }
+    }
+
+    CFRelease(traits);
+    return family;
+}
+
+} // namespace
+
+void os_enum_font_families(unsigned int charset_id, FONTENUMPROC callback,
+                           LPARAM lparam)
+{
+    CFArrayRef families = CTFontManagerCopyAvailableFontFamilyNames();
+    if (families == 0)
+        return;
+
+    CFIndex n = CFArrayGetCount(families);
+    for (CFIndex i = 0 ; i < n ; ++i)
+    {
+        CFStringRef fam = (CFStringRef)CFArrayGetValueAtIndex(families, i);
+
+        ENUMLOGFONTEX elf;
+        memset(&elf, 0, sizeof(elf));
+        if (!CFStringGetCString(fam, elf.elfLogFont.lfFaceName,
+                                sizeof(elf.elfLogFont.lfFaceName),
+                                kCFStringEncodingUTF8))
+            continue;
+
+        int fam_family = 0;
+        CTFontDescriptorRef desc =
+            CTFontDescriptorCreateWithNameAndSize(fam, 12.0);
+        if (desc != 0)
+        {
+            fam_family = ct_traits_to_family(desc);
+            CFRelease(desc);
+        }
+        elf.elfLogFont.lfPitchAndFamily = (BYTE)fam_family;
+
+        NEWTEXTMETRIC tm;
+        memset(&tm, 0, sizeof(tm));
+        tm.tmCharSet = (BYTE)charset_id;
+        if (fam_family != FF_MODERN)
+            tm.tmPitchAndFamily |= TMPF_FIXED_PITCH;
+
+        if (!callback(&elf, &tm, 0, lparam))
+            break;
+    }
+
+    CFRelease(families);
+}

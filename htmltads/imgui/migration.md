@@ -2194,11 +2194,8 @@ noted):
   Yes-No-Cancel falls back to Yes-No, and custom-labeled buttons aren't supported at all. `inputDialog()` is
   rarely used; revisit if a real game needs the missing cases.
 - **`CHtmlPreferences::cust_refresh_font_lists()`/`cust_font_select_*()`/`cust_font_enum_cb()`** (htmlpref.cpp,
-  the Customize Theme dialog's font-family lists) are raw GDI `EnumFontFamiliesEx()` and stayed
-  `#ifdef _WIN32`; there's no fontconfig-backed "enumerate every family, classified serif/sans/script/
-  typewriter" equivalent yet (`fcfont.cpp`'s hooks only test/fetch one name at a time). The lists are simply
-  empty off Windows for now - a real functional gap, not just a compile stub, but out of scope for getting
-  Linux building.
+  the Customize Theme dialog's font-family lists) were raw GDI `EnumFontFamiliesEx()` and stayed
+  `#ifdef _WIN32`, leaving the lists empty off Windows - **fixed, see §5.14.**
 - **`guiwebui.h`/`tadswebctl.h`** (the embedded Web UI window, phase two / §4) are now `#ifdef _WIN32`-gated
   in their entirety - they were being included unconditionally (regardless of `TADS_WEBUI_ENABLED`, which
   only gates the `.cpp` implementations) and pulled in `<exdisp.h>` and friends.
@@ -2775,6 +2772,141 @@ depend on being called between `NewFrame()` and `Render()`, which plenty of layo
 callback-heavy port is not guaranteed to be. Prefer the font atlas's own `ImFont::CalcTextSizeA()` (or other
 plain `const` queries against already-built ImGui data) for measurement code whose call timing relative to the
 frame isn't certain.
+
+### 5.14 Linux font list was empty in Customize Theme — added a fontconfig-backed `os_enum_font_families()`
+
+The Customize Theme dialog's font-family dropdowns (All/Fixed/Serif/Sans/Script/Typewriter) came up empty on
+Linux. Root cause was the gap flagged back in §5.5's M4 write-up:
+`CHtmlPreferences::cust_refresh_font_lists()` (htmlpref.cpp) called `EnumFontFamiliesEx()` directly and was
+`#ifdef _WIN32`'d out everywhere else, with no fontconfig equivalent written yet - unlike
+`os_font_family_is_present()`/`os_font_data_for_name()` (§3.5/§5.4/G), which only test or fetch *one* font at
+a time, this needed to enumerate *every installed family*, classified into the same four style buckets GDI's
+classification gives for free.
+
+Added a third platform hook alongside those two, `os_enum_font_families(charset_id, callback, lparam)`
+(declared in [tadsfont.h](tadsfont.h)), implemented per platform exactly like the other two:
+
+- **`guifont_w32.cpp`** (Windows) - a thin forward to `EnumFontFamiliesEx()`; this is the GDI call that used
+  to live inline in `cust_refresh_font_lists()`, just moved behind the hook so that function is now
+  platform-agnostic.
+- **`fcfont.cpp`** (Linux) - `FcFontList()` over every family, deduplicated (fontconfig reports one entry per
+  style/weight/width, same as GDI does). Classification derives the exact two fields the dialog's selector
+  callbacks (`cust_font_select_serif/sans/script/typewriter`, unchanged) already look at:
+  `NEWTEXTMETRIC.tmPitchAndFamily`'s `TMPF_FIXED_PITCH` bit from fontconfig's `FC_SPACING`, and
+  `LOGFONT.lfPitchAndFamily`'s family nibble (`FF_ROMAN`/`FF_SWISS`/`FF_SCRIPT`/`FF_MODERN`/`FF_DECORATIVE`)
+  from the matched font file's OS/2 table, read via FreeType (already linked into `guit3` transitively
+  through the vendored `imgui` target - see `../CMakeLists.txt`). A monospaced family is reported as
+  `FF_MODERN` outright, matching how GDI keeps "typewriter" mutually exclusive with serif/sans/script.
+  The first cut classified everything else from the OS/2 table's `sFamilyClass` field, mirroring GDI's own
+  TrueType classification algorithm exactly - but a standalone test harness built against this repo's real
+  WSL font set (see below) showed `sFamilyClass` sitting at its unset default (0) on every real TrueType
+  family except one (Droid Sans Fallback); only the Ghostscript URW Type 1 faces even lacked an OS/2 table
+  entirely. Switched to preferring the OS/2 table's PANOSE bytes instead (`bFamilyType`/`bSerifStyle`,
+  falling back to `sFamilyClass` when PANOSE is itself unset) - PANOSE is what Google's and Canonical's font
+  tooling actually populates, and correctly classified DejaVu Sans/Serif, Droid Sans Fallback and every
+  monospace family in that same test set that `sFamilyClass` alone had missed.
+- **`ctfont.cpp`** (macOS, still unverified/no toolchain - see §5.4/G) - `CTFontManagerCopyAvailableFont-
+  FamilyNames()` for the family list, then `kCTFontSymbolicTrait` on a throwaway `CTFontDescriptor` for
+  classification: `kCTFontTraitMonoSpace` maps to `FF_MODERN` the same way fontconfig's `FC_SPACING` does, and
+  otherwise the trait's stylistic-class nibble is CoreText's own copy of the OS/2 `sFamilyClass` high byte.
+  Left on the `sFamilyClass`-only mapping, with a comment flagging that it likely has the same weak coverage
+  `fcfont.cpp` found and measured on Linux, plus the fix if a real Mac build confirms that: CoreText doesn't
+  expose PANOSE through a symbolic-trait constant, but the same bytes are reachable via
+  `CTFontCopyTable(kCTFontTableOS2)`.
+- **`emfont.cpp`** (Emscripten) - no-op, matching its other two hooks (no font store to enumerate in a
+  browser sandbox).
+
+`cust_refresh_font_lists()`/`cust_font_enum_cb()`/`cust_font_select_*()` (htmlpref.cpp) lost their
+`#ifdef _WIN32` split entirely and are now single, portable implementations that call `os_enum_font_families()`
+- they only ever looked at the two portable `LOGFONT`/`NEWTEXTMETRIC` fields above, so once something feeds
+those fields correctly on every platform, the classification logic itself needed no per-platform variant.
+
+**Verified**: this is the first font-hooks work with a real non-Windows build to check against (the `linux-wsl`
+CMake preset, built via WSL Ubuntu 24.04) rather than syntax-checking alone. `cmake --build build/linux-wsl
+--target guit3` links cleanly with the `#ifdef`-free `htmlpref.cpp` and the updated `fcfont.cpp`. Beyond that,
+verification used a small standalone harness (compiled and linked directly against `fcfont.cpp` plus the
+vendored `imgui`/`freetype` static libs and system fontconfig, calling `os_enum_font_families()` with a
+callback that dumps every family's classification) rather than driving the actual dialog through a live GLFW
+window (no display automation set up for this WSL environment yet - see the Windows-only recipe in "Working
+notes" below). Against this repo's real installed fonts (21 unique families: DejaVu, Ubuntu, Noto, Droid, plus
+the Ghostscript URW Type 1 set), the final PANOSE-preferring version classified 9/21 as serif/sans/script and
+5/21 as fixed-pitch/typewriter, versus 2/21 with the first `sFamilyClass`-only cut - a real, measured
+improvement, not just a plausible-looking algorithm. The remaining unclassified fonts are genuinely
+unclassifiable Type 1 faces with no OS/2 table, or a couple of TrueType families (plain "Ubuntu") whose
+metadata leaves both PANOSE and `sFamilyClass` unset - not a bug in this code. Windows behavior is unchanged
+(same `EnumFontFamiliesEx()` call, now one layer further down through the new hook) but not re-tested on
+real Windows this session. `ctfont.cpp`'s addition is unverified beyond inspection against the CoreText API
+headers, same caveat as the rest of that file.
+
+### 5.15 Emscripten's font hooks were placeholders - packaged real fonts into the virtual filesystem
+
+§5.14 above closed the Linux/macOS gap in `os_enum_font_families()` but left `emfont.cpp` as the original
+placeholder (`os_font_family_is_present()`/`os_font_data_for_name()` always report "not found", the
+enumeration hook does nothing) - there's genuinely no OS font store to query inside a browser sandbox, unlike
+the other three platforms. Implemented it for real instead of leaving it a stub: package actual font files
+into the Emscripten build's virtual filesystem and scan *that*.
+
+- Vendored the standard Dear ImGui sample fonts (Cousine-Regular, DroidSans, Karla-Regular, ProggyClean,
+  ProggyTiny, Roboto-Medium) into a new `../../imgui/misc/fonts/` directory (sibling to the existing
+  `misc/freetype/`) - these are the same upstream `ocornut/imgui` project's own companion assets (Apache
+  2.0/OFL 1.1/public domain per that directory's new `README.txt`), not a new third-party dependency.
+  Deliberately not a large or hand-picked set: it exercises the same code path a real font bundle would, and
+  is honest about the fact that this browser build only ever has whatever's packaged, unlike the other three
+  platforms.
+- `htmltads/imgui/CMakeLists.txt`'s Emscripten branch gained a second `em_package()` call (alongside the
+  existing `ditch3game` one for the test game), packaging `misc/fonts` to the virtual path `fonts`, plus an
+  explicit `add_dependencies(guit3 build_guit3fonts.data)` - `em_package()`'s custom target is only added to
+  the default `ALL` target, not wired into any particular consumer's build graph, and unlike `ditch3game`
+  (a test-only asset nobody minds building separately) `emfont.cpp` has nothing to enumerate without this
+  one, so it needs to always build alongside `guit3` itself. `guit3.html` now loads `guit3fonts.js` alongside
+  `ditch3game.js`, same pattern.
+- `emfont.cpp`'s three hooks now open `opendir("fonts")` (the virtual path above, relative to CWD like
+  `ditch3.t3` already is) and read every entry with FreeType (already linked into guit3 transitively, same
+  as fcfont.cpp) - `face->family_name` gives the real family name directly (no filename-guessing needed:
+  e.g. `DroidSans.ttf`'s actual family is "Droid Sans", `ProggyClean.ttf`'s is "ProggyCleanTT"), and
+  classification reuses fcfont.cpp's exact PANOSE/`sFamilyClass` algorithm (`FT_IS_FIXED_WIDTH()` standing in
+  for fontconfig's `FC_SPACING` check). Only six files exist today, so nothing is cached - every call
+  re-scans the directory and re-opens each face.
+
+**Verified end-to-end against the real Emscripten runtime**, not just compiled: `cmake --build
+build/emscripten --target guit3` builds cleanly (Windows host, real emsdk toolchain) and now actually
+produces `guit3fonts.data`/`.js` as part of that target. Beyond that, built a standalone `em++` program
+(same `emfont.cpp`, same vendored `imgui`/`freetype` static libs, `--embed-file
+.../imgui/misc/fonts@fonts` in place of the CMake packaging step) and ran it under emsdk's bundled Node -
+`os_font_family_is_present("Droid Sans")` correctly returns true (and a nonsense name correctly returns
+false), `os_font_data_for_name("Cousine", ...)` returns a buffer whose size exactly matches
+`Cousine-Regular.ttf`'s real file size, and `os_enum_font_families()` reports all six families with sane
+classifications (Cousine/ProggyClean/ProggyTiny as fixed-pitch "typewriter", Droid Sans as sans-serif; Karla
+and Roboto come back unclassified, the same honest "PANOSE/sFamilyClass unset in this particular file"
+outcome §5.14 already documented for some Linux fonts, not a bug here either). Did not attempt a full
+in-browser test of the Customize Theme dialog itself (would need the headless-Chrome setup from §5.9) - the
+standalone harness exercises the same `emfont.cpp` code the dialog calls into, just not through the dialog.
+
+### 5.16 Wayland spammed "GLFW Error 65545: No clipboard data available" from startup on Linux
+
+Reported against the Linux build from §5.14/M4: the console fills with `GLFW Error 65545: Wayland: No
+clipboard data available` from the moment the window opens. `65545` is `GLFW_FORMAT_UNAVAILABLE`
+(`0x00010009`), and `glfw3.h`'s own documentation for `glfwGetClipboardString()` says this is the expected,
+documented outcome when the clipboard is empty or holds something that isn't text - not a real error -
+adding "ignore the error ... as appropriate" as the guidance for exactly this call site (window creation can
+also produce the same code, for a hard pixel-format constraint nothing satisfied, but guit3 sets none).
+
+Root cause was two pieces of already-existing, individually reasonable code compounding: `guios_portable.cpp`'s
+`os_clipboard_has_text()` (§5.5/D) calls `glfwGetClipboardString()` on *every frame* (there's no cheaper probe
+in GLFW, and its own comment already flags this), and `tadsapp.cpp`'s `glfw_error_callback()` prints every
+GLFW error to stderr unconditionally. X11's GLFW backend stays silent for an empty clipboard, so this never
+showed up in earlier X11-flavored testing; Wayland's backend routes it through the error callback instead,
+so it fires continuously.
+
+Fixed by filtering `GLFW_FORMAT_UNAVAILABLE` out of `glfw_error_callback()` (`tadsapp.cpp`) rather than
+touching the polling itself - the return value of `os_clipboard_has_text()` was never wrong (GLFW still
+correctly returns `NULL` for an empty clipboard either way), this only ever affected what got printed.
+
+**Verified**: rebuilt `guit3` clean on both the `linux-wsl` and native Windows (`build/default`) presets after
+the change - a one-line early-return, nothing else touches either platform. Did not reproduce the original
+spam under a live Wayland session to confirm the fix silences it at runtime (no Wayland compositor available
+in this environment) - the fix follows directly from `glfw3.h`'s own documented contract for this exact error
+code and call site, not a guess.
 
 ## 6. Working notes for a fresh session
 

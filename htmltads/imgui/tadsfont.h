@@ -65,6 +65,36 @@ unsigned char *os_font_data_for_name(const char *name, int weight, int italic,
                                      int charset, size_t *data_size);
 
 /*
+ *   Platform hook: enumerate every installed font family, once per family,
+ *   reporting each through 'callback' in the same shape Win32's
+ *   EnumFontFamiliesEx() uses (an ENUMLOGFONTEX/NEWTEXTMETRIC pair per
+ *   entry).  This backs the Customize Theme dialog's font-family lists
+ *   (CHtmlPreferences::cust_refresh_font_lists(), htmlpref.cpp), which sort
+ *   entries into serif/sans/script/typewriter buckets by inspecting
+ *   elfLogFont.lfPitchAndFamily's family nibble (FF_ROMAN/FF_SWISS/
+ *   FF_SCRIPT/FF_MODERN) and tmPitchAndFamily's TMPF_FIXED_PITCH bit -
+ *   exactly the fields GDI itself fills in, so that dialog code stays
+ *   platform-agnostic.  One implementation per OS/GUI backend, same files as
+ *   the two hooks above: guifont_w32.cpp forwards straight to
+ *   EnumFontFamiliesEx(); fcfont.cpp derives the family nibble from
+ *   fontconfig's FC_SPACING (monospace -> FF_MODERN) and, for the rest, the
+ *   installed font file's OS/2 table (PANOSE, falling back to the older
+ *   sFamilyClass field), read via FreeType (already linked into guit3 - see
+ *   the comment above its os_enum_font_families() for the class-to-FF_*
+ *   mapping and the real-world testing behind preferring PANOSE); ctfont.cpp
+ *   uses CoreText's own equivalent stylistic-class/monospace traits;
+ *   emfont.cpp enumerates a small set of font files bundled into the
+ *   Emscripten build's virtual filesystem (there being no real OS font store
+ *   inside a browser sandbox), classified with the same FreeType-based
+ *   algorithm as fcfont.cpp.  'charset_id' is a Win32 xxx_CHARSET value,
+ *   honored only on Windows (matching os_font_data_for_name()'s charset
+ *   caveat above) - the other backends enumerate every family regardless of
+ *   charset.
+ */
+void os_enum_font_families(unsigned int charset_id, FONTENUMPROC callback,
+                           LPARAM lparam);
+
+/*
  *   Extended logical font.  We include attributes that we use for rendering,
  *   such as color and superscript, that aren't in a standard windows LOGFONT
  *   structure.  This ensures that we create a unique system font handle for
