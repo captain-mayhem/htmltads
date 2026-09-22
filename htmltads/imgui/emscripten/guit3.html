@@ -87,7 +87,12 @@
     // guit3's own argv references below). It also loads guit3fonts.data/.js,
     // that same CMakeLists.txt's em_package(guit3fonts ...) packaging of
     // ../../imgui/misc/fonts (mapped to the virtual path "fonts" emfont.cpp
-    // scans for the Customize Theme dialog's font lists).
+    // scans for the Customize Theme dialog's font lists), and
+    // guit3charmap.data/.js, packaging tads3/charmap/cmaplib.t3r (mapped to
+    // "charmap/cmaplib.t3r" - guios_portable.cpp's character-encoding
+    // conversions fall back to ASCII-only without it), and guit3about.data/
+    // .js, packaging the private-resources guit3.t3r (the About box's
+    // background image) to the virtual path "guit3.t3r".
     var statusElement = document.getElementById('status');
     var progressElement = document.getElementById('progress');
     var spinnerElement = document.getElementById('spinner');
@@ -149,6 +154,8 @@
   </script>
   <script src="ditch3game.js"></script>
   <script src="guit3fonts.js"></script>
+  <script src="guit3charmap.js"></script>
+  <script src="guit3about.js"></script>
   <script async src="guit3.js"></script>
 </body>
 

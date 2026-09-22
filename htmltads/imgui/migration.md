@@ -2908,6 +2908,173 @@ spam under a live Wayland session to confirm the fix silences it at runtime (no 
 in this environment) - the fix follows directly from `glfw3.h`'s own documented contract for this exact error
 code and call site, not a guess.
 
+**Postscript** (reproduced live): a later session found WSLg actually provides a working Wayland/X11
+compositor in this environment after all (`DISPLAY`/`WAYLAND_DISPLAY` are set, and Linux GUI apps show up as
+normal forwarded windows on the Windows desktop) - see §5.17/5.18 below, which used it to screenshot the
+Customize Theme dialog directly. Didn't circle back to confirm the original clipboard spam with it, but the
+same environment is available if that's ever in doubt.
+
+### 5.17 Verified the Customize Theme font *defaults* are correct on a fresh Linux run (WSLg)
+
+A follow-up question (not a bug report that panned out): does the Customize Theme dialog's "Times New Roman"
+/"Courier New"/"Arial"/"Comic Sans MS" default text - hardcoded in `CHtmlPreferences::set_theme_defaults()`
+(`htmlpref.cpp`, platform-agnostic, no `#ifdef`s) - actually show up on a truly fresh Linux run, given none of
+those names are ever going to be in the fontconfig-backed pick-list §5.14 built? The combo preview shows
+whatever string is stored (`ImGui::BeginCombo(id, cust_font_prop_)`), independent of the enumerated list, so
+in principle it should - but "should" isn't "does."
+
+Used §5.16's discovery that WSLg gives this environment a real, working display to check directly rather than
+keep reasoning from source: wiped `~/.config/HTML TADS 3/` (the Linux settings store - see
+`tadssettings_portable.cpp`), launched a fresh `guit3` under WSLg (`LIBGL_ALWAYS_SOFTWARE=1` to sidestep a
+Zink/EGL driver-detection failure - a WSLg-environment quirk, not a guit3 bug - and `setsid nohup ... &
+disown` to keep it running across separate tool invocations), found its forwarded window via
+`Get-Process | Where MainWindowTitle`) on the Windows side (WSLg surfaces Linux GUI windows as ordinary
+Windows windows, owned by `msrdc.exe`), and drove it with the same `SetCursorPos`+`mouse_event`+
+`Graphics.CopyFromScreen()` recipe already used for native Windows testing - Themes menu -> "Customize
+'Multimedia' Theme...". First-open screenshot showed exactly "Times New Roman"/"Courier New"/"Times New
+Roman"/"Arial"/"Comic Sans MS"/"Courier New" across the six font rows, matching Windows exactly. Also spot-
+checked the persisted `settings.ini` this produced - `write_to_registry()`/`read_from_registry()`
+(`htmlpref.cpp`) round-trip every one of the six font-name properties correctly, including the four
+(Serif/Sans/Script/Typewriter) it took a second grep pass to find further down the file.
+
+**Conclusion**: no bug found - the defaults display correctly on a genuinely fresh Linux state with the
+current code. If a real report of blank font fields recurs, the most likely explanation is a *stale*
+`settings.ini` with an empty value already persisted for one of these keys from some earlier state (a build
+predating a fix, or manual edits during testing) - `restore_as()` correctly treats "key present but empty" as
+a real stored value, not "unset," so it would keep loading that override forever rather than falling back to
+`set_theme_defaults()`'s in-memory default. Check `~/.config/HTML TADS 3/settings.ini` for an empty
+`...Font=` line under the relevant `[...\Profiles\<theme>]` section before assuming the C++ default logic
+itself is wrong.
+
+### 5.18 Emscripten font substitution - mapping common Windows font names to the six bundled faces
+
+§5.14 explained why Linux renders "Times New Roman" with a real serif-ish face (Nimbus Roman) despite it
+correctly being absent from the enumerated pick-list: `os_font_data_for_name()` runs fontconfig's normal
+`FcConfigSubstitute()`/`FcDefaultSubstitute()` pass, which consults the system's own metric-alias database
+(`/etc/fonts/conf.d/30-metric-aliases.conf` on Debian/Ubuntu) to map the classic Microsoft core-font names to
+free clones built to match their metrics. Emscripten's `emfont.cpp` (§5.15) had no equivalent - a request for
+any name other than one of the six literal bundled families (`Cousine`, `Droid Sans`, `Karla`, `ProggyCleanTT`,
+`ProggyTinyTT`, `Roboto`) returned null, and the caller falls back to ImGui's own tiny built-in `ProggyClean`
+bitmap font (`io.Fonts->AddFontDefault()`, htmlgui.cpp) - functional, but not what a "themed" font should look
+like, and exactly the gap the user asked to close: "some basic mapping to the fonts we ship there would be
+great."
+
+There's no real substitution database to call into here - just six files this project chose itself - so
+`emfont.cpp` grew a small, explicit, two-step table instead of trying to fake one:
+
+- `alias_table[]` maps ~30 common Windows/CSS font names (`"times new roman"`, `"arial"`, `"courier new"`,
+  `"comic sans ms"`, `"serif"`, `"sans-serif"`, `"monospace"`, `"cursive"`, and several more real-world
+  variants of each) to a generic style bucket, reusing the same `FF_ROMAN`/`FF_SWISS`/`FF_MODERN`/`FF_SCRIPT`
+  constants `classify_family()` already produces.
+- `substitute_for_style()` maps each bucket to one bundled family: `FF_MODERN` -> Cousine (a real scalable
+  monospace, nicer than the bitmap-style Proggy faces at normal reading sizes), `FF_SWISS` -> Roboto. The
+  bundle has no serif or script face at all, so `FF_ROMAN` and `FF_SCRIPT` fall back to the closest available
+  substitutes (Roboto, Karla) rather than matching stylistically - documented honestly in the code as "not a
+  true serif/script face," but still a real, readable, scalable font in place of the ImGui default.
+- `os_font_data_for_name()` now tries the literal name against the bundle first (unchanged - covers a game or
+  theme that explicitly names one of the six), and only on failure resolves it through the alias table.
+  `find_face_file()` was factored out of the old single code path so both lookups share it.
+- `os_font_family_is_present()` deliberately does **not** consult the alias table, same reasoning as
+  fcfont.cpp's bare `FcFontList()`: it answers "is this exact family bundled," which stays honest and keeps
+  the enumerated pick-list free of names that aren't really there.
+
+**Verified**: rebuilt `guit3` for Emscripten clean. Ran the same kind of standalone `em++`/Node harness §5.15
+used (real `emfont.cpp`, `--embed-file .../imgui/misc/fonts@fonts`), calling `os_font_data_for_name()`
+directly: `"Times New Roman"` and `"Arial"` both resolve to Roboto-Medium.ttf's exact byte size, `"Courier
+New"` resolves to Cousine-Regular.ttf's, `"Comic Sans MS"` resolves to Karla-Regular.ttf's, an exact bundled
+name (`"Roboto"`) still resolves to itself via the unchanged pass 1, and an unrecognized name correctly
+returns null (falling through to the ImGui default, same as before this change for genuinely unknown fonts).
+
+### 5.19 Emscripten dropped special characters (©, etc.) - the charmap library was never packaged into the virtual filesystem
+
+Reported: "Special characters like copyright sign do not get displayed properly" - Emscripten only, not
+Linux/Windows. Traced it to item K's character-encoding layer (`guios_portable.cpp`,
+`get_to_uni()`/`get_to_local()`), which routes every non-UTF-8 codepage conversion through the TADS charmap
+library (`charmap.h`/`charmap.cpp`, `tads3/charmap/cmaplib.t3r`) via a bare `CResLoader` that looks for
+`charmap/<name>.tcm` relative to the current working directory, falling back to the `charmap/cmaplib.t3r`
+library bundle if the loose file isn't there (`CCharmap::open_map_file()`, `tads3/charmap.cpp`). Both native
+builds get this file for free: `CMakeLists.txt`'s existing `POST_BUILD` step
+(`copy_if_different .../tads3/charmap/cmaplib.t3r $<TARGET_FILE_DIR:guit3>/charmap/`) puts a real file on
+disk next to the executable, which a native binary's ordinary `fopen()`-relative-to-CWD can just read.
+Emscripten has no such thing - a browser build can only see what's explicitly packaged into its virtual
+filesystem, the exact lesson §5.15 already learned for the bundled fonts and `ditch3.t3` before it. Nobody had
+packaged the charmap library the same way, so every lookup failed and `get_to_uni()`/`get_to_local()` silently
+fell back to `CCharmapToUniASCII`/`CCharmapToLocalASCII` - which map any byte over 127 to U+FFFD (the Unicode
+replacement character), exactly matching "special characters ... do not get displayed properly."
+
+Fixed with a third `em_package()` call in `htmltads/imgui/CMakeLists.txt`'s Emscripten branch, packaging
+`tads3/charmap/cmaplib.t3r` to the virtual path `charmap/cmaplib.t3r` - the exact path
+`CCharmap::open_map_file()` looks for (`deflib` argument `"charmap/cmaplib"`, `.t3r` appended automatically) -
+plus `add_dependencies(guit3 build_guit3charmap.data)`, load-bearing the same way §5.15's font package is
+(§5.15's own comment already explains why `em_package()`'s custom target needs that explicit dependency).
+`guit3.html` now also loads `guit3charmap.js` alongside `ditch3game.js`/`guit3fonts.js`.
+
+**Note for later**: `t3run`'s own Emscripten build (`tads3/CMakeLists.txt`) has this exact same gap - its
+charmap `POST_BUILD` copy step (line ~835) is native-disk-only too, and nothing packages
+`charmap/cmaplib.t3r` into *its* virtual filesystem either. Out of scope here (this session's `t3run` Emscripten
+target wasn't touched, and the user didn't report it there), but the same three-line fix would apply if
+`t3run`'s web build ever needs to display non-ASCII text.
+
+**Verified with a targeted, reproducible test rather than just inspection**: built a standalone `em++`/Node
+harness (the real `guios_portable.cpp`, linked against the actual `t3htm`/`tr32h`/`freetype`/`imgui` static
+libraries already built for this target) calling `os_local_to_utf8(1252, "\xA9", 1, ...)` - cp1252 byte 0xA9
+is the copyright sign. **Without** the charmap file embedded (`--embed-file` omitted, reproducing the
+pre-fix state): output was 3 bytes, `ef bf bd` - the UTF-8 encoding of U+FFFD, exactly the reported bug,
+confirmed rather than assumed. **With** `--embed-file .../tads3/charmap/cmaplib.t3r@charmap/cmaplib.t3r`
+(exactly what the new `em_package()` call now does for the real build): output was 2 bytes, `c2 a9` - the
+correct UTF-8 encoding of U+00A9, the real copyright sign. Also rebuilt the actual `guit3` Emscripten target
+clean and confirmed `guit3charmap.data`/`.js` are now produced alongside `guit3fonts`/`ditch3game`.
+
+### 5.20 About box background image was blank on every non-Windows build - `GetModuleFileName()`'s empty-string stub broke more than argv[0]
+
+Asked to add the same Emscripten-packaging treatment for the About box's background image
+(`../win32/about3.jpg`, bundled via `make_t3r(guit3 ../win32/about3.jpg=about.jpg)` into `guit3.t3r`) that
+§5.14/5.15/5.19 already gave the font list and the charmap library. Checked whether the underlying loading
+path even worked on native Linux first, rather than assuming packaging alone would fix it - it didn't:
+screenshotted Help > About HTML TADS under WSLg (same recipe as §5.17) and the dialog opened with a
+completely blank white body, no background image and no text.
+
+**Root cause was one level deeper than packaging**: `CHtmlSys_mainwin::load_exe_resources()` (htmlgui.cpp)
+derives its loose `<name>.t3r` fallback filename from the running executable's own path - strip the
+extension, append `.t3r`. That path comes from `GetModuleFileName()`, called unconditionally in
+`guimain.cpp`'s `run_game()`. `tadsplat.h`'s portable stub for that function (there's no real cross-platform
+equivalent wired up) just writes an empty string. Fed into `os_remext()`/`os_addext()`, an empty base name
+produces `.t3r`, not `guit3.t3r` - so the lookup was silently failing on *every* non-Windows platform, not
+just Emscripten's virtual-filesystem gap the other resources had. Emscripten packaging alone, done to the
+wrong filename, would have fixed nothing.
+
+Fixed at the one call site that actually needs a resource-loading-relevant filename: `guimain.cpp`'s call is
+now `#ifdef _WIN32`-gated, with the non-Windows branch hardcoding `"guit3"` rather than trying to derive it.
+Deliberately not fixed by changing the shared `GetModuleFileName()` stub itself, and not by using `argv[0]`
+either - three other call sites (`htmlgui.cpp` x2, `t3main.cpp`) only feed the Windows-specific
+"self-running compiled executable" resource/GameInfo lookup, which doesn't apply off Windows by design (see
+CMakeLists.txt's own comment on why guit3 never binds resources into its own binary off Windows); leaving
+those on the empty-string stub keeps that logic correctly evaluating "not a stand-alone exe" off Windows,
+same as before. And `argv[0]` specifically wouldn't help Emscripten anyway - its runtime synthesizes its own
+placeholder argv[0] (something like `"./this.program"`), not the real packaged filename.
+
+With that fixed, added the Emscripten packaging piece as asked: a fourth `em_package()` call
+(`em_package(guit3about ${CMAKE_CURRENT_BINARY_DIR}/guit3.t3r@guit3.t3r)`) mapping the already-built
+`guit3.t3r` to the virtual path `guit3.t3r`, plus `add_dependencies(guit3 build_guit3about.data)` (load-
+bearing, same reasoning as §5.15/§5.19's packages). This one has an ordering wrinkle the other three didn't:
+`em_package()` never expresses a dependency on the *contents* of what it packages (no `DEPENDS` on the input
+path at all), so packaging `guit3.t3r` before `make_t3r(guit3 ...)` has actually built it would silently
+package nothing useful. Placed the new `if (EMSCRIPTEN)` block *after* `make_t3r()`/its
+`add_dependencies(guit3 build_guit3.t3r)` in the file (rather than up with guit3fonts/guit3charmap, which
+don't have this ordering constraint) and added an explicit
+`add_dependencies(build_guit3about.data build_guit3.t3r)` to guarantee it.
+
+**Verified concretely at every layer**: rebuilt `guit3` on `linux-wsl` with just the `guimain.cpp` fix (before
+touching CMakeLists.txt) and re-screenshotted the same About dialog under WSLg - it now shows the real
+background image (a mountain/sky photo) and the "64 Bit HTML TADS" title text, matching what Windows has
+always shown. Rebuilt for Emscripten and confirmed `guit3about.data` is exactly the same byte size as
+`guit3.t3r` (31053 bytes) and was built *after* it (timestamps two days apart, confirming the ordering fix
+actually matters and isn't just incidentally correct). Built a small standalone `em++`/Node program
+(`--embed-file guit3.t3r@guit3.t3r`) that opens `"guit3.t3r"` by that exact relative name and validates the
+same two-part header `load_exe_resources()` itself checks (`"T3-image\r\n\032"` signature, then an `"MRES"`
+block tag) - both passed. Also rebuilt native Windows (`build/default`) clean to confirm the `#ifdef _WIN32`
+split didn't disturb that path.
+
 ## 6. Working notes for a fresh session
 
 ### Building and running

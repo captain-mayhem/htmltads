@@ -314,6 +314,24 @@ if (EMSCRIPTEN)
 	# guit3's own dependency graph, so make that explicit.
 	add_dependencies(guit3 build_guit3fonts.data)
 
+	# Packages the TADS charmap library (tads3/charmap/cmaplib.t3r) into the
+	# virtual path "charmap/cmaplib.t3r" - the exact relative path
+	# CResLoader::open_res_file() (resload.cpp, via
+	# CCharmap::open_map_file()'s deflib argument "charmap/cmaplib")
+	# expects to find it at when it falls through from the loose-.tcm-file
+	# lookup, same as the native builds' POST_BUILD copy_if_different step
+	# below puts it on disk for. Without this, guios_portable.cpp's
+	# get_to_uni()/get_to_local() (item K) never find a table to load inside
+	# Emscripten's virtual filesystem - there's no on-disk directory a
+	# browser build can just read from the way a native build reads its
+	# CWD - and silently fall back to CCharmapToUniASCII/ToLocalASCII, which
+	# map every non-ASCII byte to U+FFFD instead of the real character.
+	# Load-bearing the same way guit3fonts is above: real text depends on
+	# it, so it's a real dependency of guit3, not just the default "all"
+	# target em_package() adds it to.
+	em_package(guit3charmap ${CMAKE_SOURCE_DIR}/tads3/charmap/cmaplib.t3r@charmap/cmaplib.t3r)
+	add_dependencies(guit3 build_guit3charmap.data)
+
 	install(FILES
 		"$<TARGET_FILE_DIR:guit3>/guit3.wasm"
 		${CMAKE_CURRENT_SOURCE_DIR}/emscripten/guit3.html
@@ -357,6 +375,25 @@ add_custom_command(
 # the executable (see htmlgui.cpp).
 make_t3r(guit3 ../win32/about3.jpg=about.jpg)
 add_dependencies(guit3 build_guit3.t3r)
+
+if (EMSCRIPTEN)
+	# Packages the private-resources .t3r built just above (the About box's
+	# background image) into the virtual path "guit3.t3r" - the exact
+	# filename CHtmlSys_mainwin::load_exe_resources() (htmlgui.cpp) looks
+	# for next to the "executable" (see guimain.cpp's exefile fix: off
+	# Windows that name is now hardcoded to "guit3" instead of coming back
+	# empty from the GetModuleFileName() stub, so the loose-.t3r lookup
+	# resolves to "guit3.t3r" the same way it does on a native build reading
+	# its own directory). Declared here rather than up with guit3fonts/
+	# guit3charmap because build_guit3.t3r - the target em_package()'s
+	# input file actually depends on - isn't defined until make_t3r() above
+	# runs; em_package() itself has no way to express that dependency (it
+	# never DEPENDS on its packaged input paths), so add_dependencies()
+	# below does it explicitly rather than relying on script order alone.
+	em_package(guit3about ${CMAKE_CURRENT_BINARY_DIR}/guit3.t3r@guit3.t3r)
+	add_dependencies(build_guit3about.data build_guit3.t3r)
+	add_dependencies(guit3 build_guit3about.data)
+endif()
 
 tads_source_group(guit3 ${HTMLTADS_DIR})
 

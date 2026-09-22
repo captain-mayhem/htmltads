@@ -449,9 +449,31 @@ static void run_game(int argc, char** argv,
     SetUnhandledExceptionFilter((LPTOP_LEVEL_EXCEPTION_FILTER)exc_handler);
 #endif
 
-    /* get the executable's filename and use it as argv[0] */
+    /*
+     *   Get the executable's filename and use it as argv[0].  Off Windows,
+     *   tadsplat.h's GetModuleFileName() stub always returns an empty
+     *   string (there's no portable equivalent wired up), which broke more
+     *   than just argv[0]: CHtmlSys_mainwin::load_exe_resources() (below)
+     *   derives its loose ".t3r" resource-file name from this same string
+     *   by stripping the extension and appending "t3r" - fed an empty
+     *   string, that produces ".t3r" instead of "guit3.t3r", so the About
+     *   box's background image (packaged via CMakeLists.txt's
+     *   make_t3r(guit3 ...)/em_package(guit3about ...)) silently failed to
+     *   load on every non-Windows build. The three other GetModuleFileName()
+     *   call sites in this port (htmlgui.cpp x2, t3main.cpp) only feed the
+     *   Windows-specific "self-running compiled executable" resource/
+     *   GameInfo lookup, which doesn't apply off Windows by design (see
+     *   CMakeLists.txt's comment on why guit3 never binds resources into
+     *   its own binary off Windows) - fixing this locally rather than in
+     *   the shared stub avoids feeding a fabricated exe path into that
+     *   unrelated logic.
+     */
+#ifdef _WIN32
     GetModuleFileName(CTadsApp::get_app()->get_instance(),
                       exefile, sizeof(exefile));
+#else
+    strcpy(exefile, "guit3");
+#endif
     new_argv[0] = exefile;
 
     /* 
