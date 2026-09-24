@@ -15338,15 +15338,32 @@ CHtmlSysWin *CHtmlSys_mainwin::
                                    (style & OS_BANNER_STYLE_HSCROLL) != 0,
                                    prefs_);
 
-    /* 
+    /*
      *   create the system window - give it an arbitrary initial height,
      *   since this will be changed by the formatter anyway, but give it
-     *   the correct initial width 
+     *   the correct initial width
      */
     get_client_rect(&rc);
     rc.right -= 2;
     rc.bottom = rc.top;
-    subwin->create_system_window(this, TRUE, "Banner", &rc);
+
+    /*
+     *   The title passed here doubles as this window's ImGui ID (see
+     *   CTadsWin::do_render_content_begin()'s BeginChild() call), not just a
+     *   display label - a banner never shows a title bar, but its ID still
+     *   has to be unique.  A game can have several banners open at once
+     *   (status line, quote box, a hint window, ...), and every one used to
+     *   get the literal string "Banner" here, so ImGui saw them as the same
+     *   child window, Begin()'d/BeginChild()'d repeatedly per frame - garbled
+     *   content and scroll state bleeding between banners.  Append a
+     *   `##`-prefixed suffix built from the subwindow's own address, the same
+     *   idiom CHtmlSys_top_win::run_dlg() uses to disambiguate About/Credits.
+     */
+    char banner_title[32];
+    _snprintf(banner_title, sizeof(banner_title), "Banner##%p",
+             (void *)subwin);
+    banner_title[sizeof(banner_title) - 1] = '\0';
+    subwin->create_system_window(this, TRUE, banner_title, &rc);
 
     /* let the window know it's being used as a banner */
     subwin->set_is_banner_win(TRUE, (CHtmlSysWin_win32 *)parent,

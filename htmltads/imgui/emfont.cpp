@@ -245,8 +245,8 @@ const char *substitute_for_style(int style)
     {
     case FF_MODERN: return "Cousine";
     case FF_SWISS:  return "Roboto";
-    case FF_ROMAN:  return "Roboto";    /* no serif bundled - closest text face */
-    case FF_SCRIPT: return "Karla";     /* no script bundled - just a distinct face */
+    case FF_ROMAN:  return "Karla";    /* no serif bundled - closest text face */
+    case FF_SCRIPT: return "Roboto";     /* no script bundled - just a distinct face */
     default:        return 0;
     }
 }

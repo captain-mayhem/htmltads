@@ -1667,6 +1667,26 @@ int CTadsWin::do_render()
     if (!isVisible())
         return TRUE;
 
+    /*
+     *   A window whose current size has collapsed to zero (e.g. a sibling
+     *   banner - such as a full-screen menu banner - now claims all the
+     *   space calc_banner_layout() used to leave for us) has nothing to
+     *   draw, and skipping it here is more than an optimization: Dear
+     *   ImGui's BeginChild() only honors an explicit SetNextWindowSize()
+     *   axis when it's strictly positive (see BeginChildEx() in imgui.cpp,
+     *   "A SetNextWindowSize() call always has priority") - a size of
+     *   exactly 0 is treated as "no override", so a fixed-size (non-auto-
+     *   resize) child stuck at m_size == 0 would otherwise silently fall
+     *   back to ImGui's default of filling all its parent's remaining
+     *   content region, reappearing at full size and overlapping whatever
+     *   sibling was actually supposed to occupy that space.  This matches
+     *   calc_banner_layout()'s own "a zero-size banner really should be a
+     *   zero-size banner" comment - zero is a legitimate, intentional way
+     *   for a window in the banner tree to mean "draw nothing".
+     */
+    if (m_size.x <= 0 || m_size.y <= 0)
+        return TRUE;
+
     do_render_content_begin();
 
     for (auto childwin : m_children) {
