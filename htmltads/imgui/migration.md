@@ -3075,6 +3075,74 @@ same two-part header `load_exe_resources()` itself checks (`"T3-image\r\n\032"` 
 block tag) - both passed. Also rebuilt native Windows (`build/default`) clean to confirm the `#ifdef _WIN32`
 split didn't disturb that path.
 
+### 5.21 Windows — in-game hyperlink clicks were dropped roughly one time in five
+
+**Symptom (reported by the user)**: in the native Windows build, clicking an in-game hyperlink often did
+nothing, and it took two or three clicks to get it to take effect. Same surface symptom as §5.11 (which was
+Emscripten-only and had a different, already-fixed cause), so the §5.11 "stuck `tracking_mouse_`" recovery
+path was *not* what was happening here.
+
+**Cause**: a stubbed-out Win32 call that silently inverted a test. `CHtmlSysWin_win32::do_create()` starts a
+500ms background timer (`bg_timer_id_`) whose only job is `do_idle()`, and `do_idle()`'s entire body was the
+inherited Win32 test:
+
+```c
+GetCursorPos(&pos);
+if (WindowFromPoint(pos) != handle_)
+    set_hover_link(0);
+```
+
+Neither half of that survives this port. `WindowFromPoint()` is an inert stub that always returns `0`
+([tadsplat.h](tadsplat.h)), and `handle_` is the non-null opaque token `(HWND)this` that
+`CTadsWin::create_system_window()` hands out in place of a real HWND ([tadswin.cpp](tadswin.cpp)) - so
+`0 != handle_` is **unconditionally true** and this fired `set_hover_link(0)` every 500ms regardless of where
+the mouse actually was.
+
+That matters because hover state and click state are the *same field*. `set_hover_link(0)` calls
+`CHtmlDispLink::set_clicked(win, CHtmlDispLink_none)`, and `set_clicked()` **assigns** `clicked_` rather than
+masking bits - so it wipes the `CHtmlDispLink_clicked` bit that `do_leftbtn_down()` sets on the link being
+clicked. `end_mouse_tracking()` then activates the HREF only
+`if ((track_link_->get_clicked() & CHtmlDispLink_clicked) != 0)`, so any click whose button-down/button-up
+straddled a timer tick was silently discarded - hit-tested correctly, highlighted correctly, and then thrown
+away. A human click holds the button for roughly 100ms out of every 500ms tick period, which is exactly the
+"usually works, fails often enough to be infuriating" rate the user described. (The same tick was also
+flickering the link highlight and the status-line URL twice a second, which is what the stray `status_link_`
+churn looked like on screen.)
+
+**Fix** ([htmlgui.cpp](htmlgui.cpp), `CHtmlSysWin_win32::do_idle()`): express "is the mouse still over me?"
+in this port's own terms - `pt_in_screen_rect(io.MousePos.x, io.MousePos.y)`, plus
+`ImGui::IsMousePosValid()` to catch the cursor leaving the GLFW window altogether - instead of the two dead
+Win32 calls. Also return early while `tracking_mouse_` is set: a click in progress owns the link's highlight
+state (`do_mousemove()`'s drag-off logic maintains `CHtmlDispLink_clicked` vs `CHtmlDispLink_clickedoff`, and
+`end_mouse_tracking()` reads it back), so the idle timer must not touch it at all.
+
+**Verified by A/B, with a deterministic repro.** Drove `guit3.exe tests/ditch3.t3` with a Python
+`ctypes`/`mouse_event` script (`SetCursorPos` + `MOUSEEVENTF_LEFTDOWN`, hold, `MOUSEEVENTF_LEFTUP`) and
+screenshotted the window via `EnumWindows` -> `GLFW30`-class HWND -> `GetWindowRect` -> `ImageGrab.grab()`.
+Clicking the title screen's `ABOUT` link with a **700ms still hold**: pre-fix build does nothing (prompt stays
+a bare `>`, while the status bar correctly reads `about` - proving the hit test was fine and only the
+activation was lost); post-fix build prints `>about` and the full ABOUT text. Fast clicks (60ms on
+`COPYRIGHT`) still work post-fix.
+
+**The gotcha worth remembering for the repro, not just the bug**: the first attempt at this test *jittered the
+cursor by a pixel every 50ms during the hold* to imitate a real hand, and it **passed on the pre-fix build** -
+a false negative. `do_mousemove()`'s drag-off check re-asserts `set_clicked(CHtmlDispLink_clicked)` whenever
+the link under the cursor still matches `track_link_`, so any mouse movement during the hold immediately
+repairs the damage the idle timer did. The failure only shows up when the cursor is *completely still*
+between press and release - which is what a real click usually is. **When testing a timer-vs-input race in
+this codebase, hold the mouse perfectly still; adding "realistic" jitter can mask the bug outright.**
+
+**Latent bug found while tracing this, not fixed** (nothing reaches it today):
+`CTadsWinScroll::do_timer()`'s drag-scroll branch ([tadswin.cpp](tadswin.cpp)) has the same class of defect -
+it feeds `GetCursorPos()` (desktop coordinates, and a stub returning `(0,0)` here anyway) into
+`screen_to_client()` (which subtracts `get_screen_pos()`, an offset within the *GLFW client area*, not the
+desktop) and then passes the result to `do_mousemove()`, which subtracts `get_screen_pos()` a second time. It
+is currently unreachable because it is guarded on
+`ImGui::GetCurrentContext()->CurrentWindow != nullptr` and `tick_timers_tree()` runs *before*
+`ImGui::NewFrame()`, where `CurrentWindow` is always null. If drag-scrolling is ever wired up for real, that
+coordinate path needs rewriting against `io.MousePos` first.
+
+
 ## 6. Working notes for a fresh session
 
 ### Building and running

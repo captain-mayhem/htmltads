@@ -5111,14 +5111,44 @@ int CHtmlSysWin_win32::do_timer(int timer_id)
  */
 void CHtmlSysWin_win32::do_idle()
 {
-    POINT pos;
-    
+    /*
+     *   While a click is being tracked, the click owns the link's
+     *   highlight state - do_mousemove()'s drag-off logic maintains it
+     *   (CHtmlDispLink_clicked vs CHtmlDispLink_clickedoff), and
+     *   end_mouse_tracking() reads it back to decide whether to activate
+     *   the HREF.  Clearing the hover link here would call
+     *   set_clicked(CHtmlDispLink_none), and set_clicked() *replaces*
+     *   clicked_ rather than masking bits - so it would wipe the
+     *   CHtmlDispLink_clicked bit out from under the click in progress
+     *   and the button-up would silently do nothing.  Leave it alone.
+     */
+    if (tracking_mouse_)
+        return;
+
     /*
      *   Check the mouse location.  If the mouse is no longer in our
-     *   window, remove any highlighted link. 
+     *   window, remove any highlighted link.
+     *
+     *   The original Win32 test was
+     *   "WindowFromPoint(GetCursorPos()) != handle_", but neither half of
+     *   that survives this port: WindowFromPoint() is an inert stub that
+     *   always returns 0 (tadsplat.h) and handle_ is the non-null opaque
+     *   token (HWND)this (CTadsWin::create_system_window()), so the test
+     *   was unconditionally true and this fired set_hover_link(0) every
+     *   500ms (the bg_timer_id_ interval) no matter where the mouse was.
+     *   Besides flickering the link highlight and status-line URL twice a
+     *   second, that was the cause of unreliable in-game hyperlink
+     *   clicks: roughly one click in five held the button across a timer
+     *   tick and had its CHtmlDispLink_clicked bit cleared mid-click (see
+     *   migration.md 5.21).  Use the real mouse position instead, in the
+     *   same absolute ImGui screen space pt_in_screen_rect() and
+     *   event_loop()'s mouse routing work in.  An invalid io.MousePos
+     *   means the cursor has left the GLFW window altogether, which is
+     *   exactly the case this check exists to catch.
      */
-    GetCursorPos(&pos);
-    if (WindowFromPoint(pos) != handle_)
+    ImGuiIO &io = ImGui::GetIO();
+    if (!ImGui::IsMousePosValid()
+        || !pt_in_screen_rect((int)io.MousePos.x, (int)io.MousePos.y))
         set_hover_link(0);
 }
 
