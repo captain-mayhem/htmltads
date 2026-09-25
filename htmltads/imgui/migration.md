@@ -131,7 +131,13 @@ The native `LoadMenu`/`SetMenu`/`create_toolbar()` code is left in place as harm
   bar had its nearest rows painted over every frame — content rendered fine, then got covered. Fix:
   `SetNextWindowPos()` with pivot `(0, 1)` anchored at `(mouse_x, status_bar_top)` so it grows upward.
   **Reuse this diagnosis for any "some rows mysteriously don't appear" report near foreground-drawn chrome
-  (status bar, caret, scrollbar): check screen overlap before assuming a sizing/constraint bug.**
+  (status bar, caret, scrollbar): check screen overlap before assuming a sizing/constraint bug.** The same
+  root cause can also cut the *other* way: `render_panel_bevel()`'s black top/left border around the main
+  panel (§3.1 below) painted across an open dropdown/context menu that happened to overlap it, since the
+  foreground list paints after popups too and there's no list slot for "above windows, below popups". Fixed
+  by skipping the whole bevel draw for the frame whenever `ImGui::IsPopupOpen("", ImGuiPopupFlags_AnyPopup)`
+  is true, rather than trying to reorder draw lists — matches how a real Win32 popup menu behaves anyway (it
+  paints over the entire parent window, borders included).
 - **Toolbar icons**: `win32/runtbar.bmp` (`IDB_TERP_TOOLBAR`, 304×15, 4bpp indexed, nineteen 16×15 frames)
   is loaded once by `load_toolbar_texture()` into a single GL atlas — `LoadImage(..., LR_CREATEDIBSECTION)`
   + `GetDIBits()` to expand to 32bpp, then manual BGRA→RGBA that also converts the bitmap's top-left-pixel
@@ -148,15 +154,23 @@ The native `LoadMenu`/`SetMenu`/`create_toolbar()` code is left in place as harm
   always opened the popup, losing the "click the icon to customize" half. Fixed by drawing the arrow as its
   own adjacent button (`ImGui::SameLine(0, 0)` + a fixed-width `ImGui::Button()`, with a hand-drawn triangle
   via `AddTriangleFilled()` since there's no separate arrow glyph in the icon strip) — the icon keeps calling
-  `do_command()` on click, the arrow calls `OpenPopup()`. **The triangle needs a fixed dark color**
-  (`IM_COL32(32,32,32,255)`), not `ImGuiCol_Text` — same near-white-on-light-grey contrast problem as the
-  menu label bullet below, caught by screenshotting rather than just compiling.
-- **Chrome color**: menu bar and toolbar each push `ImGuiCol_WindowBg` (+ `ImGuiCol_MenuBarBg`) to the
-  status bar's grey `IM_COL32(212,212,212,255)`. The base style is `StyleColorsDark()`, whose light text
-  is unreadable on that, so a `menu(label)` helper pushes `ImGuiCol_Text` black *just around the top-level
-  label* and pops before the dropdown items draw — the dropdowns keep the dark theme.
-- **`ImageButton()` always paints a Button-colored frame**, even at rest. `render_toolbar()` pushes
-  `ImGuiCol_Button` transparent and hovered/active to greys.
+  `do_command()` on click, the arrow calls `OpenPopup()`. The triangle uses a fixed dark color
+  (`IM_COL32(32,32,32,255)`) rather than `ImGuiCol_Text` since it's hand-drawn, not real text, and the fixed
+  color lets it dim for the disabled state without a style push.
+- **Chrome color**: the base style is `StyleColorsLight()`, with `ImGuiCol_WindowBg`/`ImGuiCol_MenuBarBg`/
+  `ImGuiCol_PopupBg` set globally (in the `CHtmlSys_mainwin` constructor, right after `StyleColorsLight()`)
+  to the status bar's grey `IM_COL32(212,212,212,255)`, so the menu bar, toolbar, every plain `Begin()`
+  window (dialogs included), and every dropdown/context menu popup (`PopupBg` - File/Edit/... dropdowns,
+  the right-click context menu, the Themes toolbar popup) pick up the same chrome color without a local
+  `PushStyleColor()` at each call site, instead of the light theme's near-white default for popups. This
+  used to be `StyleColorsDark()` with per-call-site `WindowBg`/`MenuBarBg` overrides in `render_menu_bar()`
+  and `render_toolbar()`, plus a `menu(label)` helper that pushed `ImGuiCol_Text` black around just the
+  top-level label (the dark theme's light text was unreadable on the light grey chrome); switching the base
+  theme to `StyleColorsLight()` made the label override unnecessary too, since light-theme text is already
+  black.
+- **`ImageButton()` always paints a Button-colored frame**, even at rest, in the theme's semi-transparent
+  accent blue (unchanged between the dark and light themes). `render_toolbar()` pushes `ImGuiCol_Button`
+  transparent and hovered/active to greys so it doesn't clash with the grey chrome.
 - **Toolbar height** = `button_height + style.WindowPadding.y * 2` (ImGui only pads above the row, so an
   arbitrary fudge left the buttons overflowing the bottom).
 - **Not ported, deliberately**: `iconmenu.cpp`'s owner-drawn menu icons (dead; follow the toolbar's
@@ -177,7 +191,8 @@ unchanged — only the backend was swapped.
   parameter instead of `GetClientRect`-ing a handle.
 - `render(x, y, width)` draws the bar bottom-anchored to `GetMainViewport()`'s work area, with a top border
   line, per-part clipping and separators — deliberately mimicking the Win32 look. Fixed light grey
-  `IM_COL32(212,212,212,255)` with black text, independent of the dark theme.
+  `IM_COL32(212,212,212,255)` with black text, independent of the base ImGui theme (drawn straight into the
+  foreground draw list, not through style colors).
 - `get_height()` replaces the `GetClientRect(statusline_->get_handle())` that `recalc_banner_layout()`
   already used to reserve space.
 - `owner_draw()`/`WM_DRAWITEM` was dropped — dead even in the original. `get_handle()` is kept returning

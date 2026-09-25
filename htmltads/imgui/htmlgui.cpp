@@ -10560,9 +10560,30 @@ CHtmlSys_mainwin::CHtmlSys_mainwin(CHtmlFormatterInput *formatter,
      */
     CHtmlDisp::set_image_scale(CTadsFont::get_dpi_scale());
 
+    bool lightColors = true;
     // Setup Dear ImGui style
-    ImGui::StyleColorsDark();
-    //ImGui::StyleColorsLight();
+    if (lightColors) {
+        ImGui::StyleColorsLight();
+
+        /*
+         *   Match the window chrome (menu bar, toolbar, dropdown/context menus,
+         *   and by extension every plain ImGui::Begin() window, i.e. dialogs) to
+         *   the status bar's classic grey (see CTadsStatusline::render() in
+         *   tadsstat.cpp) instead of the light theme's near-white default, so
+         *   the whole UI - menu bar, toolbar, status bar, and any popup menu -
+         *   reads as one consistent Win32-chrome grey without each call site
+         *   needing its own PushStyleColor(WindowBg/MenuBarBg/PopupBg) override.
+         */
+        ImGuiStyle& style = ImGui::GetStyle();
+        const ImVec4 chrome_bg(212.0f / 255.0f, 212.0f / 255.0f, 212.0f / 255.0f, 1.0f);
+        const ImVec4 chrome_bg_transp(232.0f / 255.0f, 232.0f / 255.0f, 232.0f / 255.0f, 0.94f);
+        style.Colors[ImGuiCol_WindowBg] = chrome_bg;
+        style.Colors[ImGuiCol_MenuBarBg] = chrome_bg_transp;
+        style.Colors[ImGuiCol_PopupBg] = chrome_bg_transp;
+    }
+    else {
+        ImGui::StyleColorsDark();
+    }
 
     /* create the main HTML display panel window */
     main_panel_ = new CHtmlSysWin_win32_Input(
@@ -11734,39 +11755,8 @@ void CHtmlSys_mainwin::render_menu_bar()
             do_command(0, id, 0);
     };
 
-    /*
-     *   render a top-level menu bar label ("File", "Edit", etc.) in black,
-     *   regardless of the app's (currently dark, hence light-text-by-default)
-     *   ImGui theme, since the label sits directly on the menu bar's light
-     *   grey chrome background (see chrome_bg below) rather than on the
-     *   theme's own (dark) popup background. Scoped to just the label via
-     *   Push/Pop around BeginMenu() itself, so the dropdown's own items -
-     *   drawn against the theme's normal dark popup background - keep their
-     *   normal light text.
-     */
-    auto menu = [](const char *label)
-    {
-        ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.0f, 0.0f, 0.0f, 1.0f));
-        bool open = ImGui::BeginMenu(label);
-        ImGui::PopStyleColor();
-        return open;
-    };
-
-    /*
-     *   Match the status bar's classic grey (see CTadsStatusline::render()
-     *   in tadsstat.cpp) rather than letting the menu bar pick up the app's
-     *   theme colors - the menu bar, toolbar, and status bar form one
-     *   consistent strip of chrome.
-     */
-    const ImVec4 chrome_bg(212.0f / 255.0f, 212.0f / 255.0f, 212.0f / 255.0f, 1.0f);
-    ImGui::PushStyleColor(ImGuiCol_WindowBg, chrome_bg);
-    ImGui::PushStyleColor(ImGuiCol_MenuBarBg, chrome_bg);
-
     if (!ImGui::BeginMainMenuBar())
-    {
-        ImGui::PopStyleColor(2);
         return;
-    }
 
     /*
      *   Consume a pending Alt+letter menu mnemonic (set in event_loop(),
@@ -11788,7 +11778,7 @@ void CHtmlSys_mainwin::render_menu_bar()
     {
         if (mnem != 0 && mnem == mnemonic)
             ImGui::OpenPopup(label);
-        return menu(label);
+        return ImGui::BeginMenu(label);
     };
 
     if (menu_mnem("File", 'F'))
@@ -11931,7 +11921,6 @@ void CHtmlSys_mainwin::render_menu_bar()
     }
 
     ImGui::EndMainMenuBar();
-    ImGui::PopStyleColor(2);
 }
 
 /*
@@ -12022,10 +12011,19 @@ bool CHtmlSys_mainwin::over_statusbar(int x, int y) const
  *   panel/banner windows regardless of z-order - and confined strictly to
  *   the reserved margin (never the panel's own interior), so it can't paint
  *   over any game text.
+ *
+ *   The foreground draw list paints after every ImGui window *and* every
+ *   open popup (there's no draw list slot for "above normal windows, below
+ *   popups"), so an open dropdown/context menu that happens to overlap this
+ *   margin would otherwise get a black line drawn across it. Skip the bevel
+ *   entirely while any popup is open - it's a thin cosmetic separator, not
+ *   worth a visible glitch cutting across an open menu, and this is how a
+ *   native Win32 popup menu behaves anyway (it paints over the whole parent
+ *   window, borders included).
  */
 void CHtmlSys_mainwin::render_panel_bevel()
 {
-    if (statusline_ == 0)
+    if (statusline_ == 0 || ImGui::IsPopupOpen("", ImGuiPopupFlags_AnyPopup))
         return;
 
     const ImGuiViewport *vp = ImGui::GetMainViewport();
@@ -12475,18 +12473,15 @@ void CHtmlSys_mainwin::render_toolbar()
     ImGuiWindowFlags flags = ImGuiWindowFlags_NoScrollbar
                              | ImGuiWindowFlags_NoSavedSettings;
 
-    /* match the status bar's classic grey - see render_menu_bar() */
-    const ImVec4 chrome_bg(212.0f / 255.0f, 212.0f / 255.0f, 212.0f / 255.0f, 1.0f);
-    ImGui::PushStyleColor(ImGuiCol_WindowBg, chrome_bg);
-
     /*
      *   ImGui::ImageButton() always paints its frame with the regular Button
      *   colors (idle included, not just on hover/press - see ImageButtonEx()
-     *   in imgui_widgets.cpp), which in the app's dark theme are a
-     *   semi-transparent blue that clashed against this toolbar's grey
-     *   chrome. Override with neutral greys instead: invisible at rest so
-     *   the icon alone shows, and a plain grey (not the theme's blue) on
-     *   hover/press to indicate state.
+     *   in imgui_widgets.cpp), which default to a semi-transparent blue
+     *   (the theme's accent color, unchanged between StyleColorsDark() and
+     *   StyleColorsLight()) that clashes against this toolbar's grey chrome.
+     *   Override with neutral greys instead: invisible at rest so the icon
+     *   alone shows, and a plain grey (not the theme's blue) on hover/press
+     *   to indicate state.
      */
     ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.0f, 0.0f, 0.0f, 0.0f));
     ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.75f, 0.75f, 0.75f, 1.0f));
@@ -12565,11 +12560,10 @@ void CHtmlSys_mainwin::render_toolbar()
 
                 /*
                  *   Hand-drawn down-arrow glyph, centered in the arrow
-                 *   button.  Fixed dark grey/black, not ImGuiCol_Text - the
-                 *   dark theme's near-white text is unreadable against this
-                 *   toolbar's light grey chrome, the same contrast problem
-                 *   render_menu_bar()'s menu() label helper works around
-                 *   (§3.1).
+                 *   button.  Fixed dark grey/black rather than ImGuiCol_Text
+                 *   since it's drawn directly via AddTriangleFilled(), not
+                 *   as real ImGui text - and a fixed color lets it dim for
+                 *   the disabled state below without needing a style push.
                  */
                 ImVec2 amin = ImGui::GetItemRectMin();
                 ImVec2 amax = ImGui::GetItemRectMax();
@@ -12600,7 +12594,7 @@ void CHtmlSys_mainwin::render_toolbar()
         }
     }
     ImGui::End();
-    ImGui::PopStyleColor(4);
+    ImGui::PopStyleColor(3);
 }
 
 /*
@@ -17779,8 +17773,8 @@ void CHtmlSys_dbglogwin::do_render_content_begin()
      *   the menu bar above ever existing, and in general has no reason to
      *   match this ImGui window's actual size.  Left unfixed, the panel
      *   renders shorter than the window, leaving a gap that shows this
-     *   window's own (near-black, StyleColorsDark) background - the "black
-     *   border" at the bottom of the debug window.
+     *   window's own (grey chrome) background - a visible border at the
+     *   bottom of the debug window.
      *
      *   This deliberately calls calc_banner_layout() - the same method
      *   CHtmlSys_mainwin::recalc_banner_layout() calls on main_panel_ every
