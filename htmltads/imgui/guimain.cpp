@@ -86,7 +86,7 @@ Modified
 #endif
 #include "guios.h"
 
-#ifdef _WIN32
+#ifndef OSIFCNET_H
 #include "osifcnet.h"
 #endif
 
@@ -537,14 +537,12 @@ static void run_game(int argc, char** argv,
        the native Win32 common dialog */
     oss_set_askfile_hook(askfile_hook);
 
-#ifdef _WIN32
     /*
      *   open Web UI games in the system's default browser rather than the
      *   classic tadsweb.exe child process, which guit3 doesn't build or
      *   install alongside itself - see guit3.cpp's guit3_webui_launch_hook()
      */
     oss_set_webui_launch_hook(guit3_webui_launch_hook);
-#endif
 
     /* no resource path yet */
     appctx.ext_res_path = 0;

@@ -240,12 +240,12 @@ void w32_webui_yield_foreground();
 void w32_webui_to_foreground();
 
 /*
- *   Web UI launch hook (Windows only - see guit3.cpp) - opens a Web UI
- *   game's start page in the system's default Web browser instead of the
- *   classic bundled tadsweb.exe child process, which isn't built or
- *   installed alongside guit3.  Registered with oss_set_webui_launch_hook()
- *   (osifcnet.h) at startup; matches that header's os_webui_launch_hook_t
- *   signature.
+ *   Web UI launch hook (see guit3.cpp) - opens a Web UI game's start page
+ *   in the system's default Web browser instead of the classic bundled
+ *   tadsweb.exe child process, which isn't built or installed alongside
+ *   guit3.  Registered with oss_set_webui_launch_hook() (osifcnet.h) at
+ *   startup; matches that header's os_webui_launch_hook_t signature.  On
+ *   Windows this uses ShellExecute; on Linux/WSL, xdg-open.
  */
 int guit3_webui_launch_hook(const char *addr, int port, const char *path,
                             char **errmsg);

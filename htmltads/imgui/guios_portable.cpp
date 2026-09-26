@@ -108,15 +108,44 @@ int os_open_url(const char *url)
 
     if (pid == 0)
     {
-        /* child - detach from our process group so the browser outlives us,
-           then hand off to the platform opener */
+        /*
+         *   First-generation child.  Detach from our process group/session
+         *   so the opener/browser outlives us, then fork *again* (the
+         *   classic "double fork" daemonizing idiom) before handing off to
+         *   the platform opener in the grandchild.
+         *
+         *   This second fork is what actually matters here: xdg-open isn't
+         *   guaranteed to background itself before its handler exits - on
+         *   at least one real system (WSLg, no desktop portal/session
+         *   bus), its shell script forks the browser as its own child and
+         *   then just sits there instead of exiting, so the browser stays
+         *   under xdg-open the whole time it's open. A single-fork parent
+         *   blocked in waitpid() on that xdg-open process would then hang
+         *   for as long as the browser stays open, not just for the
+         *   handoff - which is exactly what happened when this hung guit3
+         *   launching a Web UI game under WSL. Forking again means we only
+         *   ever wait on the first-generation child below, which exits
+         *   immediately regardless of how the opener chain behaves; the
+         *   grandchild (and whatever it execs) gets reparented to init.
+         */
         setsid();
-        execlp(opener, opener, url, (char *)NULL);
-        _exit(127);
+        pid_t pid2 = fork();
+        if (pid2 == 0)
+        {
+            execlp(opener, opener, url, (char *)NULL);
+            _exit(127);
+        }
+        _exit(pid2 > 0 ? 0 : 1);
     }
 
-    /* parent - xdg-open / open spawn the handler and exit promptly, so a
-       blocking wait just reaps the child and reports whether it launched */
+    /*
+     *   Parent - wait only on the first-generation child, which exits
+     *   right away per the above, so this can no longer block on the
+     *   opener or the browser it launches.  Its exit status only tells us
+     *   whether the second fork() succeeded, not whether the opener itself
+     *   later found a working browser - that's the trade-off for never
+     *   hanging here.
+     */
     int status = 0;
     if (waitpid(pid, &status, 0) != pid)
         return 0;

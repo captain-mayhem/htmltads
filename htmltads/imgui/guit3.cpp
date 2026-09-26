@@ -23,7 +23,6 @@ Modified
 #ifdef _WIN32
 #include <WinSock2.h>
 #include <Windows.h>
-#include <ShellApi.h>
 #else
 #include "tadsplat.h"
 #endif
@@ -31,6 +30,7 @@ Modified
 #include "t3main.h"
 #include "guimain.h"
 #include "hos_gui.h"
+#include "guios.h"
 
 /* include the TADS 2 VM version information */
 #include "trd.h"
@@ -74,9 +74,9 @@ void w32_webui_to_foreground()
  *   even then it lands in a different install/output directory than
  *   guit3.exe - see win32/osnet-connect.cpp's launch_tadsweb(), which looks
  *   for tadsweb.exe next to the running executable), so registering this
- *   hook (see guimain.cpp) replaces that lookup with a plain ShellExecute
- *   "open" on the URL, which works with whatever browser the user has set
- *   as their default.
+ *   hook (see guimain.cpp) replaces that lookup with os_open_url() (guios.h)
+ *   - ShellExecute "open" on Windows, xdg-open/"open" elsewhere - which
+ *   works with whatever browser the user has set as their default.
  *
  *   This gives up a few things the tadsweb.exe/named-pipe protocol
  *   provides - see the doc comment on os_webui_launch_hook_t in
@@ -84,16 +84,18 @@ void w32_webui_to_foreground()
  *   lib/webui.t's getInputFile() don't depend on any of them, since that
  *   code path already has to work without them in client/server mode.
  */
-#ifdef _WIN32
 int guit3_webui_launch_hook(const char *addr, int port, const char *path,
                             char **errmsg)
 {
     char url[1024];
+#ifdef _WIN32
     _snprintf(url, sizeof(url), "http://%s:%d%s", addr, port, path);
+#else
+    snprintf(url, sizeof(url), "http://%s:%d%s", addr, port, path);
+#endif
     url[sizeof(url) - 1] = '\0';
 
-    HINSTANCE ret = ShellExecuteA(0, "open", url, 0, 0, SW_SHOWNORMAL);
-    if ((INT_PTR)ret <= 32)
+    if (!os_open_url(url))
     {
         *errmsg = lib_copy_str(
             "Unable to open the game's start page in a Web browser");
@@ -103,7 +105,6 @@ int guit3_webui_launch_hook(const char *addr, int port, const char *path,
     *errmsg = 0;
     return TRUE;
 }
-#endif
 
 
 /* ------------------------------------------------------------------------ */
