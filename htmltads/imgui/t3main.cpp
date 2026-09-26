@@ -484,8 +484,23 @@ int t3main(int argc, char **argv, struct appctxdef *appctx, char *)
  *
  *   We check to see if the loaded program links the network function set.
  *   If so, we assume it's a Web UI program, and hide the regular HTML TADS
- *   window to avoid clutter.  If the program ends up displaying anything to
- *   the HTML TADS window, the window will automatically unhide itself.
+ *   window to avoid clutter.
+ *
+ *   Note that this must hide the window via CTadsWin::setVisible(), not a
+ *   raw ShowWindow(win->get_handle(), SW_HIDE) (as the legacy Win32 htmlt3
+ *   port did, and as this used to do before this was ported): for the
+ *   top-level main window, get_handle() is only a legacy Win32 HWND kept
+ *   around to parent not-yet-ported native children (banners, scrollbars,
+ *   dialogs) - see CTadsWin::setVisible()'s own comment - and is never
+ *   itself shown on screen either way, so hiding it is a no-op. The window
+ *   actually visible on screen is the separate GLFWwindow (m_window), which
+ *   only setVisible() (via glfwHideWindow()) reaches. Leaving the GLFW
+ *   window shown here meant Web UI games left a visible guit3 window
+ *   sitting on screen that Windows reports as "Not Responding," since
+ *   nothing pumps its message loop while the VM thread blocks in the Web
+ *   UI's own network wait (getNetEvent()) instead of the ordinary
+ *   console-input wait that otherwise drives event_loop()'s
+ *   glfwPollEvents() calls.
  *
  *   Under Emscripten, tads3/emscripten/osemscripten.cpp is also
  *   unconditionally compiled into the shared htmlt3/guit3 web build (one
@@ -498,9 +513,9 @@ int t3main(int argc, char **argv, struct appctxdef *appctx, char *)
 #ifndef __EMSCRIPTEN__
 void os_init_ui_after_load(class CVmBifTable *bif, class CVmMetaTable *)
 {
-    /* 
+    /*
      *   check for Web UI mode - assume it's a Web UI game if the tads-net
-     *   intrinsic functions are loaded 
+     *   intrinsic functions are loaded
      */
     if (bif->get_entry("tads-net") != 0)
     {
@@ -508,7 +523,7 @@ void os_init_ui_after_load(class CVmBifTable *bif, class CVmMetaTable *)
         CHtmlSys_mainwin *win = CHtmlSys_mainwin::get_main_win();
         if (win != 0)
         {
-            ShowWindow(win->get_handle(), SW_HIDE);
+            win->setVisible(false);
             win->set_webui_game(TRUE);
         }
     }

@@ -24,6 +24,12 @@ Modified
 #include <ctype.h>
 
 #ifdef _WIN32
+/*
+ *   WinSock2.h must precede Windows.h, or Windows.h's default inclusion of
+ *   the old winsock.h conflicts with osifcnet.h's WinSock2-based networking
+ *   headers below (see guit3.cpp, which has the same ordering).
+ */
+#include <WinSock2.h>
 #include <Windows.h>
 #include <CommCtrl.h>
 #else
@@ -79,6 +85,10 @@ Modified
 #include "guiwebui.h"
 #endif
 #include "guios.h"
+
+#ifdef _WIN32
+#include "osifcnet.h"
+#endif
 
 
 /* TADS runtime definitions */
@@ -527,6 +537,15 @@ static void run_game(int argc, char** argv,
        the native Win32 common dialog */
     oss_set_askfile_hook(askfile_hook);
 
+#ifdef _WIN32
+    /*
+     *   open Web UI games in the system's default browser rather than the
+     *   classic tadsweb.exe child process, which guit3 doesn't build or
+     *   install alongside itself - see guit3.cpp's guit3_webui_launch_hook()
+     */
+    oss_set_webui_launch_hook(guit3_webui_launch_hook);
+#endif
+
     /* no resource path yet */
     appctx.ext_res_path = 0;
 
@@ -712,9 +731,19 @@ static void run_game(int argc, char** argv,
         ret = os0main2(argc, argv, tadsmain,
                        before_opts, config_file, &appctx);
 
-        /* notify the game window that the game has ended */
-        if (CHtmlSys_mainwin::get_main_win() != 0)
-            CHtmlSys_mainwin::get_main_win()->end_current_game();
+        /*
+         *   Notify the game window that the game has ended - but not for a
+         *   Web UI game, whose window t3main.cpp's os_init_ui_after_load()/
+         *   post-run cleanup (see its own comments) already destroyed
+         *   inside tadsmain() above, on the assumption that the whole
+         *   process is now done. end_current_game() unconditionally
+         *   dereferences main_panel_, which do_destroy() (htmlgui.cpp) has
+         *   already nulled out by this point for that window, so calling it
+         *   here would crash.
+         */
+        CHtmlSys_mainwin *mw = CHtmlSys_mainwin::get_main_win();
+        if (mw != 0 && !mw->is_webui_game())
+            mw->end_current_game();
 
         /* perform appropriate post-quit processing */
         if (!w32_post_quit(ret))

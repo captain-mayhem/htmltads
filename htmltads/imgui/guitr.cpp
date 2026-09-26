@@ -146,25 +146,41 @@ int w32_post_quit(int main_ret_code)
     /* clean up the network layer */
     w32_cleanup();
 
-    /* 
-     *   if a new game has already been selected, return immediately so
-     *   that we can go load it 
+    CHtmlSys_mainwin *win = CHtmlSys_mainwin::get_main_win();
+
+    /*
+     *   A Web UI game's window was already destroyed inside tadsmain()
+     *   (see t3main.cpp's os_init_ui_after_load()/post-run cleanup
+     *   comments) on the assumption that the whole process is done once
+     *   such a game ends - there's no "wait for another game" UI for a
+     *   Web UI session the way there is for the normal interpreter.
+     *   get_main_win() still returns the (now zombie) window object at
+     *   this point, since destroying the HWND doesn't delete the C++
+     *   object, but its main_panel_ has been nulled out by do_destroy()
+     *   (htmlgui.cpp), so touching it further - even just rendering the
+     *   toolbar during wait_for_new_game()'s event_loop() - crashes on a
+     *   null dereference. Terminate immediately instead of proceeding.
      */
-    if (CHtmlSys_mainwin::get_main_win() != 0
-        && CHtmlSys_mainwin::get_main_win()->get_pending_new_game() != 0)
+    if (win != 0 && win->is_webui_game())
+        return FALSE;
+
+    /*
+     *   if a new game has already been selected, return immediately so
+     *   that we can go load it
+     */
+    if (win != 0 && win->get_pending_new_game() != 0)
         return TRUE;
-        
+
     /* if we successfully invoked a game, pause if desired */
-    if (main_ret_code == OSEXSUCC && CHtmlSys_mainwin::get_main_win() != 0)
-        CHtmlSys_mainwin::get_main_win()->pause_after_game_quit();
-    
+    if (main_ret_code == OSEXSUCC && win != 0)
+        win->pause_after_game_quit();
+
     /* wait for the user to quit or select a new game */
-    if (CHtmlSys_mainwin::get_main_win() == 0
-        || !CHtmlSys_mainwin::get_main_win()->wait_for_new_game(TRUE))
+    if (win == 0 || !win->wait_for_new_game(TRUE))
     {
-        /* 
+        /*
          *   they're quitting - return false to indicate that we should
-         *   terminate 
+         *   terminate
          */
         return FALSE;
     }

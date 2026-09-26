@@ -313,6 +313,7 @@ if (WIN32)
 		Wininet.lib
 		Mpr.lib
 		Version.lib
+		Shell32.lib
 	)
 endif()
 

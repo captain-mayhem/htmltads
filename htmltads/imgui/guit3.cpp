@@ -23,6 +23,7 @@ Modified
 #ifdef _WIN32
 #include <WinSock2.h>
 #include <Windows.h>
+#include <ShellApi.h>
 #else
 #include "tadsplat.h"
 #endif
@@ -41,11 +42,12 @@ Modified
 #include "vmerr.h"
 #include "vmimage.h"
 #include "osifcnet.h"
+#include "t3std.h"
 
 
 /* ------------------------------------------------------------------------ */
-/* 
- *   ask the web UI window to yield the foreground 
+/*
+ *   ask the web UI window to yield the foreground
  */
 void w32_webui_yield_foreground()
 {
@@ -63,6 +65,45 @@ void w32_webui_to_foreground()
     osnet_webui_to_foreground();
 #endif
 }
+
+/* ------------------------------------------------------------------------ */
+/*
+ *   Web UI launch hook: open a Web UI game's start page in the system's
+ *   default Web browser.  guit3 has no bundled tadsweb.exe (that's a
+ *   separate executable built only by the classic htmltads targets, and
+ *   even then it lands in a different install/output directory than
+ *   guit3.exe - see win32/osnet-connect.cpp's launch_tadsweb(), which looks
+ *   for tadsweb.exe next to the running executable), so registering this
+ *   hook (see guimain.cpp) replaces that lookup with a plain ShellExecute
+ *   "open" on the URL, which works with whatever browser the user has set
+ *   as their default.
+ *
+ *   This gives up a few things the tadsweb.exe/named-pipe protocol
+ *   provides - see the doc comment on os_webui_launch_hook_t in
+ *   osifcnet.h for the details - but standard Web UI games built on
+ *   lib/webui.t's getInputFile() don't depend on any of them, since that
+ *   code path already has to work without them in client/server mode.
+ */
+#ifdef _WIN32
+int guit3_webui_launch_hook(const char *addr, int port, const char *path,
+                            char **errmsg)
+{
+    char url[1024];
+    _snprintf(url, sizeof(url), "http://%s:%d%s", addr, port, path);
+    url[sizeof(url) - 1] = '\0';
+
+    HINSTANCE ret = ShellExecuteA(0, "open", url, 0, 0, SW_SHOWNORMAL);
+    if ((INT_PTR)ret <= 32)
+    {
+        *errmsg = lib_copy_str(
+            "Unable to open the game's start page in a Web browser");
+        return FALSE;
+    }
+
+    *errmsg = 0;
+    return TRUE;
+}
+#endif
 
 
 /* ------------------------------------------------------------------------ */
