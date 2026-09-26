@@ -5,63 +5,109 @@ endif()
 
 set(base_src
 	tadshtml.cpp
+	tadshtml.h
     tadsrtyp.cpp
     htmlprs.cpp
+    htmlprs.h
     htmltags.cpp
+    htmltags.h
     htmlfmt.cpp
+    htmlfmt.h
     htmldisp.cpp
+    htmldisp.h
     htmlsys.cpp
+    htmlsys.h
     htmltxar.cpp
+    htmltxar.h
     htmlinp.cpp
+    htmlinp.h
     htmljpeg.cpp
+    htmljpeg.h
     htmlrc.cpp
+    htmlrc.h
     htmlrf.cpp
+    htmlrf.h
     htmlhash.cpp
+    htmlhash.h
     htmlplst.cpp
+    htmlplst.h
     oshtml.cpp
     htmlpng.cpp
+    htmlpng.h
 	pngext.c
+	pngext.h
     htmlmng.cpp
+    htmlmng.h
     htmlsnd.cpp
+    htmlsnd.h
 )
 
 if (WIN32)
 	set(base_src
 		${base_src}
 		win32/htmlw32.cpp
+		win32/htmlw32.h
 		win32/w32main.cpp
+		win32/w32main.h
 		win32/w32font.cpp
 		win32/w32font.h
 		win32/w32snd.cpp
+		win32/w32snd.h
 		win32/w32img.cpp
+		win32/w32img.h
 		win32/hos_w32.cpp
+		win32/hos_w32.h
 		win32/tadswin.cpp
+		win32/tadswin.h
 		win32/tadsapp.cpp
+		win32/tadsapp.h
 		win32/tadskb.cpp
+		win32/tadskb.h
 		win32/tadsfont.cpp
+		win32/tadsfont.h
 		win32/tadscar.cpp
+		win32/tadscar.h
 		win32/tadsstat.cpp
+		win32/tadsstat.h
 		win32/htmlpref.cpp
+		win32/htmlpref.h
 		win32/tadsdlg.cpp
+		win32/tadsdlg.h
 		win32/tadsdlg2.cpp
 		win32/tadscbtn.cpp
+		win32/tadscbtn.h
 		win32/tadsreg.cpp
+		win32/tadsreg.h
 		win32/tadsjpeg.cpp
+		win32/tadsjpeg.h
 		win32/tadsimg.cpp
+		win32/tadsimg.h
 		win32/tadspng.cpp
+		win32/tadspng.h
 		win32/tadsmng.cpp
+		win32/tadsmng.h
 		win32/tadssnd.cpp
+		win32/tadssnd.h
 		win32/tadscsnd.cpp
+		win32/tadscsnd.h
 		win32/tadsvorb.cpp
+		win32/tadsvorb.h
 		win32/tadsmidi.cpp
+		win32/tadsmidi.h
 		win32/tadswav.cpp
+		win32/tadswav.h
 		win32/tadsole.cpp
+		win32/tadsole.h
 		win32/oem_w32.c
 		win32/foldsel2.cpp
 		win32/w32fndlg.cpp
+		win32/w32fndlg.h
 		win32/iconmenu.cpp
+		win32/iconmenu.h
 		win32/tadswebctl.cpp
+		win32/tadswebctl.h
 		win32/tadscom.cpp
+		win32/tadscom.h
 	)
 
 	set(mpeg_src
@@ -73,6 +119,7 @@ if (WIN32)
 		mpegamp/huffman.cpp
 		mpegamp/transform.cpp
 		win32/mpegamp/mpegamp_w32.cpp
+		win32/mpegamp/mpegamp_w32.h
 	)
 	
 	set(tr3_base_src
@@ -85,6 +132,7 @@ if (WIN32)
 		win32/w32nogch.cpp
 		win32/w32trt3.cpp
 		win32/t3main.cpp
+		win32/t3main.h
 		win32/w32t3.cpp
 	)
 endif()
@@ -93,6 +141,7 @@ if (EMSCRIPTEN)
 	set(base_src
 		${base_src}
 		emscripten/htmlemscripten.cpp
+		emscripten/htmlemscripten.h
 		emscripten/emfont.cpp
 		emscripten/emfont.h
 		emscripten/emmain.cpp
@@ -218,6 +267,7 @@ trx_target_file(htmlt3 htmlt3_file)
 
 set(xzip_src
     win32/xzip/XZip.cpp
+    win32/xzip/XZip.h
 )
 
 set(tdb_base_src
@@ -227,24 +277,42 @@ set(tdb_base_src
 
     win32/w32nogch.cpp
 	htmldcfg.cpp
+	htmldcfg.h
 	htmldbg.cpp
+	htmldbg.h
 	win32/w32tdb.cpp
+	win32/w32tdb.h
 	win32/tinyxml.cpp
+	win32/tinyxml.h
 	win32/tadshtmldlg.cpp
+	win32/tadshtmldlg.h
 	win32/w32help.cpp
+	win32/w32help.h
 	win32/itadsworkbenchiid.cpp
 	win32/w32sci.cpp
+	win32/w32sci.h
 	win32/tbarmbar.cpp
+	win32/tbarmbar.h
 	win32/mditab.cpp
+	win32/mditab.h
 	win32/tadsifid.c
+	win32/tadsifid.h
 	win32/w32expr.cpp
+	win32/w32expr.h
 	win32/w32bpdlg.cpp
+	win32/w32bpdlg.h
 	win32/w32dbgpr.cpp
+	win32/w32dbgpr.h
 	win32/tadstab.cpp
+	win32/tadstab.h
 	win32/tadsdde.cpp
+	win32/tadsdde.h
 	win32/tadsdock.cpp
+	win32/tadsdock.h
 	win32/w32dbwiz.cpp
+	win32/w32dbwiz.h
 	win32/babelifc.cpp
+	win32/babelifc.h
 )
 
 set(tdbt3_src
@@ -253,8 +321,11 @@ set(tdbt3_src
     htmldb3.cpp
 	htmldc3.cpp
     win32/t3main.cpp
+    win32/t3main.h
     win32/w32prj.cpp
+    win32/w32prj.h
 	win32/w32script.cpp
+	win32/w32script.h
     win32/w32t3.cpp
     win32/w32dbgpr3.cpp
     tadshtml3.cpp

@@ -7,25 +7,42 @@ option(TADS_WEBUI_ENABLED "Enable guit3's embedded Web UI / Game Chest support (
 
 add_executable(guit3
 	../tadshtml.cpp
+	../tadshtml.h
 	../tadsrtyp.cpp
 	../htmlprs.cpp
+	../htmlprs.h
 	../htmltags.cpp
+	../htmltags.h
 	../htmlfmt.cpp
+	../htmlfmt.h
 	../htmldisp.cpp
+	../htmldisp.h
 	../htmlsys.cpp
+	../htmlsys.h
 	../htmltxar.cpp
+	../htmltxar.h
 	../htmlinp.cpp
+	../htmlinp.h
 	../htmljpeg.cpp
+	../htmljpeg.h
 	../htmlrc.cpp
+	../htmlrc.h
 	../htmlrf.cpp
+	../htmlrf.h
 	../htmlhash.cpp
+	../htmlhash.h
 	../htmlplst.cpp
+	../htmlplst.h
 	../oshtml.cpp
 	../htmlpng.cpp
+	../htmlpng.h
 	../pngext.c
+	../pngext.h
 	../htmlmng.cpp
+	../htmlmng.h
 	../htmlsnd.cpp
-	
+	../htmlsnd.h
+
 	../tadshtml3.cpp
 	
 	../mpegamp/misc2.cpp
@@ -47,9 +64,12 @@ add_executable(guit3
 	# miniaudio - single-file cross-platform audio output backend, compiled
 	# straight into guit3 (its only consumer).  See migration.md 3.7.
 	../../miniaudio/miniaudio.c
+	../../miniaudio/miniaudio.h
 
 	htmlgui.cpp
+	htmlgui.h
 	guimain.cpp
+	guimain.h
 
 	# CTadsFont/CHtmlSysFont_win32 (portable - FreeType/ImGui only) + the
 	# os_font_family_is_present()/os_font_data_for_name() platform hooks
@@ -75,16 +95,25 @@ add_executable(guit3
 	# See migration.md 5.4/C and 5.5 (M2/A2).
 	tadssettings.h
 	guisnd.cpp
+	guisnd.h
 	guiimg.cpp
+	guiimg.h
 	hos_gui.cpp
 	tadswin.cpp
+	tadswin.h
 	tadsapp.cpp
 	tadskb.cpp
+	tadskb.h
 	tadsfont.cpp
+	tadsfont.h
 	tadscar.cpp
+	tadscar.h
 	tadsstat.cpp
+	tadsstat.h
 	htmlpref.cpp
+	htmlpref.h
 	tadsdlg.cpp
+	tadsdlg.h
 	tadsfiledlg.h
 	tadsfiledlg.cpp
 	tadsfinddlg.h
@@ -94,16 +123,25 @@ add_executable(guit3
 	tadsfolderdlg.h
 	tadsfolderdlg.cpp
 	tadsjpeg.cpp
+	tadsjpeg.h
 	tadsimg.cpp
+	tadsimg.h
 	tadspng.cpp
+	tadspng.h
 	tadsmng.cpp
+	tadsmng.h
 	tadssnd.cpp
+	tadssnd.h
 	tadscsnd.cpp
+	tadscsnd.h
 	tadsaudiodev.cpp
 	tadsaudiodev.h
 	tadsvorb.cpp
+	tadsvorb.h
 	tadsmidi.cpp
+	tadsmidi.h
 	tadswav.cpp
+	tadswav.h
 	oem_w32.c
 
 	tadsapp.h
@@ -114,6 +152,7 @@ add_executable(guit3
 	guitr.cpp
 	guitrt3.cpp
 	t3main.cpp
+	t3main.h
 	guit3.cpp
 )
 
@@ -132,13 +171,15 @@ if (WIN32)
 	# backing OLE drag-and-drop *source* support - Windows-only until phase
 	# two (migration.md 5.3); get_drag_dataobj() (htmlgui.cpp) just returns
 	# null off Windows instead.
-	target_sources(guit3 PRIVATE tadsole.cpp)
+	target_sources(guit3 PRIVATE tadsole.cpp tadsole.h)
 endif()
 
 if (TADS_WEBUI_ENABLED)
 	target_sources(guit3 PRIVATE
 		tadswebctl.cpp
+		tadswebctl.h
 		tadscom.cpp
+		tadscom.h
 	)
 	target_compile_definitions(guit3 PRIVATE TADS_WEBUI_ENABLED)
 else()
