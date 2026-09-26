@@ -1552,6 +1552,58 @@ which is exactly what stays needed while `TADS_WEBUI_ENABLED` defaults off (ther
 present" implementation in `guit3` yet for the `ON` branch to build instead). `CTadsStatusline::get_handle()`
 was left alone - out of caution, not because it was rechecked.
 
+**Update: the "no portable 'Game Chest present' implementation" gap above is now closed** - real Game
+Chest support was ported into a new `tadschest.cpp`, built (alongside `tadswebctl.cpp`/`tadscom.cpp`) only
+`if (TADS_WEBUI_ENABLED AND WIN32)`; off Windows (or with the flag off) `guinogch.cpp`'s stubs still build,
+unchanged. Turning `TADS_WEBUI_ENABLED` on used to fail to link at all (20 unresolved symbols - every
+`is_game_chest_present()`/`show_game_chest()`/drag-drop/download entry point `guinogch.cpp` stubs out) -
+`win32/w32chest.cpp`, the ~5260-line source for all of it, had simply never been ported. **Turned out to be
+smaller than the "Embedded Web UI" framing above implied**: despite migration.md having always discussed
+Game Chest and the embedded IE ActiveX browser as one bundled decision, they're unrelated in the actual
+legacy code - Game Chest renders as an ordinary HTML page in the game's own text window (the same
+formatter/parser as game text) and never touches `tadswebctl.*`/`guiwebui.h`'s browser control at all. Its
+few dialogs (add/edit favorite, manage groups, a find-and-add wizard, per-download progress) are native,
+self-pumping Win32 modals, not ImGui - exactly like the Options dialog's still-native Safety/NetSafety tabs
+(see the comment atop `CHtmlPreferences::opt_render_gamechest_tab()`, `htmlpref.cpp`) - so `tadschest.cpp`
+ports `w32chest.cpp` nearly verbatim onto the still-compiled `CTadsDialog`/`CTadsDialogPropPage` machinery
+(`tadsdlg.cpp`/`tadsdlg2.cpp`) and the same dialog resources (`DLG_GAME_CHEST_*`/`DLG_DOWNLOAD`, already
+pulled into `guit3` via `win32/htmlt3.rc`'s `#include` of `win32/htmlcmn.rc`), rather than getting a from-
+scratch ImGui UI. Two casualties of the surrounding porting work needed small replacements:
+`CDlgWithProfilePopup`'s profile-name enumeration moved from the removed `tadsreg.h`/`CTadsRegistry` onto
+`CTadsSettings` (same `"...\Profiles"` key `htmlpref.cpp`'s own `opt_refresh_profile_list()` already
+enumerates), and the download dialog's post-download `HKEY_CLASSES_ROOT` file-association check became a
+small direct Win32 registry call (`CTadsSettings` only covers `HKEY_CURRENT_USER`). `foldsel2.cpp`
+(`CTadsDialogFolderSel2`, the wizard's folder-browse page) was reactivated as a local copy inside `imgui/`
+rather than referenced from `win32/` in place or replaced with the ImGui `CTadsFolderDialog` - the latter
+has no blocking entry point, so it can't be called synchronously from a native dialog's `WM_COMMAND`
+handler the way the old folder-select dialog can; a same-named `win32/tadsdlg.h` sitting next to it in
+`win32/` would otherwise have won a bare `#include "tadsdlg.h"`'s same-directory search over the real
+(ImGui-era) `imgui/tadsdlg.h`, silently linking against an incompatible `CTadsDialog` - confirmed the hard
+way (a real `LNK2001` on `CTadsDialog::do_dialog_msg`) before the file was moved.
+
+**Verified**: builds and links clean with `TADS_WEBUI_ENABLED=ON` on Windows (previously 20 unresolved
+symbols), and the default (`OFF`) build is unaffected. Ran `guit3.exe` against `tests/ditch3.t3`: `Go ->
+Game Chest` now shows in the menu (previously hidden, since `is_game_chest_present()` returned `FALSE`);
+clicking it raises the expected "quit current game?" confirmation, then renders a real "My Game Chest" HTML
+page - welcome banner, a Most-Recent-Stories list built from actual play history (with working "add to
+favorites" links for anything not yet favorited), and empty Favorite-Stories/Web-Sites sections with their
+first-run tips. Not click-tested in this pass: adding/editing/removing a favorite, the Manage Groups dialog,
+the find-and-add wizard, and an actual file download (needs a live URL) - these reuse native dialog/thread
+code carried over essentially unchanged from `w32chest.cpp`, so they're lower-risk, but still unverified
+under this build. **`CTadsFileDialog`'s Game Chest-tab nesting bug flagged back in §3.3d/M5's "worth doing
+out of band" note is still open** - this pass didn't touch or re-check it.
+
+**Known gap, by design**: file downloads (dragging a story-file URL onto the window, or the web-site
+Add-a-download flow) stay Windows-only - WinInet + a raw `CreateThread`, ported unchanged from
+`w32chest.cpp` - matching the `TADS_WEBUI_ENABLED` option's own pre-existing description
+("Windows-only, unimplemented off Windows"). No portable (e.g. libcurl-backed) download path was added.
+
+**Note for future work**: `TADS_WEBUI_ENABLED` now gates two logically independent features under one
+flag - Game Chest (done, this update) and the embedded IE ActiveX Web UI browser (`tadswebctl.*`/
+`tadscom.*`, still not ported, still phase two per §4). Splitting them into separate CMake options would be
+the cleaner long-term shape, but wasn't done here to keep this change minimal - flipping
+`TADS_WEBUI_ENABLED` today gets you a working Game Chest and a non-functional browser stub, same as before.
+
 ### 5.5 Suggested order
 
 **M1 — shrink the surface (no new platform code, Windows build unchanged).** Drop the dead files (§5.3,

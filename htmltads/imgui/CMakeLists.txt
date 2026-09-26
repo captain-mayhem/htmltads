@@ -182,6 +182,45 @@ if (TADS_WEBUI_ENABLED)
 		tadscom.h
 	)
 	target_compile_definitions(guit3 PRIVATE TADS_WEBUI_ENABLED)
+
+	if (WIN32)
+		# Game Chest (favorites/library manager) - see migration.md 5.4/O.
+		# Ported from win32/w32chest.cpp, and logically independent of the
+		# embedded IE Web UI browser this flag was originally introduced
+		# for (tadswebctl.cpp/tadscom.cpp above) - the two features just
+		# happen to share this one build flag for now. Game Chest's own UI
+		# renders as an HTML page (via the ordinary HTML formatter/parser)
+		# plus a handful of native, self-pumping Win32 modal dialogs, not
+		# ImGui - see tadschest.cpp's own header comment - so it stays
+		# Windows-only, same as the browser half of this flag. Its dialog
+		# resources (DLG_GAME_CHEST_*, DLG_DOWNLOAD) are already compiled
+		# in via win32/htmlt3.rc's #include of win32/htmlcmn.rc above.
+		#
+		# foldsel2.cpp (the native folder-browse dialog used by the
+		# find-and-add wizard's root-folder page) is reactivated here
+		# rather than replaced with the ImGui CTadsFolderDialog, which has
+		# no blocking entry point and so can't be called synchronously from
+		# this dialog's WM_COMMAND handler the way
+		# CTadsDialogFolderSel2::run_select_folder() can; left compiled but
+		# unused everywhere else, same "harmless dead code" bucket as
+		# tadsdlg.cpp/tadsdlg2.cpp. Copied into this directory (rather than
+		# referenced as ../win32/foldsel2.cpp) rather than built from
+		# win32/ in place, because its quote-included "tadsdlg.h" must
+		# resolve to *this* directory's ImGui-era CTadsDialog - a source
+		# file physically under win32/ would instead pick up win32/tadsdlg.h
+		# (found first via same-directory quote-include resolution), an
+		# incompatible class of the same name, and fail to link.
+		target_sources(guit3 PRIVATE
+			tadschest.cpp
+			foldsel2.cpp
+			foldsel.h
+			foldselr.h
+		)
+	else()
+		# no real (Windows-only) Game Chest port off Windows yet - fall
+		# back to the same no-op stubs the flag's OFF branch below uses
+		target_sources(guit3 PRIVATE guinogch.cpp)
+	endif()
 else()
 	# no-op Game Chest stubs, used whenever the real (Web UI-dependent)
 	# implementation isn't built in - see migration.md 5.4/O
