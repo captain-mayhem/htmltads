@@ -1,0 +1,146 @@
+<!doctype html>
+<!--
+  Service Worker feasibility spike - webui-emscripten-plan.md step 1.
+  See README.md in this folder for what this checks and why.
+
+  Every result also goes to console.log with a "SPIKE:" prefix, and the whole run
+  finishes with a single "SPIKE:DONE <json>" line, so a headless run (no human watching
+  DevTools) can still capture the outcome by scraping stdout/the rendered DOM.
+-->
+<html>
+<head>
+<meta charset="utf-8">
+<title>webui-sw-spike</title>
+</head>
+<body>
+<h1>WebUI Service Worker feasibility spike</h1>
+<p>See <code>README.md</code> for what each check answers.</p>
+<pre id="results">running...</pre>
+<iframe id="childframe" src="child.html" style="width:1px;height:1px;border:0"></iframe>
+
+<script>
+const log = (...args) => console.log("SPIKE:", ...args);
+
+function loadImage(src) {
+    return new Promise((resolve) => {
+        const img = new Image();
+        img.onload = () => resolve({ ok: true, w: img.naturalWidth, h: img.naturalHeight });
+        img.onerror = () => resolve({ ok: false });
+        img.src = src;
+    });
+}
+
+function waitForChildFrame(frame) {
+    return new Promise((resolve) => {
+        if (frame.contentWindow && frame.contentWindow.childXhrTest) return resolve();
+        frame.addEventListener("load", () => resolve(), { once: true });
+    });
+}
+
+async function main() {
+    const results = {};
+
+    // --- Q4: is the very first load already controlled by the worker? ---
+    results.controllerOnFirstLoad = navigator.serviceWorker.controller !== null;
+    log("controllerOnFirstLoad", results.controllerOnFirstLoad);
+
+    // --- baseline: did the server's COOP/COEP headers actually isolate this page? ---
+    results.crossOriginIsolated = self.crossOriginIsolated === true;
+    log("crossOriginIsolated", results.crossOriginIsolated);
+
+    if (!("serviceWorker" in navigator)) {
+        results.serviceWorkerSupported = false;
+        finish(results);
+        return;
+    }
+    results.serviceWorkerSupported = true;
+
+    let reg;
+    try {
+        reg = await navigator.serviceWorker.register("service-worker.js", { scope: "./" });
+        log("registered", reg.scope);
+    } catch (e) {
+        results.registerError = String(e);
+        log("register failed", e);
+        finish(results);
+        return;
+    }
+
+    await navigator.serviceWorker.ready;
+    // Give clients.claim() a moment to take effect on this already-open tab.
+    await new Promise((r) => setTimeout(r, 250));
+    results.controllerAfterActivate = navigator.serviceWorker.controller !== null;
+    log("controllerAfterActivate", results.controllerAfterActivate);
+
+    // --- Q1/Q2: fetch() intercepted, and does the synthesized response survive COEP? ---
+    try {
+        const resp = await fetch("/webui-sw-spike/api/echo", { method: "POST", body: "hi" });
+        const body = await resp.json();
+        results.fetchTest = { ok: true, status: resp.status, fromWorker: body.fromWorker === true };
+    } catch (e) {
+        results.fetchTest = { ok: false, error: String(e) };
+    }
+    log("fetchTest", results.fetchTest);
+
+    // --- Q1: plain XHR ---
+    results.xhrTest = await new Promise((resolve) => {
+        const xhr = new XMLHttpRequest();
+        xhr.open("POST", "/webui-sw-spike/api/echo");
+        xhr.onload = () => {
+            try {
+                resolve({ ok: true, status: xhr.status, fromWorker: JSON.parse(xhr.responseText).fromWorker === true });
+            } catch (e) {
+                resolve({ ok: false, error: String(e) });
+            }
+        };
+        xhr.onerror = () => resolve({ ok: false, error: "xhr error event" });
+        xhr.send("hi");
+    });
+    log("xhrTest", results.xhrTest);
+
+    // --- Q1: <img src> ---
+    results.imgTest = await loadImage("/webui-sw-spike/api/pixel.gif?" + Date.now());
+    log("imgTest", results.imgTest);
+
+    // --- Q3: request issued from inside a same-origin child iframe under our scope ---
+    const childFrame = document.getElementById("childframe");
+    await waitForChildFrame(childFrame);
+    try {
+        results.childIframeTest = await childFrame.contentWindow.childXhrTest();
+    } catch (e) {
+        results.childIframeTest = { ok: false, error: String(e) };
+    }
+    log("childIframeTest", results.childIframeTest);
+
+    // --- Q1: sendBeacon (fire-and-forget; poll the worker's log to see if it arrived) ---
+    const beaconSent = navigator.sendBeacon
+        ? navigator.sendBeacon("/webui-sw-spike/api/beacon", "beacon payload")
+        : false;
+    results.beaconSentReturnValue = beaconSent;
+    await new Promise((r) => setTimeout(r, 300));
+    try {
+        const resp = await fetch("/webui-sw-spike/api/beacon-log");
+        const beaconLog = await resp.json();
+        results.beaconReachedWorker = beaconLog.length > 0;
+    } catch (e) {
+        results.beaconReachedWorker = false;
+        results.beaconLogError = String(e);
+    }
+    log("beaconSentReturnValue", results.beaconSentReturnValue, "beaconReachedWorker", results.beaconReachedWorker);
+
+    finish(results);
+}
+
+function finish(results) {
+    const json = JSON.stringify(results, null, 2);
+    document.getElementById("results").textContent = json;
+    console.log("SPIKE:DONE", json);
+}
+
+main().catch((e) => {
+    document.getElementById("results").textContent = "FATAL: " + e;
+    console.log("SPIKE:DONE", JSON.stringify({ fatal: String(e) }));
+});
+</script>
+</body>
+</html>

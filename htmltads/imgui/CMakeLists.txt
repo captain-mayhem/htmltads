@@ -356,7 +356,35 @@ if (EMSCRIPTEN)
 	# the fgets/fflush/getchar --wrap flags are kept even though guit3 itself
 	# doesn't call the wrapped functions, since it links the same t3htm
 	# static lib (compiled with those wrap targets in mind) htmlt3 does.
-	set_target_properties(guit3 PROPERTIES LINK_FLAGS "-s ASSERTIONS=1 -s WASM=1 -s USE_GLFW=3 -s FULL_ES3=1 -s USE_WEBGL2=1 -s ASYNCIFY -s ASYNCIFY_IMPORTS=_emscripten_receive_on_main_thread_js -s FORCE_FILESYSTEM -s ALLOW_MEMORY_GROWTH=1 -s INITIAL_MEMORY=256MB -s SAFE_HEAP=1 -lwebsocket.js -pthread -Wl,--wrap=fgets,--wrap=fflush,--wrap=getchar")
+	# -s EXPORTED_RUNTIME_METHODS=['ccall','cwrap']: exposes Module.ccall()/
+	# cwrap() so JS can drive the WebUI loopback transport's exported
+	# osu_loop_*() functions (tads3/emscripten/osnetloop.h) - see
+	# webui-emscripten-plan.md step 3/4. Those functions are themselves
+	# EMSCRIPTEN_KEEPALIVE'd so they survive dead-code elimination without
+	# needing an explicit EXPORTED_FUNCTIONS list here too.
+	#
+	# -s PTHREAD_POOL_SIZE=4: without this, Emscripten only spawns Worker
+	# threads for pthread_create() on demand, and doing that from within an
+	# already-running thread (rather than the browser's main JS thread)
+	# doesn't work reliably - confirmed the hard way running the step 3
+	# end-to-end test: opening a WebUI HTTPServer needs a listener thread,
+	# then a further server thread per accepted connection
+	# (TadsListenerThread/TadsServerThread, vmnet.h), and without a
+	# pre-allocated pool this failed outright with Emscripten's own "Tried
+	# to spawn a new thread, but the thread pool is exhausted."
+	#
+	# The pool is pre-spawned - and each worker loads its own copy of the
+	# wasm module - before the runtime is considered initialized, so a
+	# bigger number directly costs startup latency: 8 was tried first and
+	# made the runtime never finish initializing within a headless test's
+	# patience (each worker instantiating a ~7MB module under
+	# swiftshader-emulated GL software rendering is not fast). 4 is enough
+	# for the step 3 test's single connection plus guit3's own non-WebUI
+	# threads (e.g. audio) with acceptable startup cost; revisit upward
+	# only if a real game needs more concurrent WebUI connections than
+	# that, and reconsider lazy/on-demand growth as an alternative to a
+	# large fixed pool if so.
+	set_target_properties(guit3 PROPERTIES LINK_FLAGS "-s ASSERTIONS=1 -s WASM=1 -s USE_GLFW=3 -s FULL_ES3=1 -s USE_WEBGL2=1 -s ASYNCIFY -s ASYNCIFY_IMPORTS=_emscripten_receive_on_main_thread_js -s FORCE_FILESYSTEM -s ALLOW_MEMORY_GROWTH=1 -s INITIAL_MEMORY=256MB -s SAFE_HEAP=1 -s EXPORTED_RUNTIME_METHODS=['ccall','cwrap'] -s PTHREAD_POOL_SIZE=4 -lwebsocket.js -pthread -Wl,--wrap=fgets,--wrap=fflush,--wrap=getchar")
 
 	# Manual browser test page for guit3-under-Emscripten (migration.md 5.7
 	# left runtime behavior completely unverified). Wired up the same way
@@ -377,6 +405,15 @@ if (EMSCRIPTEN)
 	# just per-directory - the packaged path (ditch3.t3, after the "@") is
 	# what guit3.html and guit3's own argv actually reference.
 	em_package(ditch3game ${CMAKE_SOURCE_DIR}/tests/ditch3.t3@ditch3.t3)
+
+	# Packages tests/Webtest.t3 (the WebUI test game - see
+	# webui-emscripten-plan.md, its step 3's end-to-end verification test
+	# loads this) into guit3's virtual filesystem the same way and for the
+	# same reason as ditch3game just above: a test-only asset, packaged
+	# separately (its own .data/.js pair, distinct em_package() target name)
+	# so it doesn't have to be baked into ditch3game's package or guit3
+	# itself doesn't have to depend on it.
+	em_package(webuitest ${CMAKE_SOURCE_DIR}/tests/Webtest.t3@Webtest.t3)
 
 	# Packages the standard Dear ImGui sample fonts (../../imgui/misc/fonts -
 	# see that directory's README.txt for the list and licenses) into their

@@ -1,0 +1,29 @@
+<!doctype html>
+<!--
+  Loaded in a same-origin iframe by index.html, to check whether a Service Worker
+  registered by the top-level page (scope /webui-sw-spike/) also intercepts requests
+  issued from inside this child frame - mirrors util.js's "create the XHR inside a
+  helper iframe" trick the real WebUI client uses. See README.md question 3.
+-->
+<html>
+<head><meta charset="utf-8"><title>spike child frame</title></head>
+<body>
+<script>
+function childXhrTest() {
+    return new Promise((resolve) => {
+        const xhr = new XMLHttpRequest();
+        xhr.open("POST", "/webui-sw-spike/api/echo");
+        xhr.onload = () => {
+            try {
+                resolve({ ok: true, status: xhr.status, body: JSON.parse(xhr.responseText) });
+            } catch (e) {
+                resolve({ ok: false, status: xhr.status, error: String(e) });
+            }
+        };
+        xhr.onerror = () => resolve({ ok: false, error: "xhr error event" });
+        xhr.send("hello from child iframe");
+    });
+}
+</script>
+</body>
+</html>

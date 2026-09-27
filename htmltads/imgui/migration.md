@@ -3209,6 +3209,75 @@ is currently unreachable because it is guarded on
 `ImGui::NewFrame()`, where `CurrentWindow` is always null. If drag-scrolling is ever wired up for real, that
 coordinate path needs rewriting against `io.MousePos` first.
 
+### 5.22 WebUI games under Emscripten — plan started, JS spike in progress
+
+`guit3_webui_launch_hook()` (`guit3.cpp`) opens a WebUI game's start page via `os_open_url()`, which assumes
+a real OS browser talking to a real TCP loopback socket the VM's HTTP server thread listens on. Under
+Emscripten, `guit3` itself is already running inside a browser tab as wasm with no OS sockets, so that
+model can't work as-is - but a real network isn't needed either, since both ends are in the same browser.
+Worked out a plan to replace the transport with a Service Worker that intercepts the WebUI client's
+requests (XHR, `img`, iframes, `sendBeacon`, forms - not just one API, hence a Service Worker rather than a
+monkey-patch) and feeds them to the VM through a small in-memory loopback `OS_Listener`/`OS_Socket`
+implementation, so `vmnet.cpp`/`vmhttpreq.cpp`/`lib/webui.t` and every existing WebUI game stay untouched.
+Full writeup, architecture diagram, the main-thread-blocking-wait blocker that has to be fixed first, and
+the alternatives ruled out: [webui-emscripten-plan.md](webui-emscripten-plan.md).
+
+**Step 1 (JS-only Service Worker spike) is done, and found no blocker** - see
+[emscripten/webui-sw-spike/README.md](emscripten/webui-sw-spike/README.md) for the full results. Ran
+headless against a local static server that mimics `guit3.html`'s COOP/COEP headers: `fetch`, XHR, `<img>`,
+a same-origin child-iframe XHR, and `sendBeacon` were all intercepted by the worker and answered with
+synthesized responses without being blocked by cross-origin isolation (they need an explicit
+`Cross-Origin-Resource-Policy` header, which the plan already assumed); `clients.claim()` in the worker's
+`activate` handler took over the *already-open* tab in ~250ms with no reload needed. Plan step 2 (the main-thread blocking-wait fix in `osnetunix.h`) is now implemented too: `OS_Event::evt_wait()`
+polls via `emscripten_sleep()` instead of blocking on `pthread_cond_wait`/`timedwait`, gated on
+`emscripten_is_main_browser_thread()` so it only changes behavior for `guit3`'s own main thread, never for a
+real pthread Worker. Verified two ways: a full native Linux build of `t3core` (WSL) compiles clean with the
+change a no-op outside `__EMSCRIPTEN__`; and a real Emscripten build of `guit3` itself (emsdk installed at
+`C:\Projects\emsdk` - Windows build, its `emsdk` script is CRLF-only and won't run under WSL bash) compiles,
+links, and, driven headless against its packaged `ditch3.t3`, runs its normal render loop for ~25s with no
+crash or uncaught exception. That's a real no-regression check on ordinary startup, not a test of the new
+poll-wait branch actually firing - `ditch3.t3` never touches networking, so nothing exercises
+`getNetEvent()` yet; that needs step 3's loopback transport to have a real code path to run through. See
+`webui-emscripten-plan.md`'s Progress section for the full details. Step 3 (the loopback `OS_Listener`/
+`OS_Socket` transport) is next.
+
+Step 3 (the loopback `OS_Listener`/`OS_Socket` transport, `tads3/emscripten/osnetloop.{h,cpp}`) is
+implemented and compiles/links clean both natively and under the real Emscripten toolchain, and it surfaced
+three real gaps that are now fixed: the loopback transport's availability had to become a compile-time
+`T3_COMPILING_FOR_HTML` default rather than a JS-driven runtime registration (a game opens its `HTTPServer`
+before any JS call can safely enter the module — even `Module.preRun` trips Emscripten's
+"called before runtime initialization" assertion); `guit3` needed `-s PTHREAD_POOL_SIZE` at all (serving
+WebUI needs a listener thread plus one server thread per connection, and on-demand Worker spawning from a
+non-main thread fails with "thread pool is exhausted"); and `PTHREAD_POOL_SIZE=8` made runtime init too slow
+(pre-spawned workers each instantiate their own ~7MB module copy), so it's 4. A full live HTTP round-trip
+through a real game's `HTTPServer` is **not** confirmed yet — see `webui-emscripten-plan.md`'s Progress
+section for exactly how far the throwaway `step3-test.html` harness gets, and for the honest caveat that much
+of that investigation was confounded by a test-orchestration mistake (shell-level `&` backgrounding made
+"task complete" mean "launcher exited", so retries stacked several live Chrome + worker-pool instances
+competing for CPU).
+
+**Testing note worth keeping**: when driving headless Chrome from a tool that reports background-command
+completion, do not background the browser with a shell-level `&` — the completion signal then describes the
+launcher, not the browser, and it is very easy to start "one more attempt" while two or three previous full
+Chrome instances (each with a wasm worker pool) are still running and starving each other of CPU. Let the
+tool track the browser process itself, and check `Get-Process chrome` before concluding anything about
+timing. Also: guit3 under headless Chrome renders through swiftshader (software GL), so its continuous frame
+loop is CPU-bound and much slower than on a real GPU — budget accordingly, or test non-headless.
+
+**Environment note for next time**: `C:\Projects\emsdk` is a Windows-side emsdk checkout (`emsdk.bat`/
+`emsdk_env.ps1`), not a Linux one - its `emsdk`/`emsdk_env.sh` shell scripts have CRLF line endings and fail
+with a syntax error if run under WSL bash. Activate it from PowerShell (`. .\emsdk_env.ps1`) and build with
+the repo's `emscripten` CMake preset from there; don't try to `dos2unix` the scripts or install a second
+emsdk under WSL to work around it.
+
+**Gotcha hit while running the spike, worth remembering for next time**: launching a real browser binary
+directly (e.g. `chrome.exe --version` as a quick sanity check, with no `--user-data-dir`) does not behave
+like a CLI tool in this environment - it silently launches a full interactive browser window on the user's
+own default profile instead of printing a version string and exiting, and that window sits there running
+(blocking whatever spawned it) until something closes it. Always pass an explicit, disposable
+`--user-data-dir` *and* `--no-remote` to every invocation of a real browser binary, including a bare
+`--version` check, and treat "did this actually exit" as something to verify rather than assume.
+
 
 ## 6. Working notes for a fresh session
 
