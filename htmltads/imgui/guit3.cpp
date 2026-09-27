@@ -44,6 +44,10 @@ Modified
 #include "osifcnet.h"
 #include "t3std.h"
 
+#ifdef __EMSCRIPTEN__
+#include <emscripten/emscripten.h>
+#endif
+
 
 /* ------------------------------------------------------------------------ */
 /*
@@ -87,6 +91,30 @@ void w32_webui_to_foreground()
 int guit3_webui_launch_hook(const char *addr, int port, const char *path,
                             char **errmsg)
 {
+#ifdef __EMSCRIPTEN__
+    /*
+     *   Under Emscripten the "server" is the in-memory loopback transport
+     *   (tads3/emscripten/osnetloop.h), not a real socket, so there's no
+     *   URL a browser could open - and os_open_url() can't work here
+     *   anyway (it fork()s, which always fails in wasm). Returning failure
+     *   would make connectWebUI() throw and the game shut its HTTPServer
+     *   straight back down. Instead, just hand the loopback port and start
+     *   page path to JS: Module.webuiLaunch records them, and an optional
+     *   Module.onWebUILaunch(port, path) callback lets the page react (the
+     *   future Service Worker bridge/overlay iframe - see step 6 of
+     *   webui-emscripten-plan.md).
+     */
+    (void)addr;
+    MAIN_THREAD_EM_ASM({
+        var path = UTF8ToString($1);
+        Module['webuiLaunch'] = ({ port: $0, path: path });
+        if (typeof Module['onWebUILaunch'] === 'function')
+            Module['onWebUILaunch']($0, path);
+    }, port, path);
+
+    *errmsg = 0;
+    return TRUE;
+#else
     char url[1024];
 #ifdef _WIN32
     _snprintf(url, sizeof(url), "http://%s:%d%s", addr, port, path);
@@ -104,6 +132,7 @@ int guit3_webui_launch_hook(const char *addr, int port, const char *path,
 
     *errmsg = 0;
     return TRUE;
+#endif
 }
 
 

@@ -111,7 +111,8 @@ This has to be step 2, before any of the transport plumbing, or nothing downstre
   confirms **no regression to ordinary startup**, not the new poll-wait branch actually firing - that still
   needs step 3+ (the loopback transport) before there's a real code path that calls it on Emscripten.
 
-- **Step 3 (loopback transport) — implemented; compiles and links, live round-trip not yet confirmed.**
+- **Step 3 (loopback transport) — done; live round-trip confirmed** (see "Step 3 stall: root causes and
+  fixes" below, which supersedes the "not yet confirmed" paragraph at the end of this entry).
   New `tads-runner/tads3/emscripten/osnetloop.{h,cpp}` holds the whole transport: a listener table (with
   accept queues and auto-assigned ports from the dynamic range), a connection table with a growable byte
   queue per direction, one coarse global mutex, and a small `extern "C"` JS-facing API
@@ -157,6 +158,41 @@ This has to be step 2, before any of the transport plumbing, or nothing downstre
   that harness in a non-headless browser (or with real GPU/more patience), where continuous rendering isn't
   software-rasterized, and find out whether the listener ever appears.** Do not assume the transport is
   broken on this evidence — and do not assume it works, either.
+
+  **Step 3 stall: root causes and fixes.** It was not rendering speed. Temporary `fprintf(stderr)` tracing in
+  `osnetloop.cpp` (plus relinking with `CMAKE_EXE_LINKER_FLAGS=--profiling-funcs` to get function names in
+  wasm stack traces — remember to clear it again afterwards) showed three real bugs, found one behind the
+  other:
+  1. **The listener was closed again right after opening.** `guit3_webui_launch_hook()` called
+     `os_open_url()`, which `fork()`s — always a failure in wasm — so the hook returned FALSE,
+     `connectWebUI()` threw, and the game shut its `HTTPServer` down before JS could connect. The harness
+     just saw "no listener on port 49152" forever. The hook now has an `__EMSCRIPTEN__` branch that opens
+     nothing and publishes `Module.webuiLaunch = {port, path}` (and calls an optional
+     `Module.onWebUILaunch(port, path)`), which is the natural hand-off point for step 6.
+  2. **Server thread crashed (SAFE_HEAP alignment fault) on socket teardown.** Upstream latent bug:
+     `OS_CoreSocket(int s)` never initialized `mon_thread` (only the default constructor does). Real
+     sockets always overwrite it in `set_non_blocking()`, so it never showed; loopback sockets skip that, so
+     `~OS_CoreSocket()` → `close()` dereferenced garbage. Fixed by initializing it in that constructor.
+  3. **The whole reply was thrown away.** The VM writes the full reply, then (for `Connection: close`)
+     closes the socket immediately, and `osu_loop_close()` freed the slot including the unread reply.
+     Connections now half-close like TCP: `vm_closed`/`js_closed` flags, reply bytes stay pullable after a
+     VM close, the slot is freed only when both ends have closed, and new `osu_loop_is_closed()` lets JS
+     detect end-of-stream. **JS must call `osu_loop_end_conn()` exactly once per connection** or the slot
+     leaks.
+
+  Also fixed while in there: a lost-wakeup race. `OS_Listener::accept()`/`OS_Socket::recv()` reset
+  `ready_evt` *after* `osu_loop_accept()`/`osu_loop_recv()` released the transport lock, so a JS
+  `new_conn`/`push` landing in between would be lost and the listener/server thread would sleep forever. The
+  reset now happens inside those functions under the lock, and `new_conn`/`push`/`end_conn` signal under the
+  lock too (lock order: `g_loop_mutex`, then the event's own mutex). `guit3` also now exports
+  `_malloc`/`_free`/`HEAPU8`, which JS needs to copy reply bytes out of `osu_loop_pull()`'s wasm-heap buffer
+  (the harness failed with `Module._malloc is not a function` once it finally got that far).
+
+  Result: the harness (headless Chrome, swiftshader, `tests/Webtest.t3`) gets `HTTP/1.1 200 OK` with the
+  complete 7550-byte WebUI start page, `osu_loop_is_closed() == 1`, no abort, in well under 30s. The harness
+  itself still only lives in `build/emscripten/.../step3-test.html` (unversioned); it now waits for
+  `Module.webuiLaunch` instead of guessing port 49152, sends the real start-page path, and reads until
+  close.
 
 ## Plan
 

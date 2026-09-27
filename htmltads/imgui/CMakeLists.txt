@@ -361,7 +361,10 @@ if (EMSCRIPTEN)
 	# osu_loop_*() functions (tads3/emscripten/osnetloop.h) - see
 	# webui-emscripten-plan.md step 3/4. Those functions are themselves
 	# EMSCRIPTEN_KEEPALIVE'd so they survive dead-code elimination without
-	# needing an explicit EXPORTED_FUNCTIONS list here too.
+	# needing to be listed here. What JS additionally needs to copy reply
+	# bytes back out (osu_loop_pull() writes into a wasm-heap buffer) is
+	# _malloc/_free plus the HEAPU8 view, hence EXPORTED_FUNCTIONS (which
+	# must then name _main explicitly) and HEAPU8 in EXPORTED_RUNTIME_METHODS.
 	#
 	# -s PTHREAD_POOL_SIZE=4: without this, Emscripten only spawns Worker
 	# threads for pthread_create() on demand, and doing that from within an
@@ -384,7 +387,7 @@ if (EMSCRIPTEN)
 	# only if a real game needs more concurrent WebUI connections than
 	# that, and reconsider lazy/on-demand growth as an alternative to a
 	# large fixed pool if so.
-	set_target_properties(guit3 PROPERTIES LINK_FLAGS "-s ASSERTIONS=1 -s WASM=1 -s USE_GLFW=3 -s FULL_ES3=1 -s USE_WEBGL2=1 -s ASYNCIFY -s ASYNCIFY_IMPORTS=_emscripten_receive_on_main_thread_js -s FORCE_FILESYSTEM -s ALLOW_MEMORY_GROWTH=1 -s INITIAL_MEMORY=256MB -s SAFE_HEAP=1 -s EXPORTED_RUNTIME_METHODS=['ccall','cwrap'] -s PTHREAD_POOL_SIZE=4 -lwebsocket.js -pthread -Wl,--wrap=fgets,--wrap=fflush,--wrap=getchar")
+	set_target_properties(guit3 PROPERTIES LINK_FLAGS "-s ASSERTIONS=1 -s WASM=1 -s USE_GLFW=3 -s FULL_ES3=1 -s USE_WEBGL2=1 -s ASYNCIFY -s ASYNCIFY_IMPORTS=_emscripten_receive_on_main_thread_js -s FORCE_FILESYSTEM -s ALLOW_MEMORY_GROWTH=1 -s INITIAL_MEMORY=256MB -s SAFE_HEAP=1 -s EXPORTED_RUNTIME_METHODS=['ccall','cwrap','HEAPU8'] -s EXPORTED_FUNCTIONS=['_main','_malloc','_free'] -s PTHREAD_POOL_SIZE=4 -lwebsocket.js -pthread -Wl,--wrap=fgets,--wrap=fflush,--wrap=getchar")
 
 	# Manual browser test page for guit3-under-Emscripten (migration.md 5.7
 	# left runtime behavior completely unverified). Wired up the same way
