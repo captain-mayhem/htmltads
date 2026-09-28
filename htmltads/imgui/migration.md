@@ -3277,6 +3277,14 @@ including guit3's own `/webui/...` fetches, goes to the network. Webtest's WebUI
 game (opening text in the command window, status line filled in). The routing table's durable copy lives
 in the bridge, because the browser can restart a Service Worker at any time. See the plan's step 5 entry.
 
+Step 6 is done: `guit3.html` hosts a WebUI game in a full-page overlay iframe with a title bar and a close
+button. The page stays visible, so it isn't timer-throttled. The Service Worker makes the framed WebUI main
+page its own `window.parent`, a `[Replaceable]` attribute, which keeps the library's window-tree walks
+inside the frame. Closing the overlay calls the exported `osnet_webui_closed()`, which posts
+`TadsUICloseEvent`, and the game ends as it does natively. `guit3.html?game=webtest` runs the WebUI test
+game. Verified end-to-end, including typing a command and getting the game's reply; see the plan's step 6
+entry.
+
 **Testing note worth keeping**: when driving headless Chrome from a tool that reports background-command
 completion, do not background the browser with a shell-level `&` — the completion signal then describes the
 launcher, not the browser, and it is very easy to start "one more attempt" while two or three previous full

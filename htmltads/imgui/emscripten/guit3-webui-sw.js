@@ -72,6 +72,24 @@ try{if(w&&!w.__guit3XhrShim){var F=w.XMLHttpRequest;w.__guit3XhrShim=true;
 w.XMLHttpRequest=function(){var u=w.location.href;return(u==="about:blank"||u===window.location.href)?new P():new F();};}}catch(e){}
 return w;}});})();</script>`;
 
+/*
+ *   Also injected, ahead of FRAME_XHR_SHIM, into the WebUI start page when
+ *   guit3 hosts it in its overlay <iframe> (plan step 6) rather than a tab.
+ *
+ *   The WebUI library assumes its main page is the top-level window: every
+ *   walk of its window tree (util.js's $win(), utilInit()'s
+ *   window.parent.pathFromWindow(), setDefaultFocus(), popupCloser(),
+ *   debugLog()) climbs window.parent until it reaches a window that is its
+ *   own parent, and expects that to be the main page. Framed by guit3.html
+ *   it would climb right out into guit3's page and fail (step 4 finding 6).
+ *   Window.parent is a [Replaceable] attribute, so the main page can simply
+ *   become its own parent: every walk - including those from its subwindow
+ *   frames, which read the main page's parent property - then stops where
+ *   the library expects. Window.top is left alone; the library never uses
+ *   it.
+ */
+const HOSTED_START_SHIM = "<script>/* guit3 WebUI: see guit3-webui-sw.js */window.parent=window;</script>";
+
 /* statuses whose Response must have a null body (the constructor throws otherwise) */
 const NULL_BODY_STATUS = new Set([101, 103, 204, 205, 304]);
 
@@ -256,8 +274,13 @@ function serve(event, bridgeId, url) {
 function reply(req, url, bridgeId, resultingClientId, done) {
     let r;
     if (req.mode === "navigate") {
+        const b = bridges.get(bridgeId);
+        const hostedStart = req.destination === "iframe"
+            && b.launch.has(url.pathname + url.search)
+            && !b.docs.has(req.referrer);
         adopt(bridgeId, resultingClientId, url);
-        r = relayToVM(req, url, bridgeId, done).then(injectShim);
+        const shim = (hostedStart ? HOSTED_START_SHIM : "") + FRAME_XHR_SHIM;
+        r = relayToVM(req, url, bridgeId, done).then((resp) => injectShim(resp, shim));
     } else {
         r = relayToVM(req, url, bridgeId, done);
     }
@@ -268,14 +291,14 @@ function reply(req, url, bridgeId, resultingClientId, done) {
 }
 
 /*
- *   Insert FRAME_XHR_SHIM into an HTML document reply - right after <head>
+ *   Insert the shim script(s) into an HTML document reply - right after <head>
  *   if there is one, else after the doctype (never before it, which would
  *   drop the page into quirks mode). Works on raw bytes so the document's
  *   own encoding passes through untouched. Buffers the whole document,
  *   which is fine for a page; everything that needs streaming (the event
  *   long poll, downloads) is not a navigation.
  */
-async function injectShim(resp) {
+async function injectShim(resp, shimText) {
     const type = resp.headers.get("Content-Type") || "";
     if (!resp.body || !/^text\/html/i.test(type))
         return resp;
@@ -288,7 +311,7 @@ async function injectShim(resp) {
         at = scan.indexOf(">", head.index) + 1;
     else if (doctype)
         at = doctype.index + doctype[0].length;
-    const shim = new TextEncoder().encode(FRAME_XHR_SHIM);
+    const shim = new TextEncoder().encode(shimText);
     const out = new Uint8Array(bytes.length + shim.length);
     out.set(bytes.subarray(0, at), 0);
     out.set(shim, at);

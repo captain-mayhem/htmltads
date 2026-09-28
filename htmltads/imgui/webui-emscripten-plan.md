@@ -253,7 +253,7 @@ This has to be step 2, before any of the transport plumbing, or nothing downstre
      WebUI launch fired 243ms after page start in headless Chrome. The step 3 note that 8 was "too slow"
      came from the test runs later found to be confounded, and doesn't hold. Keep the bridge's `MAX_CONNS`
      and `PTHREAD_POOL_SIZE` in step.
-  6. **Open, for step 6: the WebUI page must be top-level.** `util.js`'s `$win()` walks
+  6. **Resolved in step 6 (see there): the WebUI page must be top-level.** `util.js`'s `$win()` walks
      `window.parent` up to the topmost window and expects to find the WebUI main page there. In an
      iframe it crashes (`window.parent.pathFromWindow is not a function`, then
      `w.windowFromAbsPath is not a function`). So step 6's "overlay iframe *or* new tab — either works"
@@ -261,7 +261,7 @@ This has to be step 2, before any of the transport plumbing, or nothing downstre
      `windowFromAbsPath`, and whatever else `$win()` callers use. A new tab/popup works as-is. The
      synthesized COOP header keeps that tab in guit3's browsing-context group, so guit3 keeps its
      `window` handle for close detection.
-  7. **Open, for step 6: a background guit3 tab is throttled.** With the WebUI in its own tab, the guit3
+  7. **Avoided in step 6 by using an overlay frame: a background guit3 tab is throttled.** With the WebUI in its own tab, the guit3
      tab is hidden, and Chrome clamps its timers to ~1s (and after 5 minutes hidden, "intensive
      throttling" allows a wake-up only once a minute). In the test, reply times went from ~5–20ms to
      1–4s. That hits both the bridge's poll timer and, worse, the VM itself, whose `emscripten_sleep()`
@@ -329,7 +329,56 @@ This has to be step 2, before any of the transport plumbing, or nothing downstre
     host.
 
   Not exercised yet: actually typing a command, file up/download, and the debug log window. They are
-  covered by the same rules, and step 7's validation list already includes up/download.
+  covered by the same rules, and step 7's validation list already includes up/download. (Typing a
+  command was exercised in step 6.)
+
+- **Step 6 (hosting the WebUI in guit3) — done; verified end-to-end.** `guit3.html` shows a WebUI game's
+  pages in a full-page **overlay `<iframe>`** with a slim title bar (mirroring the game's own window
+  title) and a close button. It opens the frame from `Module.onWebUILaunch()` once
+  `Guit3WebUIBridge.whenRouted()` resolves. That call now also waits for the Service Worker's own
+  startup, because on a first visit the game can launch before the worker is installed.
+  `guit3_webui_launch_hook()` itself needed no further change.
+
+  **Why a frame rather than a tab, and how step 4's blocker was removed.** A tab hides guit3's page, and
+  the browser then throttles the timers the VM itself runs on (step 4 finding 7). A frame keeps the page
+  visible, but the WebUI library assumes its main page is top-level: every walk of its window tree climbs
+  `window.parent` (step 4 finding 6). `Window.parent` is a `[Replaceable]` attribute, though, so when the
+  worker serves the start page into an iframe (`request.destination === "iframe"`, a launch target, and
+  not referred by one of the VM's own documents), it injects `window.parent = window;` ahead of the XHR
+  shim. The main page becomes its own parent, and every walk stops where the library expects, including
+  walks from its subwindows, which read that same property. `window.top` still points at guit3.html, but
+  the library never uses it. No change to the game's copy of the library.
+
+  **Closing.** The close button hides the overlay, blanks the frame, and calls the new exported
+  `osnet_webui_closed()` (`tads3/unix/osnetunix.cpp`, Emscripten-only). That posts a `TadsUICloseEvent`
+  to the net message queue `osnet_connect_webui()` saved a reference to, exactly as a closed tadsweb.exe
+  window does on Windows, and `lib/webui.t` ends the game. The frame's own pagehide beacon
+  (`/webui/clientClose`) still fires and says the same thing, less reliably. When the game ends by
+  itself, the overlay stays up showing its final state until the user closes it. That matches native
+  guit3, which calls `osnet_disconnect_webui(FALSE)` ("leave the UI window open"). A close after the game
+  has ended posts into a queue nobody reads, which is harmless.
+
+  **Testing aid:** `guit3.html?game=webtest` runs the packaged `Webtest.t3` instead of `ditch3.t3`. Its
+  `webuitest.data/.js` come from the default `all` target, not `--target guit3` alone.
+
+  **How it was verified:** `build/emscripten/.../step6-test.html` + `step6_server.py` (unversioned, same
+  pattern as before), driving the real `guit3.html?game=webtest` in a popup:
+  - the overlay was up 271ms after start, with an empty WebUI error log. In the frame,
+    `parent === self` and `top` is guit3, the WebUI named itself `main`, and the command window's parent
+    is the main page;
+  - the title bar showed the game's title ("Webui");
+  - setting the command line to `x chair` and calling the command window's own `handleEnterKey()` sent
+    `/webui/inputLine`, and the game's real reply ("It looks like one of those formal chairs...") arrived
+    over `getEvent`;
+  - clicking close hid the overlay, and the game really ended: its WebUI listener was gone (a new
+    loopback connection to its port was refused);
+  - plain `guit3.html` still runs `ditch3.t3` normally, with the overlay hidden.
+
+  **Seen once, not investigated:** Emscripten logged "Blocking on the main thread is very dangerous" once
+  per run, at the moment the game shut down after the close. The step 5 run, where the game never
+  quit, has no such warning. The page stayed responsive afterwards (the harness's own native calls after
+  the close worked), so it is a warning in the VM's shutdown path, most likely a thread join or wait on
+  the main thread, not a hang. Worth a look in step 7 with a stack trace (`--profiling-funcs`).
 
 ## Plan
 

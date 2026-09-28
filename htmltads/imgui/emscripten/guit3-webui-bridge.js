@@ -96,6 +96,7 @@ var Guit3WebUIBridge = (function () {
     const servedClients = [];
     const servedDocs = [];
     let routed = Promise.resolve();     /* see whenRouted() */
+    let started = null;         /* start()'s promise */
 
     /* ------------------------------------------------------------------ */
     /* wasm access */
@@ -721,10 +722,14 @@ var Guit3WebUIBridge = (function () {
      *   VM. Whatever loads that page (step 6's overlay) should wait for this
      *   after the game launches - the "guit3-webui-launch" event and
      *   Module.onWebUILaunch() fire synchronously, before the worker has
-     *   heard about the new path.
+     *   heard about the new path. On a first visit the game can even launch
+     *   before start() has finished installing the worker, so this waits for
+     *   that too; it rejects if start() failed (no Service Workers).
      */
     function whenRouted() {
-        return routed;
+        if (!started)
+            return Promise.reject(new Error("Guit3WebUIBridge.start() was never called"));
+        return started.then(() => routed);
     }
 
     /*
@@ -733,7 +738,13 @@ var Guit3WebUIBridge = (function () {
      *   Workers are unavailable - they need a secure context, which
      *   http://localhost counts as but file:// doesn't).
      */
-    async function start(swUrl) {
+    function start(swUrl) {
+        if (!started)
+            started = startWorker(swUrl);
+        return started;
+    }
+
+    async function startWorker(swUrl) {
         if (!("serviceWorker" in navigator))
             throw new Error("Service Workers are unavailable here (insecure context?) - WebUI games can't run");
 

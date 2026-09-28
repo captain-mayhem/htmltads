@@ -70,6 +70,67 @@
       width: 100%;
       height: 100%;
     }
+
+    /*
+     * A WebUI game's user interface (webui-emscripten-plan.md step 6): the
+     * game's own HTML pages, served by the VM through the Service Worker,
+     * shown in a frame over the whole canvas while the game runs. A frame
+     * rather than a new tab keeps this page visible - browsers throttle a
+     * hidden tab's timers, and the VM runs on them.
+     */
+    #webui-overlay {
+      position: fixed;
+      inset: 0;
+      display: flex;
+      flex-direction: column;
+      background-color: #282a36;
+    }
+
+    #webui-overlay[hidden] {
+      display: none;
+    }
+
+    #webui-bar {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      height: 32px;
+      padding: 0 4px 0 12px;
+      color: #eff0eb;
+      font-size: 14px;
+      flex: none;
+    }
+
+    #webui-title {
+      flex: 1;
+      overflow: hidden;
+      white-space: nowrap;
+      text-overflow: ellipsis;
+    }
+
+    #webui-close {
+      width: 28px;
+      height: 28px;
+      border: 0;
+      border-radius: 4px;
+      background: transparent;
+      color: inherit;
+      font-size: 20px;
+      line-height: 1;
+      cursor: pointer;
+    }
+
+    #webui-close:hover,
+    #webui-close:focus-visible {
+      background-color: #44475a;
+    }
+
+    #webui-frame {
+      flex: 1;
+      width: 100%;
+      border: 0;
+      background-color: white;
+    }
   </style>
 </head>
 
@@ -80,8 +141,16 @@
 
   <canvas id="canvas" oncontextmenu="event.preventDefault()" tabindex="-1"></canvas>
 
+  <div id="webui-overlay" hidden>
+    <div id="webui-bar">
+      <span id="webui-title"></span>
+      <button id="webui-close" type="button" title="Close the game" aria-label="Close the game">&times;</button>
+    </div>
+    <iframe id="webui-frame" title="Game"></iframe>
+  </div>
+
   <script type="text/javascript">
-    // This page always loads tests/ditch3.t3, packaged by
+    // By default this page loads tests/ditch3.t3, packaged by
     // htmltads/htmltads/imgui/CMakeLists.txt's em_package(ditch3game ...)
     // call as ditch3game.data/.js (mapped to the virtual path ditch3.t3
     // guit3's own argv references below). It also loads guit3fonts.data/.js,
@@ -95,6 +164,16 @@
     // background image) to the virtual path "guit3.t3r". It also loads
     // guit3-webui-bridge.js, the page half of the WebUI transport (see the
     // comment above that script tag).
+    //
+    // ?game=webtest loads tests/Webtest.t3 instead (em_package(webuitest
+    // ...), webuitest.data/.js - built by the default "all" target, not by
+    // --target guit3 alone), a WebUI game for exercising the WebUI
+    // transport and the overlay below.
+    var games = {
+      ditch3: { pkg: 'ditch3game.js', file: 'ditch3.t3' },
+      webtest: { pkg: 'webuitest.js', file: 'Webtest.t3' },
+    };
+    var game = games[new URLSearchParams(location.search).get('game')] || games.ditch3;
     var statusElement = document.getElementById('status');
     var progressElement = document.getElementById('progress');
     var spinnerElement = document.getElementById('spinner');
@@ -110,7 +189,7 @@
     }, false);
 
     var Module = {
-      arguments: ['ditch3.t3'],
+      arguments: [game.file],
       canvas: canvasElement,
       print(...args) {
         console.log(args.join(' '));
@@ -162,8 +241,52 @@
   <script src="guit3-webui-bridge.js"></script>
   <script>
     Guit3WebUIBridge.start().catch((e) => console.warn('guit3: WebUI games unavailable: ' + e));
+
+    // The WebUI host (webui-emscripten-plan.md step 6). guit3's launch hook
+    // (guit3_webui_launch_hook(), guit3.cpp) calls Module.onWebUILaunch()
+    // once a WebUI game has started its HTTP server; show the game's start
+    // page in the overlay frame, once the Service Worker routes it to the
+    // VM. Closing the overlay is the local "UI window closed" event: tell
+    // the VM (osnet_webui_closed(), tads3/unix/osnetunix.cpp), which posts
+    // TadsUICloseEvent - lib/webui.t then ends the game, just as closing
+    // the browser window does natively. The frame's own pagehide beacon
+    // (/webui/clientClose) says the same thing less reliably.
+    var webuiOverlay = document.getElementById('webui-overlay');
+    var webuiFrame = document.getElementById('webui-frame');
+    var webuiTitle = document.getElementById('webui-title');
+    var webuiTitleTimer = null;
+
+    Module.onWebUILaunch = function (port, path) {
+      Guit3WebUIBridge.whenRouted().then(() => {
+        webuiFrame.src = path;
+        webuiTitle.textContent = '';
+        webuiOverlay.hidden = false;
+        webuiFrame.focus();
+        // mirror the game's window title (the WebUI sets it from getState)
+        clearInterval(webuiTitleTimer);
+        webuiTitleTimer = setInterval(() => {
+          try {
+            webuiTitle.textContent = webuiFrame.contentDocument.title;
+          } catch (e) { }
+        }, 1000);
+      }, (e) => {
+        console.error('guit3: cannot show this WebUI game: ' + e);
+        Module.setStatus('This game needs Service Workers, which are unavailable here');
+      });
+    };
+
+    document.getElementById('webui-close').addEventListener('click', () => {
+      clearInterval(webuiTitleTimer);
+      webuiOverlay.hidden = true;
+      webuiFrame.src = 'about:blank';
+      if (Module._osnet_webui_closed)
+        Module._osnet_webui_closed();
+      canvasElement.focus();
+    });
   </script>
-  <script src="ditch3game.js"></script>
+  <script>
+    document.write('<script src="' + game.pkg + '"><\/script>');
+  </script>
   <script src="guit3fonts.js"></script>
   <script src="guit3charmap.js"></script>
   <script src="guit3about.js"></script>
