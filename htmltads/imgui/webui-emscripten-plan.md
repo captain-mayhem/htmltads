@@ -194,6 +194,100 @@ This has to be step 2, before any of the transport plumbing, or nothing downstre
   `Module.webuiLaunch` instead of guessing port 49152, sends the real start-page path, and reads until
   close.
 
+- **Step 4 (JS bridge) — done; verified end-to-end with the real WebUI client.** Two new files in
+  [emscripten/](emscripten/), copied next to `guit3.js` by a `POST_BUILD` step and installed alongside
+  `guit3.html`:
+  - [guit3-webui-sw.js](emscripten/guit3-webui-sw.js), the Service Worker. Deliberately thin: it decides
+    whether a request is the VM's, posts it (method, target, headers, body bytes) to the guit3 page over a
+    per-request `MessageChannel`, and turns the "head"/"chunk"/"end" messages it gets back into a
+    streaming `Response`. It adds `Cross-Origin-Resource-Policy`, `Cross-Origin-Embedder-Policy`, and
+    `Cross-Origin-Opener-Policy` to every synthesized response, and keeps the worker alive with
+    `event.waitUntil()` until the body is fully relayed, not just the head. It holds no state that must
+    survive a worker restart: it re-finds the bridge page by pinging window clients, and the bridge
+    re-announces itself every 5s.
+  - [guit3-webui-bridge.js](emscripten/guit3-webui-bridge.js), loaded by `guit3.html`. Holds all the
+    HTTP knowledge: it serializes requests into HTTP/1.1 bytes, parses the VM's reply incrementally
+    (Content-Length, chunked, read-to-close, or bodyless), and keeps a pool of at most `MAX_CONNS = 3`
+    keep-alive loopback connections. Requests beyond that are queued, and an idle connection is closed
+    after 5s so its VM server thread goes away. It polls the transport every 4ms while anything is in
+    flight. `Guit3WebUIBridge.recent()` returns the last 50 requests, with status and time to head, for
+    debugging from the console.
+  - `guit3_webui_launch_hook()` now also dispatches a `guit3-webui-launch` window event. The bridge
+    listens for it and tells the worker the start page's path, and `Guit3WebUIBridge.whenRouted()`
+    resolves once the worker has acknowledged. **Step 6 must `await` this before it loads the start
+    page**, because the event and `Module.onWebUILaunch()` fire synchronously, before the worker knows
+    the path.
+  - `guit3`'s link flags: `PTHREAD_POOL_SIZE` went from 4 to 8, and `UTF8ToString` is exported (see
+    below).
+
+  **What this step found, all fixed unless marked as open:**
+  1. **The bridge has to keep the cookie jar.** `webui.t` authenticates every request with its
+     `TADS_session`/`TADS_client` cookies. A Service Worker can't see a request's `Cookie` header, and
+     the browser drops `Set-Cookie` from a synthesized `Response`. So the bridge stores `Set-Cookie` values
+     from replies itself (honoring path, `Max-Age`, and `Expires`) and adds a `Cookie` header to each
+     request. The jar lives exactly as long as the VM, which is the right lifetime for these cookies.
+  2. **The start page's path can be anything, including `/`.** `tests/Webtest.t3` serves it at
+     `/?TADS_session=...`, which the fixed `/webui/` + `/webuires/` prefixes never match. That is why the
+     launch path is announced to the worker (see above).
+  3. **Chrome doesn't intercept requests from script-built child frames.** The WebUI client creates every
+     `XMLHttpRequest` inside an `about:blank` iframe that it fills with `document.open()`/`write()`
+     (`util.js`'s `initXmlFrame()`, an old Safari throbber workaround). Chrome doesn't put that frame under
+     the parent's Service Worker, so `getState`/`flushEvents`/`getEvent` all went straight to the host
+     server and 404'd. The step 1 spike missed this because it only tested a child frame loaded from a
+     real URL. Fix: the worker injects a small script right after `<head>` in every HTML navigation it
+     serves. When the page asks an iframe for its `contentWindow`, the script gives a script-built frame
+     an `XMLHttpRequest` that builds the parent's (controlled) kind of request instead. Nothing in the
+     game's copy of the library changes.
+  4. **Emscripten doesn't keep `Module.HEAPU8` current.** With pthreads plus memory growth, another
+     thread can grow memory and leave the exported view too short. The runtime's own helpers refresh it
+     (`growMemViews()` → `updateMemoryViews()` reassigns `Module["HEAPU8"]`, confirmed in the generated
+     `guit3.js`). So the bridge calls a zero-length `Module.UTF8ToString(ptr, 0)` before each heap
+     access, which is why `UTF8ToString` is exported. It also pushes request bytes through a `_malloc`'d
+     buffer rather than `ccall`'s `'array'` type, which copies onto the small wasm stack and would
+     overflow on a large upload.
+  5. **Each asynchronous reply takes a thread too.** `HTTPRequest.sendReplyAsync()`, which `webui.t`
+     uses for resource files, sends from its own short-lived thread (`vmhttpreq.cpp`'s
+     `start_thread()`). The worst case is therefore 1 listener + 3 server threads + 3 reply threads +
+     guit3's audio fader thread = 8. With a pool of 6, loading the WebUI page's resources logged
+     Emscripten's "thread pool is exhausted" warning. With 8 it didn't, and startup stayed fast: the game's
+     WebUI launch fired 243ms after page start in headless Chrome. The step 3 note that 8 was "too slow"
+     came from the test runs later found to be confounded, and doesn't hold. Keep the bridge's `MAX_CONNS`
+     and `PTHREAD_POOL_SIZE` in step.
+  6. **Open, for step 6: the WebUI page must be top-level.** `util.js`'s `$win()` walks
+     `window.parent` up to the topmost window and expects to find the WebUI main page there. In an
+     iframe it crashes (`window.parent.pathFromWindow is not a function`, then
+     `w.windowFromAbsPath is not a function`). So step 6's "overlay iframe *or* new tab — either works"
+     is wrong as written: an overlay iframe would need guit3.html to proxy `pathFromWindow`,
+     `windowFromAbsPath`, and whatever else `$win()` callers use. A new tab/popup works as-is. The
+     synthesized COOP header keeps that tab in guit3's browsing-context group, so guit3 keeps its
+     `window` handle for close detection.
+  7. **Open, for step 6: a background guit3 tab is throttled.** With the WebUI in its own tab, the guit3
+     tab is hidden, and Chrome clamps its timers to ~1s (and after 5 minutes hidden, "intensive
+     throttling" allows a wake-up only once a minute). In the test, reply times went from ~5–20ms to
+     1–4s. That hits both the bridge's poll timer and, worse, the VM itself, whose `emscripten_sleep()`
+     yields are `setTimeout`-based. Plain background-tab throttling is not step 4's to solve, but it's
+     the main argument for the overlay-iframe variant despite point 6. Alternatives to weigh in step 6:
+     drive the bridge from `MessageChannel`/worker-posted ticks, which aren't throttled; keep the guit3
+     tab "audible"; or simply accept the tab layout.
+  8. **Open, for step 5:** the WebUI page's subwindows (`/cmdwin.htm`, `/statwin.htm` for Webtest) are
+     game-defined paths outside the provisional prefixes, so they currently 404 from the host server.
+     This is exactly the per-client routing rule step 5 exists for. `isVMRequest()` in the worker is the
+     one place to change.
+
+  **How it was verified:** a throwaway harness, `build/emscripten/.../step4-test.html`, served by
+  `step4_server.py` from the same directory. Both are unversioned, like step 3's. The server adds
+  COOP/COEP and accepts `POST /__result`, and the harness posts its JSON report there, so a headless run
+  needs no DevTools-protocol driver. The harness runs `Webtest.t3` with the real bridge and worker, then
+  checks the start page (200, CORP present), `getState` authenticated only by the bridge's cookie jar
+  (200, real `<uiState>` XML), six parallel 123KB `main.js` fetches through the 3-connection pool (all
+  200, byte-identical), and a POST with a body. Finally it opens the start page as a popup and checks
+  that the real WebUI client loads its CSS/JS/images, sends `flushEvents`/`getState`, and parks a
+  `getEvent` long poll, all through the VM, with an empty WebUI error log. Run Chrome with
+  `--disable-popup-blocking`, and add `--disable-background-timer-throttling
+  --disable-renderer-backgrounding --disable-backgrounding-occluded-windows` or finding 7 confounds the
+  timings. Also: `step4-result.json` is UTF-8, so read it as UTF-8. Python's default cp1252 on Windows
+  turns the page's `&nbsp;` into a fake `Â` mojibake.
+
 ## Plan
 
 1. **Spike (JS/browser only, no VM changes).** Register a Service Worker from a small standalone test page
@@ -234,7 +328,10 @@ This has to be step 2, before any of the transport plumbing, or nothing downstre
    `window.open()` and file up/download sub-iframes, since they're same-origin children of a registered
    frame.
 6. **Emscripten branch of the launch hook**, in `guit3_webui_launch_hook()` (`guit3.cpp`): drop the
-   host/port entirely and instead point an overlay `<iframe>` (or a new tab — either works) at `path`.
+   host/port entirely and instead point an overlay `<iframe>` or a new tab at `path`, after awaiting
+   `Guit3WebUIBridge.whenRouted()`. (Step 4 found that the choice is not free: the WebUI page assumes it
+   is top-level, which rules out a plain iframe, and a background guit3 tab gets throttled. See the step
+   4 Progress notes, points 6 and 7.)
    When that iframe/tab closes, have the host post a `TadsUICloseEvent` directly — a more reliable signal
    than the `sendBeacon`-based close detection the library normally relies on, and worth keeping even if
    `sendBeacon` also turns out to route through the worker.

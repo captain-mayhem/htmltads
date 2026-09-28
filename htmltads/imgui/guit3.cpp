@@ -99,15 +99,19 @@ int guit3_webui_launch_hook(const char *addr, int port, const char *path,
      *   anyway (it fork()s, which always fails in wasm). Returning failure
      *   would make connectWebUI() throw and the game shut its HTTPServer
      *   straight back down. Instead, just hand the loopback port and start
-     *   page path to JS: Module.webuiLaunch records them, and an optional
-     *   Module.onWebUILaunch(port, path) callback lets the page react (the
-     *   future Service Worker bridge/overlay iframe - see step 6 of
-     *   webui-emscripten-plan.md).
+     *   page path to JS: Module.webuiLaunch records them, a
+     *   "guit3-webui-launch" window event tells the WebUI bridge
+     *   (emscripten/guit3-webui-bridge.js, which has to start routing the
+     *   start page's path to the VM before anything loads it), and an
+     *   optional Module.onWebUILaunch(port, path) callback lets the page
+     *   react (the overlay iframe - see step 6 of webui-emscripten-plan.md).
      */
     (void)addr;
     MAIN_THREAD_EM_ASM({
         var path = UTF8ToString($1);
         Module['webuiLaunch'] = ({ port: $0, path: path });
+        window.dispatchEvent(new CustomEvent('guit3-webui-launch',
+                                             { detail: { port: $0, path: path } }));
         if (typeof Module['onWebUILaunch'] === 'function')
             Module['onWebUILaunch']($0, path);
     }, port, path);

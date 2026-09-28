@@ -92,7 +92,9 @@
     // "charmap/cmaplib.t3r" - guios_portable.cpp's character-encoding
     // conversions fall back to ASCII-only without it), and guit3about.data/
     // .js, packaging the private-resources guit3.t3r (the About box's
-    // background image) to the virtual path "guit3.t3r".
+    // background image) to the virtual path "guit3.t3r". It also loads
+    // guit3-webui-bridge.js, the page half of the WebUI transport (see the
+    // comment above that script tag).
     var statusElement = document.getElementById('status');
     var progressElement = document.getElementById('progress');
     var spinnerElement = document.getElementById('spinner');
@@ -151,6 +153,15 @@
         if (text) console.error('[post-exception status] ' + text);
       };
     };
+  </script>
+  <!-- WebUI transport (webui-emscripten-plan.md step 4): registers
+       guit3-webui-sw.js and relays the requests it catches to the VM's
+       loopback connections. Needs this page served from the site root over
+       http(s) (http://localhost is fine) - Service Workers are unavailable
+       from file:// - but plain non-WebUI games don't depend on it. -->
+  <script src="guit3-webui-bridge.js"></script>
+  <script>
+    Guit3WebUIBridge.start().catch((e) => console.warn('guit3: WebUI games unavailable: ' + e));
   </script>
   <script src="ditch3game.js"></script>
   <script src="guit3fonts.js"></script>

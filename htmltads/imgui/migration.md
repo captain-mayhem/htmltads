@@ -3256,6 +3256,21 @@ of that investigation was confounded by a test-orchestration mistake (shell-leve
 "task complete" mean "launcher exited", so retries stacked several live Chrome + worker-pool instances
 competing for CPU).
 
+(Later sessions confirmed the step 3 round-trip and completed step 4. See the plan's Progress section.)
+
+Step 4 (the JS bridge) is done: `emscripten/guit3-webui-sw.js` (the Service Worker) and
+`emscripten/guit3-webui-bridge.js` (loaded by `guit3.html`: HTTP serialization and parsing, a
+3-connection keep-alive pool, and a cookie jar). It is verified end-to-end: the real WebUI client, running
+`Webtest.t3`, loads its page and assets, sends `getState`/`flushEvents`, and parks its `getEvent` long poll,
+all through the VM. Gotchas worth knowing before touching this code; details are in the plan:
+- A Service Worker can't read `Cookie` or set cookies via `Set-Cookie`, so the bridge keeps the jar.
+- Chrome doesn't route a `document.write()`-built `about:blank` child frame through the Service Worker, and
+  that is where the WebUI library creates all of its XHRs. The worker injects a small shim into WebUI HTML
+  to redirect those XHRs.
+- `Module.HEAPU8` goes stale under pthreads plus memory growth.
+- `sendReplyAsync()` costs a thread per reply, hence `PTHREAD_POOL_SIZE=8`.
+- The WebUI page must be top-level, and a hidden guit3 tab is timer-throttled. Both constrain step 6.
+
 **Testing note worth keeping**: when driving headless Chrome from a tool that reports background-command
 completion, do not background the browser with a shell-level `&` — the completion signal then describes the
 launcher, not the browser, and it is very easy to start "one more attempt" while two or three previous full

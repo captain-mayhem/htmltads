@@ -365,8 +365,13 @@ if (EMSCRIPTEN)
 	# bytes back out (osu_loop_pull() writes into a wasm-heap buffer) is
 	# _malloc/_free plus the HEAPU8 view, hence EXPORTED_FUNCTIONS (which
 	# must then name _main explicitly) and HEAPU8 in EXPORTED_RUNTIME_METHODS.
+	# UTF8ToString is exported only for its side effect: with pthreads plus
+	# memory growth, Module.HEAPU8 can go stale (too short) after another
+	# thread grows memory, and the runtime's own helpers refresh the
+	# exported views before touching the heap - guit3-webui-bridge.js calls
+	# a zero-length UTF8ToString() before each heap access for exactly that.
 	#
-	# -s PTHREAD_POOL_SIZE=4: without this, Emscripten only spawns Worker
+	# -s PTHREAD_POOL_SIZE=8: without this, Emscripten only spawns Worker
 	# threads for pthread_create() on demand, and doing that from within an
 	# already-running thread (rather than the browser's main JS thread)
 	# doesn't work reliably - confirmed the hard way running the step 3
@@ -381,13 +386,22 @@ if (EMSCRIPTEN)
 	# bigger number directly costs startup latency: 8 was tried first and
 	# made the runtime never finish initializing within a headless test's
 	# patience (each worker instantiating a ~7MB module under
-	# swiftshader-emulated GL software rendering is not fast). 4 is enough
-	# for the step 3 test's single connection plus guit3's own non-WebUI
-	# threads (e.g. audio) with acceptable startup cost; revisit upward
-	# only if a real game needs more concurrent WebUI connections than
-	# that, and reconsider lazy/on-demand growth as an alternative to a
-	# large fixed pool if so.
-	set_target_properties(guit3 PROPERTIES LINK_FLAGS "-s ASSERTIONS=1 -s WASM=1 -s USE_GLFW=3 -s FULL_ES3=1 -s USE_WEBGL2=1 -s ASYNCIFY -s ASYNCIFY_IMPORTS=_emscripten_receive_on_main_thread_js -s FORCE_FILESYSTEM -s ALLOW_MEMORY_GROWTH=1 -s INITIAL_MEMORY=256MB -s SAFE_HEAP=1 -s EXPORTED_RUNTIME_METHODS=['ccall','cwrap','HEAPU8'] -s EXPORTED_FUNCTIONS=['_main','_malloc','_free'] -s PTHREAD_POOL_SIZE=4 -lwebsocket.js -pthread -Wl,--wrap=fgets,--wrap=fflush,--wrap=getchar")
+	# swiftshader-emulated GL software rendering is not fast). 4 was enough
+	# for the step 3 test's single connection. Step 4's bridge
+	# (emscripten/guit3-webui-bridge.js) keeps up to 3 keep-alive
+	# connections open - one of them is nearly always parked in the
+	# /webui/getEvent long poll - and every reply sent with
+	# HTTPRequest.sendReplyAsync() (which webui.t uses for resource files)
+	# runs on its own short-lived thread too (vmhttpreq.cpp's
+	# start_thread()). So the worst case is 1 listener + 3 server threads +
+	# 3 reply threads, plus guit3's own audio fader thread (tadssnd.cpp):
+	# 8. With 6, the step 4 end-to-end run logged Emscripten's "thread pool
+	# is exhausted" warning while loading the WebUI page's resources. The
+	# earlier "8 is too slow" result above came from test runs later found
+	# to be confounded (several stacked headless Chrome instances competing
+	# for CPU - see webui-emscripten-plan.md); re-measured cleanly in step 4,
+	# 8 starts fine. Keep the bridge's MAX_CONNS and this number in step.
+	set_target_properties(guit3 PROPERTIES LINK_FLAGS "-s ASSERTIONS=1 -s WASM=1 -s USE_GLFW=3 -s FULL_ES3=1 -s USE_WEBGL2=1 -s ASYNCIFY -s ASYNCIFY_IMPORTS=_emscripten_receive_on_main_thread_js -s FORCE_FILESYSTEM -s ALLOW_MEMORY_GROWTH=1 -s INITIAL_MEMORY=256MB -s SAFE_HEAP=1 -s EXPORTED_RUNTIME_METHODS=['ccall','cwrap','HEAPU8','UTF8ToString'] -s EXPORTED_FUNCTIONS=['_main','_malloc','_free'] -s PTHREAD_POOL_SIZE=8 -lwebsocket.js -pthread -Wl,--wrap=fgets,--wrap=fflush,--wrap=getchar")
 
 	# Manual browser test page for guit3-under-Emscripten (migration.md 5.7
 	# left runtime behavior completely unverified). Wired up the same way
@@ -398,7 +412,15 @@ if (EMSCRIPTEN)
 	# graphical ImGui app, not a console one.
 	add_custom_command(
 		TARGET guit3 POST_BUILD
-		COMMAND ${CMAKE_COMMAND} -E copy_if_different ${CMAKE_CURRENT_SOURCE_DIR}/emscripten/guit3.html $<TARGET_FILE_DIR:guit3>)
+		COMMAND ${CMAKE_COMMAND} -E copy_if_different ${CMAKE_CURRENT_SOURCE_DIR}/emscripten/guit3.html $<TARGET_FILE_DIR:guit3>
+		# The WebUI transport's browser side (webui-emscripten-plan.md step
+		# 4): the Service Worker that catches WebUI requests, and the page
+		# bridge guit3.html loads that feeds them to the VM's loopback
+		# connections. The worker must end up at the same URL level as
+		# guit3.html - served from the site root - so its scope covers the
+		# WebUI library's root-absolute /webui/... paths.
+		COMMAND ${CMAKE_COMMAND} -E copy_if_different ${CMAKE_CURRENT_SOURCE_DIR}/emscripten/guit3-webui-sw.js $<TARGET_FILE_DIR:guit3>
+		COMMAND ${CMAKE_COMMAND} -E copy_if_different ${CMAKE_CURRENT_SOURCE_DIR}/emscripten/guit3-webui-bridge.js $<TARGET_FILE_DIR:guit3>)
 
 	# Packages tests/ditch3.t3 (the same TADS3 test game tests/CMakeLists.txt
 	# packages for the classic t3run web build) for guit3's own Emscripten
@@ -456,6 +478,8 @@ if (EMSCRIPTEN)
 	install(FILES
 		"$<TARGET_FILE_DIR:guit3>/guit3.wasm"
 		${CMAKE_CURRENT_SOURCE_DIR}/emscripten/guit3.html
+		${CMAKE_CURRENT_SOURCE_DIR}/emscripten/guit3-webui-sw.js
+		${CMAKE_CURRENT_SOURCE_DIR}/emscripten/guit3-webui-bridge.js
 		DESTINATION .
 		COMPONENT GuiT3
 	)
