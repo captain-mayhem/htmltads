@@ -300,7 +300,10 @@ function reply(req, url, bridgeId, resultingClientId, done) {
  */
 async function injectShim(resp, shimText) {
     const type = resp.headers.get("Content-Type") || "";
-    if (!resp.body || !/^text\/html/i.test(type))
+    const disposition = resp.headers.get("Content-Disposition") || "";
+    /* a download (e.g. a saved transcript, offered via webui.t's
+     * tempFileDownloadPage) is the user's file, not a page to fix up */
+    if (!resp.body || !/^text\/html/i.test(type) || /^\s*attachment/i.test(disposition))
         return resp;
     const bytes = new Uint8Array(await resp.arrayBuffer());
     const scan = String.fromCharCode.apply(null, bytes.subarray(0, 4096)).toLowerCase();

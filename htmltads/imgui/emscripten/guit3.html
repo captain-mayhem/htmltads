@@ -172,6 +172,8 @@
     var games = {
       ditch3: { pkg: 'ditch3game.js', file: 'ditch3.t3' },
       webtest: { pkg: 'webuitest.js', file: 'Webtest.t3' },
+      // only if configured with -DGUIT3_EXTRA_TEST_GAME=... (CMakeLists.txt)
+      extra: { pkg: 'guit3extragame.js', file: 'extra.t3' },
     };
     var game = games[new URLSearchParams(location.search).get('game')] || games.ditch3;
     var statusElement = document.getElementById('status');

@@ -440,6 +440,17 @@ if (EMSCRIPTEN)
 	# itself doesn't have to depend on it.
 	em_package(webuitest ${CMAKE_SOURCE_DIR}/tests/Webtest.t3@Webtest.t3)
 
+	# Optionally package one more game - typically a third-party WebUI game
+	# that can't live in this repo - for guit3.html?game=extra, the same way
+	# as webuitest above. Used to validate the WebUI transport against real
+	# games (webui-emscripten-plan.md step 7); unset (the default) packages
+	# nothing. Example: -DGUIT3_EXTRA_TEST_GAME=C:/path/to/SomeGame.t3
+	set(GUIT3_EXTRA_TEST_GAME "" CACHE FILEPATH
+		"Optional extra .t3 game to package for guit3.html?game=extra (testing only)")
+	if (GUIT3_EXTRA_TEST_GAME)
+		em_package(guit3extragame ${GUIT3_EXTRA_TEST_GAME}@extra.t3)
+	endif()
+
 	# Packages the standard Dear ImGui sample fonts (../../imgui/misc/fonts -
 	# see that directory's README.txt for the list and licenses) into their
 	# own virtual filesystem entry, mapped to the "fonts" virtual directory

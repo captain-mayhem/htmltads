@@ -374,11 +374,74 @@ This has to be step 2, before any of the transport plumbing, or nothing downstre
     loopback connection to its port was refused);
   - plain `guit3.html` still runs `ditch3.t3` normally, with the overlay hidden.
 
-  **Seen once, not investigated:** Emscripten logged "Blocking on the main thread is very dangerous" once
+  **Seen once, investigated in step 7 (benign):** Emscripten logged "Blocking on the main thread is very dangerous" once
   per run, at the moment the game shut down after the close. The step 5 run, where the game never
   quit, has no such warning. The page stayed responsive afterwards (the harness's own native calls after
   the close worked), so it is a warning in the VM's shutdown path, most likely a thread join or wait on
   the main thread, not a hang. Worth a look in step 7 with a stack trace (`--profiling-funcs`).
+
+- **Step 7 (validation) — done.** Validated against `tests/Webtest.t3` and one third-party WebUI game,
+  **WebUIdemo** by Otto73 (freeware, "compilations allowed"; IFID 39caeca0-4077-442c-81f2-f3c02dcb805c).
+  WebUIdemo brings its own `webuires` and three game-defined windows: a map window with tile images, a
+  menu bar, and a customized status line. Everything ran headless in Chrome, driving the real
+  `guit3.html`. The harness is `build/emscripten/.../step7-test.html` + `step7_server.py`, unversioned as
+  before; the server also serves the browser's download folder back at `/__dl/`, so the harness can
+  upload the file the browser actually saved.
+
+  **Save → download (Webtest).** `save` printed "Saved." The WebUI's `offerDownload` started the download
+  itself (`addDownloadFrame()`: a hidden iframe navigated to `/clienttmp/Save1.t3v`). The worker routed
+  that navigation by referrer, and Chrome saved a real `Save1.t3v` (33,661 bytes, valid `T3-state-v00`
+  signature) with the VM's `Content-Disposition: attachment` intact. For headless downloads, write a
+  `Default/Preferences` into the fresh `--user-data-dir` with `download.default_directory` and
+  `prompt_for_download: false`.
+
+  **Restore ← upload (Webtest).** After `north` (status "Hallway"), `restore` opened the WebUI's upload
+  dialog. That's the `osnet_askfile()`-fails-off-Windows fallback in `webui.t`'s
+  `getInputFileFromClient()`, exactly as the plan predicted. The harness put the downloaded file into the
+  dialog's `<input type=file>` and submitted the form, a `multipart/form-data` POST to
+  `/webui/uploadFileDialog`. The game printed "Restored." and the status line returned to "Entryway". The
+  upload form lives in a `document.write()`-built frame the worker does *not* control (step 4 finding
+  3), but that doesn't matter here: a form submission is a navigation, which Service Workers intercept by
+  URL scope, and its referrer is the WebUI page, so step 5's rule routes it.
+
+  **WebUIdemo.** It starts and plays: the status line ("Aim: Visit the hallway."), the command window,
+  the game-defined `/mapWin.htm` and `/menubar.htm` windows, and the map's tile image all load through
+  the VM. `look` gets the game's real reply, and the WebUI error log is empty. Two defects are the game's
+  own, not the transport's, and would occur natively in any browser:
+  - `/webuires/menubar.js` 404s: the game's `main.htm` and `menubar.htm` reference it, but the game
+    doesn't ship that file.
+  - The map window renders as plain text. `webui.t` sends `.htm` resources with no explicit type, so the
+    VM sniffs the content (`vmhttpreq.cpp` ~2771), and it only recognizes `<html` or `<!doctype html` at
+    the very start. The game's `mapwin.htm` begins with a `<!-- ... -->` comment, so it gets
+    `text/plain`. The transport passes the VM's reply through unchanged, which is right.
+
+  **Fixed along the way:** the worker's HTML shim injection now skips any reply with
+  `Content-Disposition: attachment`. Otherwise a downloaded `.htm` file (e.g. a saved transcript) would
+  have been saved with the worker's `<script>` spliced into it.
+
+  **The shutdown warning from step 6 is benign.** A stack captured at close (relinked with
+  `--profiling-funcs`, since cleared again) shows `~TadsHttpServerThread` → `~OS_Thread` →
+  `pthread_detach` → `__pthread_join` → `_emscripten_check_blocking_allowed`. Emscripten's
+  `pthread_detach` (musl `pthread_detach.c`) only calls `__pthread_join` when the thread has *already
+  exited*, to reap it. The join never really waits, but its blocking check warns unconditionally, once.
+  No change needed.
+
+  **New testing aid:** `-DGUIT3_EXTRA_TEST_GAME=<path to .t3>` packages any extra game (e.g. a
+  third-party WebUI game that can't be committed) as `guit3extragame.data/.js` for
+  `guit3.html?game=extra`. Build it with `--target build_guit3extragame.data`. Unset by default, and
+  cleared again after this validation.
+
+  **Not covered, left as known limitations or later work:**
+  - **Several downloads in a row.** The first run saved twice but got only one file. The most likely
+    cause is Chrome's "this site is trying to download multiple files" permission, because the WebUI starts
+    each download without a user gesture. That would equally affect native WebUI in a real browser. Not
+    confirmed, since the second run saved only once.
+  - **The debug log window** (`window.open()` from the WebUI). It's covered by the referrer rule but
+    wasn't exercised.
+  - **Real-GPU, non-headless runs and other browsers**, e.g. Firefox's Service Worker behavior with
+    script-built frames.
+  - **Persistent saves.** Saves are ordinary browser downloads, so there's no in-browser save storage.
+    That's the plan's "separate, later question".
 
 ## Plan
 

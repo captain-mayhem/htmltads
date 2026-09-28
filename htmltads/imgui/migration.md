@@ -3285,6 +3285,15 @@ inside the frame. Closing the overlay calls the exported `osnet_webui_closed()`,
 game. Verified end-to-end, including typing a command and getting the game's reply; see the plan's step 6
 entry.
 
+Step 7 (validation) is done. With Webtest, SAVE produces a real browser download of a valid `.t3v`, and
+RESTORE's upload dialog (a multipart POST) restores it. The third-party game WebUIdemo plays, including
+its own map and menu-bar windows. Its two visible defects are the game's own: a missing `menubar.js`, and
+a map page whose leading HTML comment defeats the VM's content sniffing. The step 6 shutdown warning turned
+out to be benign (Emscripten's `pthread_detach` reaping an already-exited thread). The worker no longer
+injects its shim into attachment downloads. `-DGUIT3_EXTRA_TEST_GAME=<.t3>` plus `guit3.html?game=extra`
+runs any extra game for testing. Known gaps (multiple back-to-back downloads, the debug log window,
+non-Chrome browsers) are listed in the plan.
+
 **Testing note worth keeping**: when driving headless Chrome from a tool that reports background-command
 completion, do not background the browser with a shell-level `&` — the completion signal then describes the
 launcher, not the browser, and it is very easy to start "one more attempt" while two or three previous full
