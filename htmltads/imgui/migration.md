@@ -3271,6 +3271,12 @@ all through the VM. Gotchas worth knowing before touching this code; details are
 - `sendReplyAsync()` costs a thread per reply, hence `PTHREAD_POOL_SIZE=8`.
 - The WebUI page must be top-level, and a hidden guit3 tab is timer-throttled. Both constrain step 6.
 
+Step 5 (routing) is done too. The worker routes by requesting client, not by path: the WebUI page's
+navigation, anything it or its frames request, and navigations it triggers go to its VM. Everything else,
+including guit3's own `/webui/...` fetches, goes to the network. Webtest's WebUI now renders the actual
+game (opening text in the command window, status line filled in). The routing table's durable copy lives
+in the bridge, because the browser can restart a Service Worker at any time. See the plan's step 5 entry.
+
 **Testing note worth keeping**: when driving headless Chrome from a tool that reports background-command
 completion, do not background the browser with a shell-level `&` — the completion signal then describes the
 launcher, not the browser, and it is very easy to start "one more attempt" while two or three previous full

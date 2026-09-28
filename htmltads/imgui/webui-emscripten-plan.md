@@ -202,9 +202,9 @@ This has to be step 2, before any of the transport plumbing, or nothing downstre
     per-request `MessageChannel`, and turns the "head"/"chunk"/"end" messages it gets back into a
     streaming `Response`. It adds `Cross-Origin-Resource-Policy`, `Cross-Origin-Embedder-Policy`, and
     `Cross-Origin-Opener-Policy` to every synthesized response, and keeps the worker alive with
-    `event.waitUntil()` until the body is fully relayed, not just the head. It holds no state that must
-    survive a worker restart: it re-finds the bridge page by pinging window clients, and the bridge
-    re-announces itself every 5s.
+    `event.waitUntil()` until the body is fully relayed, not just the head. (As of step 5 it also owns
+    the routing table - see step 5 below, which replaced step 4's provisional prefix rule and its
+    "re-find the one bridge" lookup.)
   - [guit3-webui-bridge.js](emscripten/guit3-webui-bridge.js), loaded by `guit3.html`. Holds all the
     HTTP knowledge: it serializes requests into HTTP/1.1 bytes, parses the VM's reply incrementally
     (Content-Length, chunked, read-to-close, or bodyless), and keeps a pool of at most `MAX_CONNS = 3`
@@ -269,10 +269,9 @@ This has to be step 2, before any of the transport plumbing, or nothing downstre
      the main argument for the overlay-iframe variant despite point 6. Alternatives to weigh in step 6:
      drive the bridge from `MessageChannel`/worker-posted ticks, which aren't throttled; keep the guit3
      tab "audible"; or simply accept the tab layout.
-  8. **Open, for step 5:** the WebUI page's subwindows (`/cmdwin.htm`, `/statwin.htm` for Webtest) are
-     game-defined paths outside the provisional prefixes, so they currently 404 from the host server.
-     This is exactly the per-client routing rule step 5 exists for. `isVMRequest()` in the worker is the
-     one place to change.
+  8. **Resolved by step 5:** the WebUI page's subwindows (`/cmdwin.htm`, `/statwin.htm` for Webtest)
+     are game-defined paths outside step 4's provisional `/webui/`/`/webuires/` prefixes, so they 404'd
+     from the host server.
 
   **How it was verified:** a throwaway harness, `build/emscripten/.../step4-test.html`, served by
   `step4_server.py` from the same directory. Both are unversioned, like step 3's. The server adds
@@ -286,7 +285,51 @@ This has to be step 2, before any of the transport plumbing, or nothing downstre
   `--disable-popup-blocking`, and add `--disable-background-timer-throttling
   --disable-renderer-backgrounding --disable-backgrounding-occluded-windows` or finding 7 confounds the
   timings. Also: `step4-result.json` is UTF-8, so read it as UTF-8. Python's default cp1252 on Windows
-  turns the page's `&nbsp;` into a fake `Â` mojibake.
+  turns the page's `&nbsp;` into a fake `Â` mojibake. Since step 5 this harness's own-page probes
+  (fetching `/webui/...` from the guit3 page itself) deliberately no longer reach the VM; use
+  `step5-test.html` instead.
+
+- **Step 5 (Service Worker routing rule) — done; verified end-to-end.** The worker now decides by *who*
+  makes a request, not by its path, because a game serves whatever paths it likes. It keeps a table per
+  bridge (i.e. per guit3 tab/VM) of the start page targets the bridge announced, plus the client ids and
+  URLs of every document that VM has served. A request goes to a VM when:
+  - it's a navigation to a start page that bridge announced. The match is on the full target, query
+    included: the query carries the session key, so it's unique per VM. That's the WebUI page itself;
+  - it's a navigation whose `referrer` is a document that VM served. That covers the subwindow iframes,
+    file up/download frames, and the debug log's `window.open()`. A routed navigation's
+    `resultingClientId` and URL are then "adopted" into the table;
+  - it comes from a client whose document that VM served: XHRs, images, scripts, forms, beacons.
+
+  Everything else passes straight through untouched, including guit3's own page and assets even at a
+  `/webui/...` path. Because everything is keyed by bridge, two guit3 tabs running two games also can't
+  see each other's traffic, which step 4's single-bridge lookup couldn't guarantee. A request whose
+  bridge tab has gone away gets a 503 ("the game serving this page is no longer running").
+
+  **Surviving a worker restart.** The browser can stop and restart a Service Worker whenever it's idle,
+  and the table is in-memory, so the bridge holds the durable copy: the worker reports each adoption to
+  its bridge (`guit3-webui-adopt`), the bridge sends its whole table in every 5s heartbeat, and it
+  answers the worker's ping with it. After a (re)start the worker doesn't classify anything until it has
+  rebuilt the table: the first fetch waits for `restoreState()` to ping every window client, then is
+  relayed or, if it isn't a VM's, fetched from the network on the page's behalf. That first fetch
+  costs up to the 300ms ping timeout whenever a window client that isn't a bridge (e.g. the WebUI tab
+  itself) is open, and nothing after it does. The bridge caps its lists at 64 entries each. The worker
+  accepts a `guit3-webui-forget` message that drops the table exactly as a restart would. It's there
+  for testing, and it's how the restart path was verified.
+
+  **How it was verified:** `build/emscripten/.../step5-test.html` + `step5_server.py` (unversioned,
+  same pattern as step 4). With `Webtest.t3`:
+  - fetching `/webui/getState` and the start page from the guit3 page itself hits the host server (404
+    and the directory listing), not the VM;
+  - the WebUI popup's subwindows `/cmdwin.htm` and `/statwin.htm`, and their own CSS/JS and per-window
+    `getState` calls, now come from the VM. The command window shows the game's real opening text
+    ("Welcome to the TADS 3 Starter Game! Entryway ...") and the status line shows "Entryway 0/0 Exits:
+    north south out", with an empty WebUI error log;
+  - after `guit3-webui-forget`, the WebUI page's next request still reaches the VM (200, real
+    `<uiState>`, 306ms including the restore) and the guit3 page's own next asset still comes from the
+    host.
+
+  Not exercised yet: actually typing a command, file up/download, and the debug log window. They are
+  covered by the same rules, and step 7's validation list already includes up/download.
 
 ## Plan
 

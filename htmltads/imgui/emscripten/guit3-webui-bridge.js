@@ -22,7 +22,10 @@
  *     cookies from a synthesized response's Set-Cookie, so the bridge stores
  *     Set-Cookie values itself and adds a Cookie header to each request. The
  *     jar lives exactly as long as the VM it talks to, which is the right
- *     lifetime for these session cookies anyway.
+ *     lifetime for these session cookies anyway;
+ *   - holds the durable copy of the worker's routing table for this VM
+ *     (step 5: which documents this VM served, so the worker can route
+ *     their requests here - see "Routing" in guit3-webui-sw.js).
  *
  *   Nothing here runs until the game actually starts a WebUI session: the
  *   loopback port comes from Module.webuiLaunch, which guit3's Emscripten
@@ -47,8 +50,11 @@ var Guit3WebUIBridge = (function () {
     /* how often to poll the transport for reply bytes while anything is in flight */
     const POLL_MS = 4;
 
-    /* how often to re-announce the start page path, in case the worker was restarted */
+    /* how often to re-announce our routing table, in case the worker was restarted */
     const ANNOUNCE_MS = 5000;
+
+    /* how many served documents/clients to remember for routing (oldest dropped first) */
+    const ROUTE_MAX = 64;
 
     /* size of the scratch buffer replies are pulled through */
     const PULL_CHUNK = 65536;
@@ -78,6 +84,17 @@ var Guit3WebUIBridge = (function () {
     const recentLog = [];
 
     let worker = null;          /* the active Service Worker, once ready */
+
+    /*
+     *   Our half of the worker's routing table (see "Routing" in
+     *   guit3-webui-sw.js): the client ids and URLs of every document this
+     *   VM has served, as the worker reports them. The worker only caches
+     *   this - it loses everything when the browser restarts it - so this
+     *   page is where it survives, and every announce()/ping reply carries
+     *   it back.
+     */
+    const servedClients = [];
+    const servedDocs = [];
     let routed = Promise.resolve();     /* see whenRouted() */
 
     /* ------------------------------------------------------------------ */
@@ -648,31 +665,54 @@ var Guit3WebUIBridge = (function () {
     /* ------------------------------------------------------------------ */
     /* Service Worker plumbing */
 
+    function remember(list, value) {
+        if (!value || list.includes(value))
+            return;
+        list.push(value);
+        if (list.length > ROUTE_MAX)
+            list.shift();
+    }
+
+    function routingState() {
+        const launch = launchInfo();
+        return {
+            launch: launch ? [launch.path] : [],
+            clients: servedClients.slice(),
+            docs: servedDocs.slice(),
+        };
+    }
+
     function onWorkerMessage(e) {
         const msg = e.data;
-        if (!msg || !e.ports.length)
+        if (!msg)
             return;
-        if (msg.type === "guit3-webui-ping")
-            e.ports[0].postMessage({ type: "guit3-webui-pong" });
-        else if (msg.type === "guit3-webui-request")
+        if (msg.type === "guit3-webui-adopt") {
+            remember(servedClients, msg.clientId);
+            remember(servedDocs, msg.doc);
+        } else if (!e.ports.length) {
+            return;
+        } else if (msg.type === "guit3-webui-ping") {
+            e.ports[0].postMessage({ type: "guit3-webui-pong", state: routingState() });
+        } else if (msg.type === "guit3-webui-request") {
             acceptRequest(msg, e.ports[0]);
+        }
     }
 
     /*
-     *   Tell the worker this page is the bridge, and which start page path
-     *   (if the game has launched its WebUI yet) it must route to the VM.
-     *   Resolves when the worker has acknowledged, or after a timeout.
+     *   Tell the worker this page is a bridge, and hand it our routing
+     *   table - including the start page (if the game has launched its
+     *   WebUI yet), which is how the WebUI page's own navigation gets
+     *   routed to this VM in the first place. Resolves when the worker has
+     *   acknowledged, or after a timeout.
      */
     function announce() {
         if (!worker)
             return Promise.resolve();
-        const launch = launchInfo();
-        const paths = launch ? [launch.path.split("?")[0]] : [];
         return new Promise((resolve) => {
             const ch = new MessageChannel();
             const timer = setTimeout(() => { ch.port1.close(); resolve(); }, 2000);
             ch.port1.onmessage = () => { clearTimeout(timer); ch.port1.close(); resolve(); };
-            worker.postMessage({ type: "guit3-webui-hello", paths }, [ch.port2]);
+            worker.postMessage({ type: "guit3-webui-hello", state: routingState() }, [ch.port2]);
         });
     }
 

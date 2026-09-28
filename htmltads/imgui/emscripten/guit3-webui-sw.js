@@ -1,6 +1,6 @@
 /*
  *   guit3 WebUI Service Worker - the browser half of the WebUI-over-Emscripten
- *   transport (webui-emscripten-plan.md, step 4).
+ *   transport (webui-emscripten-plan.md, steps 4 and 5).
  *
  *   A WebUI game's client pages talk to the game's HTTPServer with ordinary
  *   same-origin XHR/<img>/<iframe>/form/beacon traffic. Under Emscripten there
@@ -14,9 +14,10 @@
  *
  *   Deliberately thin: all HTTP knowledge (serialization, parsing, cookies,
  *   the connection pool) lives in the bridge, next to the VM whose lifetime it
- *   shares. A Service Worker can be stopped and restarted by the browser
- *   between events and loses every global when that happens, so nothing here
- *   is state that has to survive.
+ *   shares. The one thing this worker does own is the routing table (see
+ *   "Routing" below), and even that is only a cache of what the bridges
+ *   hold: a Service Worker can be stopped and restarted by the browser
+ *   between events and loses every global when that happens.
  *
  *   Must be served from (and so scoped to) the site root: WebUI pages use
  *   root-absolute URLs (/webui/..., /webuires/...), which only a worker whose
@@ -24,17 +25,6 @@
  */
 
 "use strict";
-
-/*
- *   Which requests go to the VM. PROVISIONAL (step 4): the fixed WebUI
- *   library prefixes, plus the exact path of the game's start page, which
- *   the bridge announces once the game launches its WebUI session (a game
- *   can put that anywhere - tests/Webtest.t3 serves it at "/"). Step 5 of
- *   the plan replaces this with a per-client rule (anything requested by a
- *   registered WebUI frame), which also covers game-defined resource paths
- *   outside these prefixes.
- */
-const VM_PREFIXES = ["/webui/", "/webuires/"];
 
 /*
  *   Headers every synthesized response needs. guit3.html is
@@ -85,14 +75,115 @@ return w;}});})();</script>`;
 /* statuses whose Response must have a null body (the constructor throws otherwise) */
 const NULL_BODY_STATUS = new Set([101, 103, 204, 205, 304]);
 
-/* the guit3 page's client id, as announced by its bridge's hello message */
-let bridgeClientId = null;
-
 /*
- *   Start page pathnames (no query) the bridge has announced. Lost if the
- *   browser restarts this worker, so the bridge re-announces periodically.
+ *   Routing (plan step 5). Which requests belong to a VM is decided by who
+ *   makes them, not by their path - a game serves whatever paths it likes
+ *   (Webtest.t3's start page is "/", its subwindows "/cmdwin.htm", ...):
+ *
+ *   - a navigation to a start page a bridge announced (the target, query
+ *     included - it carries the session key, so it's unique per VM) goes to
+ *     that bridge's VM. That's the WebUI page itself, opened by guit3;
+ *   - a navigation whose referrer is a document a VM served goes to that VM.
+ *     That covers the WebUI page's subwindow iframes, its file up/download
+ *     frames, and the debug log's window.open();
+ *   - any other request from a client (frame/tab) whose document a VM served
+ *     goes to that VM: XHRs, images, scripts, forms, beacons.
+ *
+ *   Everything else - guit3.html's own page and assets above all - is left
+ *   alone and goes to the network untouched, even at a path like /webui/.
+ *   Keying everything by bridge also keeps two guit3 tabs, each running its
+ *   own game, from ever seeing each other's traffic.
+ *
+ *   bridges: bridge (guit3 page) client id -> {
+ *       launch:  Set of start page targets (pathname + search),
+ *       clients: Set of client ids of documents this VM served,
+ *       docs:    Set of URLs (no fragment) of documents this VM served,
+ *   }
+ *
+ *   A document is recorded when its navigation is routed ("adopted"), and
+ *   the bridge is told too, since it outlives this worker: every bridge
+ *   re-announces its whole table periodically, and answers the ping below
+ *   with it. After a worker (re)start, 'restored' is false and the first
+ *   fetch waits for restoreState() to collect every bridge's table before
+ *   deciding anything - otherwise the WebUI page's next request after a
+ *   restart would fall through to the network and 404.
  */
-let launchPaths = new Set();
+const bridges = new Map();
+let restored = false;
+let restoring = null;
+
+function applyState(bridgeId, st) {
+    bridges.set(bridgeId, {
+        launch: new Set(st.launch || []),
+        clients: new Set(st.clients || []),
+        docs: new Set(st.docs || []),
+    });
+}
+
+/* the bridge id a request belongs to, or null if it isn't a VM's */
+function routeFor(req, url, clientId) {
+    if (url.origin !== self.location.origin)
+        return null;
+    if (clientId) {
+        for (const [id, b] of bridges) {
+            if (b.clients.has(clientId))
+                return id;
+        }
+    }
+    if (req.mode === "navigate") {
+        const target = url.pathname + url.search;
+        for (const [id, b] of bridges) {
+            if ((req.referrer && b.docs.has(req.referrer)) || b.launch.has(target))
+                return id;
+        }
+    }
+    return null;
+}
+
+/* record a document a VM is about to serve, here and with its bridge */
+function adopt(bridgeId, clientId, url) {
+    const b = bridges.get(bridgeId);
+    if (!b)
+        return;
+    const doc = url.href.split("#")[0];
+    if (clientId)
+        b.clients.add(clientId);
+    b.docs.add(doc);
+    self.clients.get(bridgeId).then((c) => {
+        if (c)
+            c.postMessage({ type: "guit3-webui-adopt", clientId, doc });
+    });
+}
+
+/* rebuild the routing table from the bridges, once per worker lifetime */
+function restoreState() {
+    if (!restoring) {
+        restoring = (async () => {
+            const all = await self.clients.matchAll({ type: "window", includeUncontrolled: true });
+            await Promise.all(all.map(async (c) => {
+                const st = await pingBridge(c);
+                if (st && !bridges.has(c.id))
+                    applyState(c.id, st);
+            }));
+            restored = true;
+        })();
+    }
+    return restoring;
+}
+
+/* ask a window client for its bridge state; resolves null if it isn't a bridge */
+function pingBridge(client) {
+    return new Promise((resolve) => {
+        const ch = new MessageChannel();
+        const timer = setTimeout(() => { ch.port1.close(); resolve(null); }, 300);
+        ch.port1.onmessage = (e) => {
+            clearTimeout(timer);
+            ch.port1.close();
+            resolve((e.data && e.data.state) || null);
+        };
+        client.postMessage({ type: "guit3-webui-ping" }, [ch.port2]);
+    });
+}
 
 self.addEventListener("install", () => {
     self.skipWaiting();
@@ -105,65 +196,74 @@ self.addEventListener("activate", (event) => {
 
 self.addEventListener("message", (event) => {
     const msg = event.data;
-    if (msg && msg.type === "guit3-webui-hello" && event.source) {
-        bridgeClientId = event.source.id;
-        launchPaths = new Set(msg.paths || []);
-        if (event.ports.length)
-            event.ports[0].postMessage({ type: "guit3-webui-hello-ack" });
+    if (!msg || !event.source)
+        return;
+    if (msg.type === "guit3-webui-hello") {
+        /* a bridge's full table - replaces whatever we had cached for it */
+        applyState(event.source.id, msg.state || {});
+    } else if (msg.type === "guit3-webui-forget") {
+        /* testing aid: drop the routing table exactly as a worker restart would */
+        bridges.clear();
+        restored = false;
+        restoring = null;
+    } else {
+        return;
     }
+    if (event.ports.length)
+        event.ports[0].postMessage({ type: msg.type + "-ack" });
 });
-
-function isVMRequest(url) {
-    return url.origin === self.location.origin
-        && (VM_PREFIXES.some((p) => url.pathname.startsWith(p))
-            || launchPaths.has(url.pathname));
-}
 
 self.addEventListener("fetch", (event) => {
     const req = event.request;
     const url = new URL(req.url);
-    if (!isVMRequest(url))
-        return;     /* not ours - let the network handle it untouched */
+    if (url.origin !== self.location.origin)
+        return;
 
+    if (restored) {
+        const bridgeId = routeFor(req, url, event.clientId);
+        if (bridgeId !== null)
+            serve(event, bridgeId, url);
+        /* else not ours - let the network handle it untouched */
+        return;
+    }
+
+    /*
+     *   First fetch since this worker (re)started: the routing table has to
+     *   be rebuilt before this request can be classified, so answer it
+     *   asynchronously - relayed if it turns out to be a VM's, otherwise
+     *   fetched from the network on the page's behalf.
+     */
     let done;
-    const finished = new Promise((resolve) => { done = resolve; });
-    /* keep the worker alive until the body has been fully relayed, not just the head */
-    event.waitUntil(finished);
-    const reply = relayToVM(req, url, done);
-    event.respondWith((req.mode === "navigate" ? reply.then(injectShim) : reply).catch((e) => {
-        done();
-        return errorResponse(502, "guit3 WebUI bridge error: " + e);
+    event.waitUntil(new Promise((resolve) => { done = resolve; }));
+    event.respondWith(restoreState().then(() => {
+        const bridgeId = routeFor(req, url, event.clientId);
+        if (bridgeId === null) {
+            done();
+            return fetch(req);
+        }
+        return reply(req, url, bridgeId, event.resultingClientId, done);
     }));
 });
 
-/*
- *   Find the bridge page. After a worker restart bridgeClientId is gone, so
- *   fall back to asking every window client; only a page running the bridge
- *   answers.
- */
-async function findBridge() {
-    if (bridgeClientId) {
-        const c = await self.clients.get(bridgeClientId);
-        if (c)
-            return c;
-        bridgeClientId = null;
-    }
-    const all = await self.clients.matchAll({ type: "window", includeUncontrolled: true });
-    for (const c of all) {
-        if (await pingBridge(c)) {
-            bridgeClientId = c.id;
-            return c;
-        }
-    }
-    return null;
+function serve(event, bridgeId, url) {
+    let done;
+    /* keep the worker alive until the body has been fully relayed, not just the head */
+    event.waitUntil(new Promise((resolve) => { done = resolve; }));
+    event.respondWith(reply(event.request, url, bridgeId, event.resultingClientId, done));
 }
 
-function pingBridge(client) {
-    return new Promise((resolve) => {
-        const ch = new MessageChannel();
-        const timer = setTimeout(() => { ch.port1.close(); resolve(false); }, 500);
-        ch.port1.onmessage = () => { clearTimeout(timer); ch.port1.close(); resolve(true); };
-        client.postMessage({ type: "guit3-webui-ping" }, [ch.port2]);
+/* the VM's Response to a routed request; never rejects */
+function reply(req, url, bridgeId, resultingClientId, done) {
+    let r;
+    if (req.mode === "navigate") {
+        adopt(bridgeId, resultingClientId, url);
+        r = relayToVM(req, url, bridgeId, done).then(injectShim);
+    } else {
+        r = relayToVM(req, url, bridgeId, done);
+    }
+    return r.catch((e) => {
+        done();
+        return errorResponse(502, "guit3 WebUI bridge error: " + e);
     });
 }
 
@@ -205,11 +305,13 @@ function errorResponse(status, text) {
     });
 }
 
-async function relayToVM(req, url, done) {
-    const bridge = await findBridge();
+async function relayToVM(req, url, bridgeId, done) {
+    const bridge = await self.clients.get(bridgeId);
     if (!bridge) {
+        /* the guit3 tab running this game is gone, and with it the game */
+        bridges.delete(bridgeId);
         done();
-        return errorResponse(503, "guit3 WebUI bridge is not running");
+        return errorResponse(503, "the game serving this page is no longer running");
     }
 
     /* the body is relayed as opaque bytes - multipart uploads included */
