@@ -248,7 +248,9 @@ tads_source_group(${htmlt3_target_name} ${HTMLTADS_DIR})
 
 endif() # WIN32 OR EMSCRIPTEN
 
-if (IMGUI_TADS)
+# Skip guit3 when the guitads sibling repo already provides it (see the
+# top-level CMakeLists.txt).
+if (IMGUI_TADS AND NOT TARGET guit3)
 	add_subdirectory(imgui)
 endif()
 
