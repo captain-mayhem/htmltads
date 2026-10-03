@@ -160,11 +160,8 @@ set(trt3_src
 
 # The classic htmlt3/tadsweb executables below only have a Win32 (and, for
 # htmlt3, an Emscripten) OS-glue backend - html_os.h has no non-Windows,
-# non-Emscripten branch for them (guit3, added via add_subdirectory(imgui)
-# below, is the supported cross-platform GUI target - see migration.md M4).
-# Skip them entirely elsewhere. Under Emscripten this classic htmlt3 and
-# guit3 build side by side from the same configure - see migration.md 5.6
-# for how t3htm (tads3/CMakeLists.txt) serves both without forking.
+# non-Emscripten branch for them (the cross-platform guit3 lives in the
+# guitads sibling repo). Skip them entirely elsewhere.
 if (WIN32 OR EMSCRIPTEN)
 
 if (WIN32)
@@ -247,12 +244,6 @@ endif()
 tads_source_group(${htmlt3_target_name} ${HTMLTADS_DIR})
 
 endif() # WIN32 OR EMSCRIPTEN
-
-# Skip guit3 when the guitads sibling repo already provides it (see the
-# top-level CMakeLists.txt).
-if (IMGUI_TADS AND NOT TARGET guit3)
-	add_subdirectory(imgui)
-endif()
 
 #we only build the runtime for non-windows targets
 if(NOT WIN32)

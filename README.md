@@ -17,14 +17,10 @@ Since my primary goal is only to recompile htmltads as a 64-bit executable runni
 with a modern compiler and a CMake buildsystem without changing the feature set of htmltads,
 this project is supposed to fall under the porting TADS exception.
 
-Another goal would be porting the interpreter (htmlt3) to a platform independent version using
-GLFW/OpenGL/ImGui instead of Win32/GDI APIs. The working title is guit3. This is also a pure porting
-attempt, even though on a much larger scale. A not yet platform-independet prototype exists on the
-[imgui branch](https://github.com/captain-mayhem/htmltads/tree/imgui). The final goal behind this port
-is to allow a full multimedia html tads3 interpreter running purely on the web, using WebGL and
-WebAssembly.
-Honoring Michael J. Robert's license of htmltads, the development of the interpreter guit3
-cannot change the feature set of Html-TADS in any way.
+Another goal is porting the interpreter (htmlt3) to a platform independent version using
+GLFW/OpenGL/ImGui instead of Win32/GDI APIs. The working title is guit3; it is developed in the separate
+guitads repository. Honoring Michael J. Robert's license of htmltads, the development of the interpreter
+guit3 cannot change the feature set of Html-TADS in any way.
 
 ## How to build
 
