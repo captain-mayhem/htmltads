@@ -18,8 +18,10 @@ with a modern compiler and a CMake buildsystem without changing the feature set 
 this project is supposed to fall under the porting TADS exception.
 
 Another goal is porting the interpreter (htmlt3) to a platform independent version using
-GLFW/OpenGL/ImGui instead of Win32/GDI APIs. The working title is guit3; it is developed in the separate
-guitads repository. Honoring Michael J. Robert's license of htmltads, the development of the interpreter
+GLFW/OpenGL/ImGui instead of Win32/GDI APIs. The working title is guit3; due to the scope
+and complexity of this port, it is developed in the separate
+[guitads repository](https://github.com/captain-mayhem/guitads).
+Honoring Michael J. Robert's license of htmltads, the development of the interpreter
 guit3 cannot change the feature set of Html-TADS in any way.
 
 ## How to build
