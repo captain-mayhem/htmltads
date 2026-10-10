@@ -371,10 +371,10 @@ private:
     size_t histpos_;
 
     /* caret visibility */
-    int caret_vis_ : 1;
+    unsigned int caret_vis_ : 1;
 
     /* flag: true -> we're in UTF-8 mode; false -> single-byte mode */
-    int utf8_ : 1;
+    unsigned int utf8_ : 1;
 
     /* undo buffer - contents of buffer prior to last change */
     textchar_t *undo_buf_;

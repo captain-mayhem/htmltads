@@ -516,7 +516,7 @@ protected:
     CHtmlTag *contents_last_;
 
     /* flag indicating that the close tag has been encountered */
-    int closed_ : 1;
+    unsigned int closed_ : 1;
 };
 
 /* ------------------------------------------------------------------------ */
@@ -822,31 +822,31 @@ private:
     class CHtmlResCacheObject *bg_image_;
 
     /* background color - ignored if use_bgcolor_ is false */
-    int use_bgcolor_ : 1;
+    unsigned int use_bgcolor_ : 1;
     HTML_color_t bgcolor_;
 
     /* text color - ignored if use_textcolor_ is false */
-    int use_textcolor_ : 1;
+    unsigned int use_textcolor_ : 1;
     HTML_color_t textcolor_;
 
     /* input text color - ignored if use_inputcolor_ is false */
-    int use_inputcolor_ : 1;
+    unsigned int use_inputcolor_ : 1;
     HTML_color_t inputcolor_;
 
     /* 
      *   link, vlink, alink, and hlink colors - the colors are ignored if the
      *   corresponding use_xxx_'s are false 
      */
-    int use_link_color_ : 1;
+    unsigned int use_link_color_ : 1;
     HTML_color_t link_color_;
 
-    int use_alink_color_ : 1;
+    unsigned int use_alink_color_ : 1;
     HTML_color_t alink_color_;
 
-    int use_vlink_color_ : 1;
+    unsigned int use_vlink_color_ : 1;
     HTML_color_t vlink_color_;
 
-    int use_hlink_color_ : 1;
+    unsigned int use_hlink_color_ : 1;
     HTML_color_t hlink_color_;
 };
 
@@ -923,10 +923,10 @@ protected:
     HTML_Attrib_id_t clear_;
 
     /* NOWRAP specified */
-    int nowrap_ : 1;
+    unsigned int nowrap_ : 1;
 
     /* old line wrap setting */
-    int old_wrap_ : 1;
+    unsigned int old_wrap_ : 1;
 };
 
 
@@ -967,10 +967,10 @@ private:
      *   explicit <P> tag in the source text, or implicitly by another tag
      *   that causes a paragraph to end 
      */
-    int explicit_ : 1;
+    unsigned int explicit_ : 1;
 
     /* NOWRAP setting - if true, we won't wrap within the paragraph */
-    int nowrap_ : 1;
+    unsigned int nowrap_ : 1;
 
     /* CLEAR setting - LEFT, RIGHT, or ALL, if anything is set */
     HTML_Attrib_id_t clear_;
@@ -1081,14 +1081,14 @@ private:
     unsigned long end_txtofs_;
 
     /* is there a HOVER=LINK attribute? */
-    int hover_link_ : 1;
+    unsigned int hover_link_ : 1;
 
     /* HOVER=LINK(fgcolor,bgcolor,decoration) values */
     HTML_color_t hover_fg_;
     HTML_color_t hover_bg_;
-    int use_hover_fg_ : 1;
-    int use_hover_bg_ : 1;
-    int hover_underline_ : 1;
+    unsigned int use_hover_fg_ : 1;
+    unsigned int use_hover_bg_ : 1;
+    unsigned int hover_underline_ : 1;
 };
 
 
@@ -1455,13 +1455,13 @@ private:
     int list_level_;
 
     /* compact flag */
-    int compact_ : 1;
+    unsigned int compact_ : 1;
 
     /* line spacing - set in format(), used in format_exit() */
     int break_ht_;
 
     /* flag: first list item encountered */
-    int list_started_ : 1;
+    unsigned int list_started_ : 1;
 };
 
 class CHtmlTagUL: public CHtmlTagListContainer
@@ -1552,7 +1552,7 @@ private:
     long cur_value_;
 
     /* flag: continue numbering from end of previous list */
-    int continue_ : 1;
+    unsigned int continue_ : 1;
 };
 
 class CHtmlTagDL: public CHtmlTagListContainer
@@ -1684,7 +1684,7 @@ public:
 private:
     /* current list item value, and flag indicating it's been set */
     long value_;
-    int value_set_ : 1;
+    unsigned int value_set_ : 1;
 
     /* list item style */
     textchar_t style_;
@@ -2028,11 +2028,11 @@ private:
     CStringBuf face_;
 
     /* color - if use_color_ is false, color_ is ignored */
-    int use_color_ : 1;
+    unsigned int use_color_ : 1;
     HTML_color_t color_;
 
     /* background color */
-    int use_bgcolor_ : 1;
+    unsigned int use_bgcolor_ : 1;
     HTML_color_t bgcolor_;
 };
 
@@ -2187,10 +2187,10 @@ public:
     CStringBuf id_;
 
     /* true -> define my ID */
-    int define_ : 1;
+    unsigned int define_ : 1;
 
     /* true -> tab to my ID */
-    int to_ : 1;
+    unsigned int to_ : 1;
 
     /* alignment */
     HTML_Attrib_id_t align_;
@@ -2204,8 +2204,8 @@ public:
      *   size (use_multiple_) 
      */
     long indent_;
-    int use_indent_ : 1;
-    int use_multiple_ : 1;
+    unsigned int use_indent_ : 1;
+    unsigned int use_multiple_ : 1;
 
     /* text offset of our space character */
     unsigned long txtofs_;
@@ -2262,17 +2262,17 @@ private:
     unsigned int style_ : 2;
 
     /* true -> do not automatically enter the command */
-    int noenter_ : 1;
+    unsigned int noenter_ : 1;
 
     /* 
      *   true -> append the href to any existing command line, rather than
      *   clearing the previous command 
      */
-    int append_ : 1;
+    unsigned int append_ : 1;
 
     /* true -> use hover foreground/background colors */
-    int use_hover_fg_ : 1;
-    int use_hover_bg_ : 1;
+    unsigned int use_hover_fg_ : 1;
+    unsigned int use_hover_bg_ : 1;
 
     /* 
      *   Hover decoration: true->underline, false->none.  Note that this
@@ -2280,7 +2280,7 @@ private:
      *   underline, but if it's false, we don't remove an underline if we'd
      *   otherwise use one.  
      */
-    int hover_underline_ : 1;
+    unsigned int hover_underline_ : 1;
 };
 
 class CHtmlTagQ: public CHtmlTagContainer
@@ -2373,7 +2373,7 @@ private:
     HTML_Attrib_id_t align_;
 
     /* shading on or off */
-    int shade_ : 1;
+    unsigned int shade_ : 1;
 
     /* vertical size in pixels */
     long size_;
@@ -2467,14 +2467,14 @@ private:
     long height_;
 
     /* flags indicating whether width and height were explicitly set */
-    int width_set_ : 1;
-    int height_set_ : 1;
+    unsigned int width_set_ : 1;
+    unsigned int height_set_ : 1;
 
     /* map setting */
     CHtmlUrl usemap_;
 
     /* ISMAP setting */
-    int ismap_ : 1;
+    unsigned int ismap_ : 1;
 
     /* alignment */
     HTML_Attrib_id_t align_;
@@ -2562,7 +2562,7 @@ private:
     long repeat_;
 
     /* flag indicating that REPEAT was specified */
-    int has_repeat_ : 1;
+    unsigned int has_repeat_ : 1;
 
     /* time in milliseconds to fade in/out */
     double fadein_;
@@ -2578,20 +2578,20 @@ private:
     long random_;
 
     /* cancellation - true means that we're cancelling sounds in a layer */
-    int cancel_ : 1;
+    unsigned int cancel_ : 1;
 
     /* 
      *   interrupt - true means we start immediately, stopping any sound
      *   currently playing in the same layer 
      */
-    int interrupt_ : 1;
+    unsigned int interrupt_ : 1;
 
     /* 
      *   Crossfades.  These are true if we're doing a crossfade during
      *   fade-in or fade-out, respectively.  
      */
-    int crossfade_in_ : 1;
-    int crossfade_out_ : 1;
+    unsigned int crossfade_in_ : 1;
+    unsigned int crossfade_out_ : 1;
 
     /* sequence code (replace, random, cycle) */
     HTML_Attrib_id_t sequence_;
@@ -2604,7 +2604,7 @@ private:
      *   we'll ignore any sounds in the playback stream that have this
      *   flag set. 
      */
-    int obsolete_ : 1;
+    unsigned int obsolete_ : 1;
 
     /*
      *   Previous sound tag in format list.  We use this to keep a chain
@@ -2688,7 +2688,7 @@ private:
     CHtmlUrl href_;
 
     /* flag indicating that NOHREF is specified */
-    int nohref_ : 1;
+    unsigned int nohref_ : 1;
 
     /* alternate name */
     CStringBuf alt_;
@@ -2697,13 +2697,13 @@ private:
      *   APPEND attribute setting - appends the HREF to the command rather
      *   than clearing out the old command 
      */
-    int append_ : 1;
+    unsigned int append_ : 1;
 
     /* 
      *   NOENTER - allows the player to continue editing the command after
      *   adding our HREF 
      */
-    int noenter_ : 1;
+    unsigned int noenter_ : 1;
 };
 
 /* ------------------------------------------------------------------------ */
@@ -2738,7 +2738,7 @@ private:
     CStringBuf face_;
 
     /* color - if use_color_ is false, color_ is ignored */
-    int use_color_ : 1;
+    unsigned int use_color_ : 1;
     HTML_color_t color_;
 };
 
@@ -2843,23 +2843,23 @@ protected:
      *   of the overall window height. 
      */
     long height_;
-    int height_set_ : 1;
+    unsigned int height_set_ : 1;
     int height_pct_;
 
     /* likewise with width */
     long width_;
-    int width_set_ : 1;
+    unsigned int width_set_ : 1;
     int width_pct_;
 
     /* flag: keep height/width of previous instance of this banner */
-    int height_prev_ : 1;
-    int width_prev_ : 1;
+    unsigned int height_prev_ : 1;
+    unsigned int width_prev_ : 1;
 
     /* REMOVE flag - set when REMOVE attribute is present */
-    int remove_ : 1;
+    unsigned int remove_ : 1;
 
     /* REMOVEALL flag - set when REMOVEALL attribute is present */
-    int removeall_ : 1;
+    unsigned int removeall_ : 1;
 
     /* 
      *   obsolete flag - we'll set this immediately after we apply any
@@ -2867,10 +2867,10 @@ protected:
      *   only from the display but also from the formatting list, hence we
      *   only need to apply one of these a single time 
      */
-    int obsolete_ : 1;
+    unsigned int obsolete_ : 1;
 
     /* BORDER flag */
-    int border_ : 1;
+    unsigned int border_ : 1;
 
     /* alignment setting */
     HTML_BannerWin_Pos_t alignment_;
@@ -2936,7 +2936,7 @@ public:
 
 private:
     /* flag indicating whether the cell has been occupied yet */
-    int occupied_ : 1;
+    unsigned int occupied_ : 1;
 };
 
 /*
@@ -3102,7 +3102,7 @@ protected:
 
     /* our background color */
     HTML_color_t bgcolor_;
-    int use_bgcolor_ : 1;
+    unsigned int use_bgcolor_ : 1;
 
     /* the URL and image cache object for our background image */
     class CHtmlUrl background_;
@@ -3263,14 +3263,14 @@ private:
      *   maximum, but no more than the greater of 100% of the available
      *   space between the margins and the minimum table width 
      */
-    int width_set_ : 1;
+    unsigned int width_set_ : 1;
 
     /* height; works like width */
     long height_;
     int height_pct_;
 
     /* flag indicating whether height has been specified */
-    int height_set_ : 1;
+    unsigned int height_set_ : 1;
 
     /* 
      *   calculated minimum height - we calculate this based on the height
@@ -3608,10 +3608,10 @@ private:
     size_t colnum_;
 
     /* flag indicating that we've figured out my row and column position */
-    int row_col_set_ : 1;
+    unsigned int row_col_set_ : 1;
 
     /* true -> don't wrap long lines */
-    int nowrap_ : 1;
+    unsigned int nowrap_ : 1;
 
     /* number of rows and columns spanned by the cell */
     long rowspan_;
@@ -3648,8 +3648,8 @@ private:
     long disp_y_base_;
 
     /* flags indicating whether width and height have been specified */
-    int width_set_ : 1;
-    int height_set_ : 1;
+    unsigned int width_set_ : 1;
+    unsigned int height_set_ : 1;
 
     /* 
      *   My display item.  This is only meaningful inside a single table

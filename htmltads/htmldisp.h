@@ -977,7 +977,7 @@ public:
      *   attribute.
      */
     CHtmlUrl href_;
-    int nohref_ : 1;
+    unsigned int nohref_ : 1;
     CStringBuf title_;
 
 protected:
@@ -1004,24 +1004,24 @@ protected:
      *   command, but allow the player to continue editing after adding
      *   our HREF 
      */
-    int noenter_ : 1;
+    unsigned int noenter_ : 1;
 
     /* 
      *   APPEND - true means that we append our HREF to the command line
      *   under construction, rather than clearing any existing command 
      */
-    int append_ : 1;
+    unsigned int append_ : 1;
 
     /* use the hover foreground/background colors */
-    int use_hover_fg_ : 1;
-    int use_hover_bg_ : 1;
+    unsigned int use_hover_fg_ : 1;
+    unsigned int use_hover_bg_ : 1;
 
     /* 
      *   HOVER=UNDERLINE - true means that we add an underline when the mouse
      *   is hovering on this link; false means that we leave the underlining
      *   status as it is while hovering. 
      */
-    int hover_underline_ : 1;
+    unsigned int hover_underline_ : 1;
 };
 
 /*
@@ -2524,13 +2524,13 @@ private:
      *   measurement phase, because the rule will be resized according to
      *   the table's final size. 
      */
-    int width_is_pct_ : 1;
+    unsigned int width_is_pct_ : 1;
 
     /* vertical size */
     long height_;
 
     /* shading */
-    int shade_ : 1;
+    unsigned int shade_ : 1;
 
     /* the image, if we have one */
     class CHtmlResCacheObject *image_;
@@ -2778,7 +2778,7 @@ protected:
     CHtmlUrl usemap_;
 
     /* is-map flag */
-    int ismap_ : 1;
+    unsigned int ismap_ : 1;
 
     /* the image */
     class CHtmlResCacheObject *image_;
@@ -2994,13 +2994,13 @@ private:
     long width_;
 
     /* floating? */
-    int floating_ : 1;
+    unsigned int floating_ : 1;
 
     /* flag indicating whether the table's WIDTH is a percentage */
-    int width_pct_ : 1;
+    unsigned int width_pct_ : 1;
 
     /* flag indicating whether the TABLE tag has a WIDTH setting */
-    int width_set_ : 1;
+    unsigned int width_set_ : 1;
 
     /* width of available space in the window */
     long win_width_;
@@ -3109,7 +3109,7 @@ private:
      *   if the table has no BORDER attribute or the BORDER attribute has
      *   a value of zero.  
      */
-    int border_ : 1;
+    unsigned int border_ : 1;
 
     /* background color, if set */
     HTML_color_t bgcolor_;
@@ -3120,8 +3120,8 @@ private:
      *   attribute is present and whether it is based on a percentage 
      */
     long width_attr_;
-    int width_set_ : 1;
-    int width_pct_ : 1;
+    unsigned int width_set_ : 1;
+    unsigned int width_pct_ : 1;
 };
 
 #endif /* HTMLDISP_H */

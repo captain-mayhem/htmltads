@@ -167,11 +167,11 @@ protected:
     double fade_out_;
 
     /* crossfade flags */
-    int crossfade_in_ : 1;
-    int crossfade_out_ : 1;
+    unsigned int crossfade_in_ : 1;
+    unsigned int crossfade_out_ : 1;
 
     /* flag indicating that the sound is to be cancelled */
-    int cancel_ : 1;
+    unsigned int cancel_ : 1;
 };
 
 

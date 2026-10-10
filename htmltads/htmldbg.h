@@ -1533,7 +1533,7 @@ private:
     struct CHtmlDbg_line_link *last_line_;
 
     /* currently-executing line */
-    int cur_is_valid_ : 1;
+    unsigned int cur_is_valid_ : 1;
     int cur_source_id_;
     unsigned long cur_linenum_;
 
@@ -1542,7 +1542,7 @@ private:
      *   current evaluation context from the stack list.  If this is not
      *   valid, the current line is used instead. 
      */
-    int ctx_is_valid_ : 1;
+    unsigned int ctx_is_valid_ : 1;
     int ctx_source_id_;
     unsigned long ctx_linenum_;
 
@@ -1572,7 +1572,7 @@ private:
 
     /* temporary breakpoint number, and flag indicating if it's set */
     int tmp_bpnum_;
-    int tmp_bp_valid_ : 1;
+    unsigned int tmp_bp_valid_ : 1;
 
     /* head of internal list of breakpoints */
     class CHtmlDbg_bp *bp_;
@@ -1598,7 +1598,7 @@ private:
     int last_compiled_line_source_id_;
 
     /* flag: we need to maintain the "srcfiles" list */
-    int need_srcfiles_ : 1;
+    unsigned int need_srcfiles_ : 1;
 };
 
 /* ------------------------------------------------------------------------ */

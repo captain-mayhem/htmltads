@@ -579,7 +579,7 @@ public:
     long line_count;
     long line_id;
     long line_starts_count;
-    int last_was_newline : 1;
+    unsigned int last_was_newline : 1;
     
 };
 
@@ -1585,7 +1585,7 @@ protected:
     long avail_line_width_;
 
     /* flag indicating that we've finished building a new line */
-    int line_output_ : 1;
+    unsigned int line_output_ : 1;
     
     /* current margins, as offsets from the bounds of the window */
     long margin_left_;
@@ -1601,7 +1601,7 @@ protected:
     long margin_right_delta_nxt_;
 
     /* flag indicating that temporary margins are in effect */
-    int temp_margins_ : 1;
+    unsigned int temp_margins_ : 1;
 
     /* current margin stack depth - each push increases the depth by one */
     int margin_stack_depth_;
@@ -1672,7 +1672,7 @@ protected:
      *   text, but while formatting input we save updates until we're done
      *   formatting the entire input, to avoid flashing the screen 
      */
-    int freeze_display_adjust_ : 1;
+    unsigned int freeze_display_adjust_ : 1;
 
     /*
      *   First display element in the current line.  This points to an
@@ -1721,7 +1721,7 @@ protected:
      *   its ending point, it will set this flag, and we'll act as though
      *   there were nothing left in the tag list. 
      */
-    int stop_formatting_ : 1;
+    unsigned int stop_formatting_ : 1;
 
     /* last valid break position */
     CHtmlLineBreak breakpos_;
@@ -1740,13 +1740,13 @@ protected:
     unsigned long sel_end_;
 
     /* true -> we're at the beginning of a new line */
-    int last_was_newline_ : 1;
+    unsigned int last_was_newline_ : 1;
 
     /* amount of space to add before the current line */
     int line_spacing_;
 
     /* line wrapping mode - false means lines are only broken explicitly */
-    int wrap_lines_ : 1;
+    unsigned int wrap_lines_ : 1;
 
     /* flow stacks for left and right margins */
     CHtmlFmtFlowStack left_flow_stk_;
@@ -1760,7 +1760,7 @@ protected:
     class CHtmlHashTable *tab_table_;
 
     /* pending tab stop information */
-    int pending_tab_ : 1;
+    unsigned int pending_tab_ : 1;
     long pending_tab_xpos_;
     HTML_Attrib_id_t pending_tab_align_;
     textchar_t pending_tab_dp_;
@@ -1854,7 +1854,7 @@ protected:
     /* pre-table output position */
     CHtmlPoint pre_table_curpos_;
     int pre_table_line_spacing_;
-    int pre_table_last_was_newline_ : 1;
+    unsigned int pre_table_last_was_newline_ : 1;
 
     /*
      *   Formatter sound generation ID.  Each time we start formatting a
@@ -2072,7 +2072,7 @@ public:
     CStringBuf id_;
 
     /* flag indicating whether this is the about box banner */
-    int is_about_box_ : 1;
+    unsigned int is_about_box_ : 1;
 
     /* the sub-formatter that does the formatting for the banner contents */
     class CHtmlFormatterBannerSub *subformatter_;
@@ -2081,8 +2081,8 @@ public:
     CHtmlFmtBannerItem *nxt_;
 
     /* flag indicating that the height/width have been set */
-    int height_set_ : 1;
-    int width_set_ : 1;
+    unsigned int height_set_ : 1;
+    unsigned int width_set_ : 1;
 
     /* last BANNER tag using this banner */
     class CHtmlTagBANNER *last_tag_;
@@ -2097,7 +2097,7 @@ public:
     class CHtmlTagBANNER *first_tag_;
 
     /* flag indicating that this is the first occurrence of this banner */
-    int is_first_ : 1;
+    unsigned int is_first_ : 1;
 };
 
 /* ------------------------------------------------------------------------ */

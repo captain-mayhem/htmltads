@@ -389,23 +389,23 @@ private:
     int container_depth_;
 
     /* Flag: true -> obeying whitespace literally */
-    int obey_whitespace_ : 1;
+    unsigned int obey_whitespace_ : 1;
 
     /* Flag: if obey_whitespace_ is true, allow breaking long lines */
-    int break_long_lines_ : 1;
+    unsigned int break_long_lines_ : 1;
 
     /* Flag: true -> translating markups normally */
-    int obey_markups_ : 1;
+    unsigned int obey_markups_ : 1;
 
     /* Flag: true -> translating end markups normally when in verbatim mode */
-    int obey_end_markups_ : 1;
+    unsigned int obey_end_markups_ : 1;
 
     /*
      *   Flag: eat any whitespace characters.  This flag is set whenever
      *   we start off a new paragraph or add a new whitespace character to
      *   the text during normal formatting. 
      */
-    int eat_whitespace_ : 1;
+    unsigned int eat_whitespace_ : 1;
 
     /*
      *   System application frame object - whenever we enter the parser,

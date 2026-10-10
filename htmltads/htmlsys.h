@@ -112,9 +112,9 @@ public:
     int weight;
 
     /* italic, underline, strike-out */
-    int italic : 1;
-    int underline : 1;
-    int strikeout : 1;
+    unsigned int italic : 1;
+    unsigned int underline : 1;
+    unsigned int strikeout : 1;
 
     /*
      *   Color.  If default_color is TRUE, we'll ignore this and use an
@@ -124,7 +124,7 @@ public:
      *   ID values (the HTML_COLOR_xxx parameterized color IDs) are not used
      *   in font descriptors.  
      */
-    int default_color : 1;
+    unsigned int default_color : 1;
     HTML_color_t color;
 
     /*
@@ -135,7 +135,7 @@ public:
      *   ID values (the HTML_COLOR_xxx parameterized color IDs) are not used
      *   in font descriptors.  
      */
-    int default_bgcolor : 1;
+    unsigned int default_bgcolor : 1;
     HTML_color_t bgcolor;
 
     /*
@@ -195,7 +195,7 @@ public:
      *   want any of the baggage associated with the font if it's a
      *   parameterized font.  
      */
-    int face_set_explicitly : 1;
+    unsigned int face_set_explicitly : 1;
 
     /*
      *   Characteristics.  In the absence of an explicit face name, we
@@ -205,10 +205,10 @@ public:
      */
 
     /* true -> fixed pitch, false -> variable pitch */
-    int fixed_pitch : 1;
+    unsigned int fixed_pitch : 1;
 
     /* true -> serif face, false -> sans serif face */
-    int serif : 1;
+    unsigned int serif : 1;
 
     /*
      *   HTML size, on a scale of 1 to 7.  If this value is zero, the
@@ -217,23 +217,23 @@ public:
     int htmlsize;
 
     /* superscript/subscript (mutually exclusive) */
-    int superscript : 1;
-    int subscript : 1;
+    unsigned int superscript : 1;
+    unsigned int subscript : 1;
 
     /* HTML BIG/SMALL settings (mutually exclusive) */
-    int pe_big : 1;
-    int pe_small : 1;
+    unsigned int pe_big : 1;
+    unsigned int pe_small : 1;
 
     /* HTML phrase/block elements that select a font */
-    int pe_em : 1;
-    int pe_strong : 1;
-    int pe_dfn : 1;
-    int pe_code : 1;
-    int pe_samp : 1;
-    int pe_kbd : 1;
-    int pe_var : 1;
-    int pe_cite : 1;
-    int pe_address : 1;
+    unsigned int pe_em : 1;
+    unsigned int pe_strong : 1;
+    unsigned int pe_dfn : 1;
+    unsigned int pe_code : 1;
+    unsigned int pe_samp : 1;
+    unsigned int pe_kbd : 1;
+    unsigned int pe_var : 1;
+    unsigned int pe_cite : 1;
+    unsigned int pe_address : 1;
 
     /* 
      *   Character set identifier; this is system-dependent, and is opaque

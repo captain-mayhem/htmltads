@@ -72,7 +72,7 @@ public:
 protected:
     const textchar_t *str_;
     size_t len_;
-    int copy_ : 1;
+    unsigned int copy_ : 1;
 };
 
 
