@@ -36,6 +36,19 @@ guit3 cannot change the feature set of Html-TADS in any way.
 - git clone https://github.com/captain-mayhem/htmltads.git
 - create an empty folder parallel to the two git repositories as build directory, e.g. build_tads
 
+`dependencies.txt` pins the tads-runner commit that belongs to an htmltads commit (only htmltads is
+tagged for releases). Configuring warns when your tads-runner checkout differs from it. To build exactly
+the pinned commit, e.g. for an older release:
+- check out the htmltads commit or tag
+- `cmake -P htmltads/cmake/deps.cmake checkout` (`status` shows pinned vs. checked out)
+
+### Making a release
+- commit and push tads-runner
+- `cmake -P htmltads/cmake/deps.cmake update`, which writes its current commit to `dependencies.txt`
+  (it refuses while tads-runner has uncommitted changes or unpushed commits)
+- commit `dependencies.txt`, then tag htmltads (`v*`) and push the tag; the release workflow builds the
+  pinned commit, and fails if it doesn't match
+
 ### Build instructions
 - Open a Visual Studio "x64 Native Tools Command Prompt"
 - enter your build directory (cd build_tads)

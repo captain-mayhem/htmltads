@@ -17,9 +17,17 @@ jobs:
       - uses: actions/checkout@v7
         with:
           path: htmltads
+      - name: Read pinned tads-runner commit
+        id: pins
+        # htmltads/dependencies.txt pins the tads-runner commit this
+        # htmltads commit builds with (cmake/HtmltadsDeps.cmake); CI builds
+        # exactly that, as a release of this commit would.
+        shell: bash
+        run: sed -e 's/\r$//' -e '/^[[:space:]]*#/d' -e '/^[[:space:]]*$/d' htmltads/dependencies.txt >> "$GITHUB_OUTPUT"
       - uses: actions/checkout@v7
         with:
           repository: captain-mayhem/tads-runner
+          ref: ${{ steps.pins.outputs['tads-runner'] }}
           path: tads-runner
       - if: runner.os == 'Linux'
         name: Install Linux build dependencies
@@ -44,7 +52,7 @@ jobs:
             libwayland-dev \
             extra-cmake-modules \
             pkg-config
-      - run: cmake --preset ${{ matrix.preset }}
+      - run: cmake --preset ${{ matrix.preset }} -DHTMLTADS_REQUIRE_PINNED_DEPS=ON
         working-directory: tads-runner
       - run: cmake --build build/default
         working-directory: tads-runner

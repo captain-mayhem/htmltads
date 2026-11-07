@@ -23,11 +23,19 @@ jobs:
       - uses: actions/checkout@v7
         with:
           path: htmltads
+      - name: Read pinned tads-runner commit
+        id: pins
+        # Only htmltads is tagged: htmltads/dependencies.txt pins the
+        # tads-runner commit that belongs to it (cmake/HtmltadsDeps.cmake),
+        # so rebuilding a tag rebuilds the same sources.
+        shell: bash
+        run: sed -e 's/\r$//' -e '/^[[:space:]]*#/d' -e '/^[[:space:]]*$/d' htmltads/dependencies.txt >> "$GITHUB_OUTPUT"
       - uses: actions/checkout@v7
         with:
           repository: captain-mayhem/tads-runner
+          ref: ${{ steps.pins.outputs['tads-runner'] }}
           path: tads-runner
-      - run: cmake --preset windows-only -DCMAKE_BUILD_TYPE=Release
+      - run: cmake --preset windows-only -DCMAKE_BUILD_TYPE=Release -DHTMLTADS_REQUIRE_PINNED_DEPS=ON
         working-directory: tads-runner
       - run: cmake --build build/default --config Release
         working-directory: tads-runner

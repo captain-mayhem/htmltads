@@ -8,6 +8,8 @@ The legacy HTML TADS sources (`htmlt3`/`htmltdb3`/`tadsweb`) plus their third-pa
 
 This repo is **not built standalone**. It is a sibling checkout to `tads-runner` (both cloned into the same parent directory); `tads-runner/CMakeLists.txt` auto-detects `../htmltads` and pulls it in via `add_subdirectory(../htmltads htmltads)` when `WITH_HTMLTADS` is enabled (Windows or Emscripten only). Always configure/build from `tads-runner`, not from here — see that repo's `CLAUDE.md` and its `README.md`'s "How to build" section for the full instructions (Visual Studio 2022/2026, CMake >= 3.19, `cmake -DCMAKE_INSTALL_PREFIX=install ..\tads-runner` from a sibling build directory).
 
+Only htmltads is tagged for releases: `dependencies.txt` pins the tads-runner commit that belongs to an htmltads commit. Configuring warns when the tads-runner checkout differs (an error with `-DHTMLTADS_REQUIRE_PINNED_DEPS=ON`, which the CI workflows set), the workflows check out the pinned commit, and `cmake -P htmltads/cmake/deps.cmake update|checkout|status` records, restores or shows it — see `cmake/HtmltadsDeps.cmake` and `README.md`. So an htmltads commit that needs a newer tads-runner commit must update `dependencies.txt` (after pushing it), or its CI builds the old one. guitads has the same mechanism (`guitads/cmake/GuitadsDeps.cmake`, which also pins captainsengine); the two are independent copies with distinct `htmltads_`/`guitads_` names, since both repos are often configured together.
+
 ## Targets in this repo
 
 - `htmlt3` / `htmltdb3` (via `htmltdb3_tmp`) — the original Win32 runtime and debugger builds, defined in `htmltads/htmltads/CMakeLists.txt`; Windows-only, still fully native. `htmlt3` also has an Emscripten build (`htmltads/emscripten/`).

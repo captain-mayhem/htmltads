@@ -1,0 +1,5 @@
+# Commit of the tads-runner sibling checkout that belongs to this htmltads commit.
+# Only htmltads is tagged for a release; the workflows check it out, and
+# configuring checks the local checkout against it. Update with
+# 'cmake -P htmltads/cmake/deps.cmake update' - see cmake/HtmltadsDeps.cmake.
+tads-runner=c5f73f1146957ce5163be849edbf916d7bf8243d

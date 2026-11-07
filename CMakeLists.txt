@@ -4,6 +4,13 @@
 # vendored copies are identical) and only the targets unique to this repo get
 # added.
 
+# Only htmltads is tagged for a release: dependencies.txt pins the commit of
+# tads-runner (the top-level project) that belongs to it. Check the checkout
+# against it - a warning, or an error with -DHTMLTADS_REQUIRE_PINNED_DEPS=ON
+# (release builds). See cmake/HtmltadsDeps.cmake.
+include(cmake/HtmltadsDeps.cmake)
+htmltads_check_pinned_deps("${CMAKE_SOURCE_DIR}")
+
 if (NOT TARGET ZLIB::ZLIB)
 	add_subdirectory(zlib)
 endif()
