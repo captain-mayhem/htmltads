@@ -43,6 +43,8 @@ the pinned commit, e.g. for an older release:
 - `cmake -P htmltads/cmake/deps.cmake checkout` (`status` shows pinned vs. checked out)
 
 ### Making a release
+- set the new version in `HTMLTADS_VERSION` (`CMakeLists.txt`); it names the `HtmlTads64-<version>-<system>.zip`
+  package, and the release workflow checks that the tag is `v<version>`
 - commit and push tads-runner
 - `cmake -P htmltads/cmake/deps.cmake update`, which writes its current commit to `dependencies.txt`
   (it refuses while tads-runner has uncommitted changes or unpushed commits)

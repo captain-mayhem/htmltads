@@ -23,6 +23,17 @@ jobs:
       - uses: actions/checkout@v7
         with:
           path: htmltads
+      - name: Check the tag matches HTMLTADS_VERSION
+        # The package is named after HTMLTADS_VERSION (CMakeLists.txt), so a
+        # v<version> tag must carry the same version.
+        if: startsWith(github.ref, 'refs/tags/')
+        shell: bash
+        run: |
+          v=$(sed -n 's/^set(HTMLTADS_VERSION \([^ )]*\)).*/\1/p' htmltads/CMakeLists.txt | tr -d '\r')
+          if [ "${GITHUB_REF_NAME#v}" != "$v" ]; then
+            echo "::error::tag $GITHUB_REF_NAME doesn't match HTMLTADS_VERSION $v in CMakeLists.txt"
+            exit 1
+          fi
       - name: Read pinned tads-runner commit
         id: pins
         # Only htmltads is tagged: htmltads/dependencies.txt pins the

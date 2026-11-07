@@ -4,6 +4,13 @@
 # vendored copies are identical) and only the targets unique to this repo get
 # added.
 
+# htmltads' own version: names the HtmlTads64-<version>-<system>.zip package
+# (tads-runner's CMakeLists.txt, which does the CPack setup, reads it from
+# here). Bump it for a release; release.yml checks that the v<version> tag
+# matches.
+set(HTMLTADS_VERSION 1.1.0)
+set(HTMLTADS_VERSION ${HTMLTADS_VERSION} PARENT_SCOPE)
+
 # Only htmltads is tagged for a release: dependencies.txt pins the commit of
 # tads-runner (the top-level project) that belongs to it. Check the checkout
 # against it - a warning, or an error with -DHTMLTADS_REQUIRE_PINNED_DEPS=ON
